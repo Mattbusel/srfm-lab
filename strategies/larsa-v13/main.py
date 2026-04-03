@@ -251,6 +251,9 @@ class LarsaV13(QCAlgorithm):
         self.set_end_date(2024, 12, 31)
         self.set_cash(1_000_000)
         self.set_brokerage_model(BrokerageName.INTERACTIVE_BROKERS_BROKERAGE, AccountType.MARGIN)
+        # Disable QC's minimum order size guard — it blocks small contract changes
+        # on futures where 1 contract is a legitimate position size
+        self.settings.minimum_order_margin_portfolio_percentage = 0
 
         self.instr_15m = {
             "ES": FutureInstrument(self, Futures.Indices.SP_500_E_MINI,     "15m", CF["15m"]["ES"], "ES"),
@@ -336,16 +339,23 @@ class LarsaV13(QCAlgorithm):
         if pv > self.peak:
             self.peak = pv
 
-        # ── v13: update trailing equity EMA anchor ───────────────────────────
+        for inst in self.non_15m_instruments.values():
+            self._process_instrument(data, inst)
+
+        # ── Hourly execution gate (all CB/EMA logic runs once per hour) ───────
+        current_hour = self.time.replace(minute=0, second=0, microsecond=0)
+        if current_hour == self._last_exec_hour:
+            return
+        self._last_exec_hour = current_hour
+
+        # ── v13: update trailing equity EMA anchor (once per hour) ───────────
         self._equity_ema = (self._equity_ema * (1 - _EQUITY_EMA_K)
                             + pv * _EQUITY_EMA_K)
 
-        # ── v13: circuit breaker check ────────────────────────────────────────
+        # ── v13: circuit breaker check (counts in HOURS not ticks) ───────────
         if self._cb_flat_bars > 0:
             self._cb_flat_bars -= 1
-            for inst in self.non_15m_instruments.values():
-                self._process_instrument(data, inst)
-            return  # flat — no orders
+            return  # flat — no orders this hour
         if pv < self.peak * (1.0 - CIRCUIT_BREAKER_DD):
             self.log(f"[v13 CIRCUIT BREAKER] pv={pv:.0f} peak={self.peak:.0f} "
                      f"dd={(self.peak-pv)/self.peak:.1%} — LIQUIDATING ALL")
@@ -357,24 +367,14 @@ class LarsaV13(QCAlgorithm):
                     i1h.last_target = 0.0
                     i1h.bars_held   = 0
                     i1h.pos_floor   = 0.0
-            self._cb_flat_bars = CIRCUIT_BREAKER_BARS
-            self._cb_half_bars = CIRCUIT_BREAKER_HALF  # starts counting after flat ends
-            for inst in self.non_15m_instruments.values():
-                self._process_instrument(data, inst)
+            self._cb_flat_bars = CIRCUIT_BREAKER_BARS   # 48 hours flat
+            self._cb_half_bars = CIRCUIT_BREAKER_HALF   # then 48 hours half-size
             return
 
         # Half-size recovery window after circuit breaker
         cb_size_scale = 0.5 if self._cb_half_bars > 0 else 1.0
         if self._cb_half_bars > 0:
             self._cb_half_bars -= 1
-
-        for inst in self.non_15m_instruments.values():
-            self._process_instrument(data, inst)
-
-        current_hour = self.time.replace(minute=0, second=0, microsecond=0)
-        if current_hour == self._last_exec_hour:
-            return
-        self._last_exec_hour = current_hour
 
         # ── v13: compute per-instrument risk from equity tier + EMA anchor ───
         equity_anchor  = self._equity_ema
