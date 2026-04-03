@@ -289,9 +289,6 @@ class LarsaV13(QCAlgorithm):
         # v13: trailing equity anchor (20-bar EMA of portfolio value)
         self._equity_ema   = 1_000_000.0
 
-        # v13: circuit breaker state
-        self._cb_flat_bars = 0    # bars remaining in full-flat cooldown
-        self._cb_half_bars = 0    # bars remaining in half-size recovery
 
         self.log(
             f"[v13 RISK PARAMS] "
@@ -354,29 +351,7 @@ class LarsaV13(QCAlgorithm):
         self._equity_ema = (self._equity_ema * (1 - _EQUITY_EMA_K)
                             + pv * _EQUITY_EMA_K)
 
-        # ── v13: circuit breaker check (counts in HOURS not ticks) ───────────
-        if self._cb_flat_bars > 0:
-            self._cb_flat_bars -= 1
-            return  # flat — no orders this hour
-        if pv < self.peak * (1.0 - CIRCUIT_BREAKER_DD):
-            self.log(f"[v13 CIRCUIT BREAKER] pv={pv:.0f} peak={self.peak:.0f} "
-                     f"dd={(self.peak-pv)/self.peak:.1%} — LIQUIDATING ALL")
-            for sym in ["ES", "NQ", "YM"]:
-                i1h = self.instr_1h[sym]
-                mapped = i1h.future.mapped
-                if mapped:
-                    self.liquidate(mapped)
-                    i1h.last_target = 0.0
-                    i1h.bars_held   = 0
-                    i1h.pos_floor   = 0.0
-            self._cb_flat_bars = CIRCUIT_BREAKER_BARS   # 48 hours flat
-            self._cb_half_bars = CIRCUIT_BREAKER_HALF   # then 48 hours half-size
-            return
-
-        # Half-size recovery window after circuit breaker
-        cb_size_scale = 0.5 if self._cb_half_bars > 0 else 1.0
-        if self._cb_half_bars > 0:
-            self._cb_half_bars -= 1
+        cb_size_scale = 1.0
 
         # ── v13: compute per-instrument risk from equity tier + EMA anchor ───
         equity_anchor  = self._equity_ema
@@ -594,6 +569,5 @@ class LarsaV13(QCAlgorithm):
             f"PORTFOLIO peak={self.peak:.0f} final={pv:.0f} dd={dd:.1%} "
             f"equity_ema={self._equity_ema:.0f} "
             f"final_port_risk={fin_port_risk:.2%} "
-            f"corr_factor={_CORR_FACTOR:.4f} "
-            f"cb_state: flat_bars_left={self._cb_flat_bars} half_bars_left={self._cb_half_bars}"
+            f"corr_factor={_CORR_FACTOR:.4f}"
         )
