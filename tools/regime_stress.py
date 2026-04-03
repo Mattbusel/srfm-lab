@@ -69,11 +69,12 @@ class BHI:
         self.ctl = 0; self.bc = 0; self.prices = []
         self._wu = {"15m": 400, "1h": 120, "1d": 30}.get(res, 120)
 
-    def update(self, c):
+    def update(self, c, cf_scale=1.0):
         self.bc += 1; self.prices.append(c)
         if len(self.prices) < 2:
             return
-        beta = abs(c - self.prices[-2]) / (self.prices[-2] + 1e-9) / (self.cf + 1e-9)
+        effective_cf = self.cf * cf_scale
+        beta = abs(c - self.prices[-2]) / (self.prices[-2] + 1e-9) / (effective_cf + 1e-9)
         was = self.bh_active
         if beta < 1.0:
             self.ctl += 1
@@ -132,10 +133,10 @@ class MRI:
         if self.i15.bh_active: return self.i15.direction()
         return 0
 
-    def update(self, o, h, l, c, pc):
+    def update(self, o, h, l, c, pc, cf_scale_1h=1.0):
         for sub in [o, (o + h) / 2, (l + c) / 2, c]:
             self.i15.update(sub)
-        self.i1h.update(c)
+        self.i1h.update(c, cf_scale=cf_scale_1h)
         self.atr.update(h, l, pc)
         if self.i1h.bc % 6 == 0:
             self.i1d.update(c)
@@ -327,9 +328,11 @@ def run_version(bars, version, regime_labels):
                 bar_pnl += gain
 
         pr = {}
+        reg_now = regime_labels[i] if i < len(regime_labels) else "SIDEWAYS"
+        cf_scale_1h = 3.0 if (version == "v12" and reg_now == "BULL") else 1.0
         for s in SYMS:
             b = bars[s][i]
-            insts[s].update(b["o"], b["h"], b["l"], b["c"], pc[s])
+            insts[s].update(b["o"], b["h"], b["l"], b["c"], pc[s], cf_scale_1h=cf_scale_1h)
             pc[s] = b["c"]; pr[s] = b["c"]
 
         equity = max(equity, 0.0)
@@ -345,6 +348,14 @@ def run_version(bars, version, regime_labels):
                 tgt = 0.0
             elif version == "v9":
                 tgt = size_v9(ceiling, d)
+            elif version == "v12":
+                tgt = size_v11(ceiling, d, a, p)
+                # v12 direction gates
+                reg_s = regime_labels[i] if i < len(regime_labels) else "SIDEWAYS"
+                if reg_s == "BEAR" and tgt > 0:
+                    tgt = 0.0
+                if reg_s == "BULL" and tgt < 0:
+                    tgt = 0.0
             else:
                 tgt = size_v11(ceiling, d, a, p)
             raw[s] = tgt
@@ -441,7 +452,7 @@ def stress_one(regime, version, seed=99, n=1000):
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     print(f"\n{'═'*65}")
-    print("  LARSA v9 vs v11  —  Regime Stress Analysis")
+    print("  LARSA v9 vs v11 vs v12  —  Regime Stress Analysis")
     print(f"{'═'*65}\n")
 
     N_WORLDS = 5
@@ -450,6 +461,7 @@ def main():
     print("  Running 5 mixed worlds for regime-conditioned analysis...")
     combined_v9  = {r: [] for r in REGIMES}
     combined_v11 = {r: [] for r in REGIMES}
+    combined_v12 = {r: [] for r in REGIMES}
     regime_bar_counts = {r: 0 for r in REGIMES}
 
     for seed in range(N_WORLDS):
@@ -459,45 +471,52 @@ def main():
             regime_bar_counts[r] += labels.count(r)
         rd_v9  = run_version(bars, "v9",  labels)
         rd_v11 = run_version(bars, "v11", labels)
+        rd_v12 = run_version(bars, "v12", labels)
         for r in REGIMES:
             combined_v9[r].extend(rd_v9[r])
             combined_v11[r].extend(rd_v11[r])
+            combined_v12[r].extend(rd_v12[r])
 
     summary_v9  = summarise(combined_v9)
     summary_v11 = summarise(combined_v11)
+    summary_v12 = summarise(combined_v12)
 
     print(f"\n{'─'*65}")
     print("  REGIME BREAKDOWN — across 5 mixed worlds (3000 bars each)")
     print(f"{'─'*65}")
-    print(f"  {'Regime':<12} {'Bars':>6}  {'v11 avg|pos|':>13}  {'v9 avg|pos|':>12}  "
-          f"{'v11 wr':>8}  {'v9 wr':>8}  {'v11 edge':>10}  {'worst bar%':>11}")
-    print(f"  {'─'*12}  {'─'*6}  {'─'*13}  {'─'*12}  {'─'*8}  {'─'*8}  {'─'*10}  {'─'*11}")
+    print(f"  {'Regime':<12} {'Bars':>6}  {'v12 avg|pos|':>13}  {'v11 avg|pos|':>13}  "
+          f"{'v12 wr':>8}  {'v11 wr':>8}  {'v12 edge':>10}  {'v11 edge':>10}  {'worst bar%':>11}")
+    print(f"  {'─'*12}  {'─'*6}  {'─'*13}  {'─'*13}  {'─'*8}  {'─'*8}  {'─'*10}  {'─'*10}  {'─'*11}")
 
     for reg in REGIMES:
-        s11 = summary_v11[reg]; s9 = summary_v9[reg]
-        n   = s11.get("n_bars", 0)
+        s11 = summary_v11[reg]; s12 = summary_v12[reg]
+        n   = s12.get("n_bars", 0)
         print(f"  {reg:<12} {n:>6}  "
+              f"{s12.get('avg_abs_pos',0):>13.4f}  "
               f"{s11.get('avg_abs_pos',0):>13.4f}  "
-              f"{s9.get('avg_abs_pos',0):>12.4f}  "
+              f"{s12.get('win_rate',0)*100:>7.1f}%  "
               f"{s11.get('win_rate',0)*100:>7.1f}%  "
-              f"{s9.get('win_rate',0)*100:>7.1f}%  "
+              f"{s12.get('bh_edge',0)*100:>+9.1f}%  "
               f"{s11.get('bh_edge',0)*100:>+9.1f}%  "
-              f"{s11.get('worst_bar_pnl',0):>10.3f}%")
+              f"{s12.get('worst_bar_pnl',0):>10.3f}%")
 
-    # BH negative edge detection
-    print(f"\n  BH signal edge analysis:")
+    # BH edge comparison
+    print(f"\n  BH signal edge: v11 vs v12")
     for reg in REGIMES:
-        e = summary_v11[reg].get("bh_edge", 0)
-        verdict = "NEGATIVE EDGE" if e < -0.02 else ("NEUTRAL" if abs(e) < 0.02 else "POSITIVE EDGE")
-        print(f"    {reg:<12}: {e*100:+.1f}% edge  → {verdict}")
+        e11 = summary_v11[reg].get("bh_edge", 0)
+        e12 = summary_v12[reg].get("bh_edge", 0)
+        v11_verdict = "NEGATIVE" if e11 < -0.02 else ("NEUTRAL" if abs(e11) < 0.02 else "POSITIVE")
+        v12_verdict = "NEGATIVE" if e12 < -0.02 else ("NEUTRAL" if abs(e12) < 0.02 else "POSITIVE")
+        delta = e12 - e11
+        print(f"    {reg:<12}: v11={e11*100:+.1f}% ({v11_verdict})  v12={e12*100:+.1f}% ({v12_verdict})  Δ={delta*100:+.1f}%")
 
-    # v9 vs v11 sizing comparison
-    print(f"\n  v9 vs v11 sizing comparison:")
+    # sizing comparison
+    print(f"\n  v11 vs v12 sizing comparison:")
     for reg in REGIMES:
-        s9 = summary_v9[reg]; s11 = summary_v11[reg]
-        ratio = (s11.get("avg_abs_pos", 0) / (s9.get("avg_abs_pos", 1e-9)))
-        better = "v11" if s11.get("win_rate", 0) >= s9.get("win_rate", 0) else "v9"
-        print(f"    {reg:<12}: v11/v9 size ratio = {ratio:.2f}×,  "
+        s11 = summary_v11[reg]; s12 = summary_v12[reg]
+        ratio = (s12.get("avg_abs_pos", 0) / (s11.get("avg_abs_pos", 1e-9)))
+        better = "v12" if s12.get("win_rate", 0) >= s11.get("win_rate", 0) else "v11"
+        print(f"    {reg:<12}: v12/v11 size ratio = {ratio:.2f}×,  "
               f"better win rate → {better}")
 
     # ── Pure regime stress tests ─────────────────────────────────────────────
@@ -511,8 +530,9 @@ def main():
     for reg in REGIMES:
         r9  = stress_one(reg, "v9",  n=1000)
         r11 = stress_one(reg, "v11", n=1000)
-        stress_results[reg] = {"v9": r9, "v11": r11}
-        for ver, r in [("v9", r9), ("v11", r11)]:
+        r12 = stress_one(reg, "v12", n=1000)
+        stress_results[reg] = {"v9": r9, "v11": r11, "v12": r12}
+        for ver, r in [("v9", r9), ("v11", r11), ("v12", r12)]:
             print(f"  {reg:<12} {ver:>4}  "
                   f"{r['return_pct']:>+8.1f}%  "
                   f"{r['max_dd_pct']:>7.1f}%  "
@@ -526,6 +546,7 @@ def main():
         "mixed_world_summary": {
             "v9":  {r: summary_v9[r]  for r in REGIMES},
             "v11": {r: summary_v11[r] for r in REGIMES},
+            "v12": {r: summary_v12[r] for r in REGIMES},
         },
         "stress_tests": stress_results,
     }
