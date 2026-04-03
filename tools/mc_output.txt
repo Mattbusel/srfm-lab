@@ -1,0 +1,41 @@
+Dataset                                        Trades  Config           Blowup        Median          Mean   Sharpe
+-------------------------------------------------------------------------------------------------------------------
+Adaptable Light Brown Antelope                   5826  v12_baseline      3.8%  $    335,044  $  7,000,355     0.05
+Adaptable Light Brown Antelope                   5826  v15_22M           0.0%  $    956,258  $    956,258  -43741521.07
+
+Alert Red Buffalo                                 124  v12_baseline      0.0%  $  1,067,681  $  1,067,681  67680470.29
+Alert Red Buffalo                                 124  v15_22M           0.0%  $  1,009,091  $  1,009,091  9091220.71
+
+Calm Orange Mule                                  377  v12_baseline      0.0%  $  2,285,790  $  2,290,165    46.50
+Calm Orange Mule                                  377  v15_22M           0.0%  $  1,138,015  $  1,138,015  138014683.45
+
+Calm Red Termite                                 3444  v12_baseline     51.6%  $          0  $    104,216    -1.25
+Calm Red Termite                                 3444  v15_22M           0.0%  $    927,522  $    927,522  -72477942.86
+
+Fat Light Brown Zebra                            5227  v12_baseline      3.9%  $    323,597  $    754,627    -0.03
+Fat Light Brown Zebra                            5227  v15_22M           0.0%  $    950,934  $    950,934  -49066189.90
+
+Geeky Orange Sheep                               8724  v12_baseline      0.0%  $106,090,293  $192,284,699     0.78
+Geeky Orange Sheep                               8724  v15_22M           0.0%  $  1,524,823  $  1,524,823  524818961.10
+
+Hyper Active Red Orange Seahorse                 5405  v12_baseline     86.6%  $          0  $  7,644,437     0.10
+Hyper Active Red Orange Seahorse                 5405  v15_22M           0.0%  $    951,154  $    951,154  -48846048.89
+
+Logical Brown Caribou                             486  v12_baseline      0.0%  $  1,967,861  $  1,967,861  967859339.96
+Logical Brown Caribou                             486  v15_22M           0.0%  $  1,101,345  $  1,101,345  101345124.28
+
+Measured Red Anguilline                           485  v12_baseline      0.0%  $  1,923,064  $  1,923,064  923062304.58
+Measured Red Anguilline                           485  v15_22M           0.0%  $  1,099,279  $  1,099,279  99278844.64
+
+Sleepy Orange Alpaca                              515  v12_baseline      0.0%  $  1,429,509  $  1,429,509  429507979.54
+Sleepy Orange Alpaca                              515  v15_22M           0.0%  $  1,051,081  $  1,051,081  51081267.82
+
+Well Dressed Fluorescent Yellow Cat               513  v12_baseline      0.0%  $  1,604,024  $  1,604,428    76.05
+Well Dressed Fluorescent Yellow Cat               513  v15_22M           0.0%  $  1,088,004  $  1,088,004  88003589.90
+
+===================================================================================================================
+AGGREGATE (mean across all datasets)
+Config          Avg Blowup    Avg Median      Avg Mean  Avg Sharpe
+-----------------------------------------------------------------
+v12_baseline         13.3%  $ 10,638,806  $ 19,824,640  217100928.78
+v15_22M               0.0%  $  1,072,501  $  1,072,501  72500180.83

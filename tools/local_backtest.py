@@ -92,6 +92,17 @@ def bull_scale(close):
 
 # ── Download ──────────────────────────────────────────────────────────────────
 def download_data():
+    """
+    Hourly: prefer Twelve Data cache (tools/data_cache/*_1h.csv) for full history.
+    Falls back to yfinance last-730-days if cache not found.
+    Daily: always from yfinance (full history, no API limit).
+    """
+    try:
+        from download_twelvedata import load_cached, CACHE_DIR
+        use_cache = True
+    except ImportError:
+        use_cache = False
+
     daily, hourly = {}, {}
     for sym, cfg in INSTRUMENTS.items():
         tk = cfg["ticker"]
@@ -101,13 +112,25 @@ def download_data():
         daily[sym] = d
         print(f"{len(d)} bars")
 
-        print(f"  {tk} hourly...", end=" ", flush=True)
+        if use_cache:
+            h = load_cached(sym)
+            if not h.empty:
+                print(f"  {tk} hourly (cache)... {len(h)} bars "
+                      f"[{h.index.min().date()} to {h.index.max().date()}]")
+                hourly[sym] = h
+                continue
+
+        # Fallback: yfinance last 730 days
+        print(f"  {tk} hourly (yfinance fallback)...", end=" ", flush=True)
         h = yf.download(tk, period="730d", interval="1h", progress=False, auto_adjust=True)
         h.columns = h.columns.get_level_values(0)
         h.index = h.index.tz_convert("America/New_York")
         h = h.between_time("09:30", "16:00")
+        if h.index.tz is not None:
+            h.index = h.index.tz_localize(None)
         hourly[sym] = h
         print(f"{len(h)} bars")
+
     return daily, hourly
 
 
