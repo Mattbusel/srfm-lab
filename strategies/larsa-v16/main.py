@@ -46,18 +46,19 @@ CF = {
     "1d":   {"ES": 0.005,  "NQ": 0.006,   "YM": 0.004},
 }
 
-TF_CAP = {7: 0.90, 6: 0.75, 5: 0.55, 4: 0.40, 3: 0.30, 2: 0.25, 1: 0.15, 0: 0.0}
+TF_CAP = {7: 0.65, 6: 0.55, 5: 0.45, 4: 0.35, 3: 0.30, 2: 0.25, 1: 0.15, 0: 0.0}
 
 MIN_HOLD_BARS = 4
 
 N_INSTRUMENTS    = 3
 INST_CORRELATION = 0.90
-PORTFOLIO_DAILY_RISK = 0.015
+PORTFOLIO_DAILY_RISK = 0.01
 _CORR_FACTOR = math.sqrt(N_INSTRUMENTS + N_INSTRUMENTS * (N_INSTRUMENTS - 1) * INST_CORRELATION)
 PER_INST_RISK = PORTFOLIO_DAILY_RISK / _CORR_FACTOR   # ≈ 0.003450
 
 # v14: Two-gear split
 TAIL_FIXED_CAPITAL = 3_000_000.0   # Gear 1 always gets exactly this much
+HARVEST_ACTIVATION = 1_500_000.0  # Harvest activates above this (was $3M, too late)
 HARVEST_RISK_PER_INST = 0.02       # 2% of harvest allocation per instrument
 HARVEST_Z_ENTRY = 1.5              # enter fade when |z-score| exceeds this
 HARVEST_Z_EXIT  = 0.3              # exit when z-score returns near zero
@@ -311,7 +312,7 @@ class LarsaV16(QCAlgorithm):
 
         # ── Capital split ─────────────────────────────────────────────────────
         tail_frac    = min(TAIL_FIXED_CAPITAL, pv) / pv   # fraction for Gear 1
-        harvest_frac = max(0.0, pv - TAIL_FIXED_CAPITAL) / pv  # fraction for Gear 2
+        harvest_frac = max(0.0, pv - HARVEST_ACTIVATION) / pv  # fraction for Gear 2
         harvest_equity = pv * harvest_frac
 
         # ── Gear 1: TAIL CAPTURE (v12 logic, unchanged) ──────────────────────
@@ -527,7 +528,7 @@ class LarsaV16(QCAlgorithm):
         pv = self.portfolio.total_portfolio_value
         dd = (self.peak - pv) / (self.peak + 1e-9)
         tail_frac = min(TAIL_FIXED_CAPITAL, pv) / pv
-        harvest_frac = max(0.0, pv - TAIL_FIXED_CAPITAL) / pv
+        harvest_frac = max(0.0, pv - HARVEST_ACTIVATION) / pv
         for sym in ["ES", "NQ", "YM"]:
             i15 = self.instr_15m[sym]
             i1h = self.instr_1h[sym]
