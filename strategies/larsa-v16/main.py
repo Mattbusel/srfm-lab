@@ -265,7 +265,7 @@ class LarsaV16(QCAlgorithm):
             self.non_15m_instruments[f"{k}_1d"] = v
 
         # Gear 3: Treasury carry
-        zf = self.add_future(Futures.Financials.Y5TreasuryNote, Resolution.HOUR,
+        zf = self.add_future(Futures.Financials.Y_5_TREASURY_NOTE, Resolution.HOUR,
                              data_normalization_mode=DataNormalizationMode.BACKWARDS_RATIO,
                              contract_depth_offset=0)
         zf.set_filter(timedelta(0), timedelta(182))
