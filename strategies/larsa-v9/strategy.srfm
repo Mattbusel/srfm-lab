@@ -1,0 +1,14 @@
+version = v8
+description = Multi-Resolution SRFM — fractal timeframe alignment
+tf_15m_cf_ES = 0.0003
+tf_1h_cf_ES  = 0.001
+tf_1d_cf_ES  = 0.005
+tf_score_7   = 0.65  # all three aligned
+tf_score_6   = 0.55  # daily + hourly
+tf_score_4   = 0.35  # daily only
+tf_score_2   = 0.25  # hourly only (v1 behavior)
+tf_score_1   = 0.15  # 15min only (scalp)
+warmup_days  = 400
+bear_gate_YM = 3     # rhb threshold
+bear_gate_ES = 5
+nq_cap_nonBULL = 400000
