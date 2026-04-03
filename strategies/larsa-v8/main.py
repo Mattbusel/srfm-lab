@@ -298,34 +298,43 @@ class LarsaV8(QCAlgorithm):
             return
         self._last_exec_hour = current_hour
 
-        # Compute tf_score and execute per underlying
+        # ── Step 1: compute per-instrument raw targets (signal only, no portfolio math) ──
+        # tf_score → TOTAL portfolio cap divided by 3 instruments.
+        # Timeframe alignment expresses conviction of a SINGLE portfolio position,
+        # not additive leverage per timeframe.
+        raw_targets = {}   # sym → (mapped_symbol, raw_tgt)
+
         for sym in ["ES", "NQ", "YM"]:
             i15 = self.instr_15m[sym]
             i1h = self.instr_1h[sym]
             i1d = self.instr_1d[sym]
 
-            # Use hourly mapped contract as the execution vehicle
             mapped = i1h.future.mapped
-            if mapped is None: continue
-            if mapped not in self.securities: continue
-            if not self.securities[mapped].exchange.exchange_open: continue
+            if mapped is None:
+                raw_targets[sym] = (None, 0.0)
+                continue
+            if mapped not in self.securities or not self.securities[mapped].exchange.exchange_open:
+                raw_targets[sym] = (None, 0.0)
+                continue
 
-            # tf_score
+            # tf_score: daily=4, hourly=2, 15min=1
             tf_score = 0
             if i1d.bh_active: tf_score += 4
             if i1h.bh_active: tf_score += 2
             if i15.bh_active: tf_score += 1
 
-            cap = TF_CAP[tf_score]
+            # TF_CAP is TOTAL portfolio allocation split across 3 instruments
+            total_cap = TF_CAP[tf_score]
+            per_inst_cap = total_cap / 3.0   # one-third each
 
-            if cap == 0.0:
+            if per_inst_cap == 0.0:
                 tgt = 0.0
             else:
                 direction = self._get_direction(i15, i1h, i1d)
                 if direction == 0:
                     tgt = 0.0
                 else:
-                    tgt = cap * direction
+                    tgt = per_inst_cap * direction
 
                     # BEAR gate — block longs in sustained BEAR (hourly regime)
                     bear_rhb_thresh = 3 if sym == "YM" else 5
@@ -335,17 +344,11 @@ class LarsaV8(QCAlgorithm):
                     # NQ notional cap in non-BULL
                     if sym == "NQ" and i1h.regime != MarketRegime.BULL:
                         nq_cap = 400000.0 / (self.portfolio.total_portfolio_value + 1e-9)
-                        if abs(tgt) > nq_cap:
-                            tgt = float(np.sign(tgt) * nq_cap)
+                        tgt = float(np.sign(tgt) * min(abs(tgt), nq_cap))
 
-            # Cross-instrument convergence bonus
-            conv_count = sum(1 for s in ["ES", "NQ", "YM"] if self.instr_1h[s].bh_active)
-            if conv_count >= 2 and tf_score >= 2 and not np.isclose(tgt, 0.0):
-                tgt = float(np.clip(tgt * 1.1, -0.65, 0.65))
-
-            # pos_floor — high-conviction locking
+            # pos_floor — high-conviction locking (based on per_inst_cap)
             if (tf_score >= 6 and not np.isclose(tgt, 0.0)
-                    and abs(tgt) > 0.4 and i1h.ctl >= 5):
+                    and abs(tgt) > 0.15 and i1h.ctl >= 5):
                 i1h.pos_floor = max(i1h.pos_floor, 0.70 * abs(tgt))
             if (i1h.pos_floor > 0.0 and tf_score >= 4
                     and not np.isclose(i1h.last_target, 0.0)):
@@ -353,15 +356,29 @@ class LarsaV8(QCAlgorithm):
                 i1h.pos_floor *= 0.95
             if tf_score < 4 or np.isclose(tgt, 0.0):
                 i1h.pos_floor = 0.0
-
             if not i1d.bh_active and not i1h.bh_active:
                 i1h.pos_floor = 0.0
 
             # Ramp-back scaling after circuit-breaker
             if self.ramp_back > 0:
-                tgt = float(np.clip(tgt, -0.35, 0.35))
+                tgt = float(np.clip(tgt, -0.12, 0.12))
 
-            # Execute if target moved enough
+            raw_targets[sym] = (mapped, tgt)
+
+        # ── Step 2: enforce total portfolio exposure cap at 1.0 (100% of equity) ──
+        # If sum of |targets| > 1.0, scale all down proportionally.
+        total_exposure = sum(abs(tgt) for _, tgt in raw_targets.values())
+        scale = 1.0
+        if total_exposure > 1.0:
+            scale = 1.0 / total_exposure
+
+        # ── Step 3: execute — one position per instrument, one set_holdings call ──
+        for sym in ["ES", "NQ", "YM"]:
+            i1h = self.instr_1h[sym]
+            mapped, tgt = raw_targets[sym]
+            if mapped is None:
+                continue
+            tgt = float(tgt * scale)
             if abs(tgt - i1h.last_target) > 0.02:
                 i1h.last_target = tgt
                 self.set_holdings(mapped, tgt)
