@@ -60,9 +60,9 @@ _CORR_FACTOR = math.sqrt(N_INSTRUMENTS + N_INSTRUMENTS * (N_INSTRUMENTS - 1) * I
 PER_INST_RISK = PORTFOLIO_DAILY_RISK / _CORR_FACTOR
 
 # Capital buckets
-TAIL_CAP  = 3_000_000   # Gear 1 always gets this
-TREND_CAP = 2_000_000   # Gear 3 activates when equity > TAIL_CAP + TREND_CAP = $5M
-ARB_CAP   = 1_000_000   # Gear 4 activates when equity > $6M
+TAIL_CAP  = 1_000_000   # Gear 1: optimal from 80-combo Monte Carlo sweep
+TREND_CAP = 1_000_000   # Gear 3: activates at $2M total equity
+ARB_CAP   = 0           # Gear 4: disabled — sweep showed no edge over harvest
 
 # Gear 2: Harvest
 HARVEST_Z_ENTRY  = 1.5
@@ -347,6 +347,11 @@ class LarsaV15(QCAlgorithm):
         g2 = self._gear2_targets(harvest_frac)
 
         # ── Combine and execute ───────────────────────────────────────────────
+        # Scale combined targets so total portfolio exposure never exceeds 1.0
+        raw_combined = {sym: g1[sym] + g3[sym] + g4[sym] + g2[sym] for sym in ["ES","NQ","YM"]}
+        total_exp = sum(abs(v) for v in raw_combined.values())
+        port_scale = 1.0 / total_exp if total_exp > 1.0 else 1.0
+
         for sym in ["ES", "NQ", "YM"]:
             i1h = self.instr_1h[sym]
             mapped = i1h.future.mapped
@@ -354,9 +359,7 @@ class LarsaV15(QCAlgorithm):
             if mapped not in self.securities: continue
             if not self.securities[mapped].exchange.exchange_open: continue
 
-            combined = g1[sym] + g3[sym] + g4[sym] + g2[sym]
-            # Hard cap: no single instrument > 80% of portfolio
-            combined = float(np.clip(combined, -0.8, 0.8))
+            combined = float(raw_combined[sym] * port_scale)
 
             if abs(combined - i1h.last_target) > 0.02:
                 if np.isclose(combined, 0.0):
