@@ -580,8 +580,12 @@ livecheck:
 	python tools/live_check.py
 
 # ── Run everything (full test suite) ─────────────────────────────────────────
+.PHONY: backtest-v12
+backtest-v12:
+	python tools/backtest_v12.py
+
 .PHONY: test-all
-test-all: suite-v11 stress margin corrmon replay regime-stress sensitivity dddecomp fees livecheck
+test-all: suite-v11 stress margin corrmon replay regime-stress sensitivity dddecomp fees livecheck backtest-v12
 	python tools/dashboard_v11.py
 	@echo "All analysis complete. Dashboard open."
 
