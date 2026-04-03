@@ -1,0 +1,38 @@
+# LEAN data and outputs
+data/
+results/
+.lean/
+*.lean/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets
+*.env
+.env.*
+secrets.json
+config.json
+
+# Docker
+*.log

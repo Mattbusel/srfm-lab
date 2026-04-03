@@ -1,0 +1,138 @@
+name: Auto-Backtest on Strategy Push
+
+on:
+  push:
+    paths:
+      - "strategies/*/main.py"
+  pull_request:
+    paths:
+      - "strategies/*/main.py"
+
+jobs:
+  detect-changed-strategies:
+    name: Detect changed strategies
+    runs-on: ubuntu-latest
+    outputs:
+      strategies: ${{ steps.detect.outputs.strategies }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed strategy dirs
+        id: detect
+        run: |
+          changed=$(git diff --name-only HEAD~1 HEAD -- 'strategies/*/main.py' \
+            | sed 's|/main.py||' \
+            | sort -u \
+            | jq -R . | jq -sc .)
+          echo "strategies=${changed}" >> "$GITHUB_OUTPUT"
+          echo "Changed strategies: ${changed}"
+
+  backtest:
+    name: Backtest ${{ matrix.strategy }}
+    needs: detect-changed-strategies
+    runs-on: ubuntu-latest
+    if: needs.detect-changed-strategies.outputs.strategies != '[]'
+    strategy:
+      matrix:
+        strategy: ${{ fromJson(needs.detect-changed-strategies.outputs.strategies) }}
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install LEAN CLI
+        run: pip install lean
+
+      - name: Download security master (cached)
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: lean-data-security-master-v1
+
+      - name: Run backtest
+        id: backtest
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          OUTPUT="results/${{ matrix.strategy }}/${TIMESTAMP}"
+          mkdir -p "${OUTPUT}"
+
+          lean backtest "${{ matrix.strategy }}" \
+            --output "${OUTPUT}" \
+            --data-provider-historical QuantConnect \
+            2>&1 | tee "${OUTPUT}/lean.log"
+
+          echo "output_dir=${OUTPUT}" >> "$GITHUB_OUTPUT"
+          echo "timestamp=${TIMESTAMP}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract metrics
+        id: metrics
+        run: |
+          RESULT=$(find "${{ steps.backtest.outputs.output_dir }}" -name "*.json" | head -1)
+          if [ -z "${RESULT}" ]; then
+            echo "summary=No result JSON found." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          python3 - "${RESULT}" "${{ matrix.strategy }}" <<'EOF'
+          import json, sys
+
+          path, name = sys.argv[1], sys.argv[2]
+          with open(path) as f:
+              data = json.load(f)
+
+          stats = data.get("TotalPerformance", {}).get("PortfolioStatistics", {})
+          trades = data.get("TotalPerformance", {}).get("TradeStatistics", {})
+
+          def g(d, k): return d.get(k, "—")
+
+          summary = f"""
+          ## Backtest: {name}
+
+          | Metric         | Value                                    |
+          |----------------|------------------------------------------|
+          | Total Return   | {g(stats, "TotalNetProfit")}              |
+          | CAGR           | {g(stats, "CompoundingAnnualReturn")}     |
+          | Sharpe         | {g(stats, "SharpeRatio")}                 |
+          | Sortino        | {g(stats, "SortinoRatio")}                |
+          | Max Drawdown   | {g(stats, "Drawdown")}                    |
+          | Win Rate       | {g(stats, "WinRate")}                     |
+          | Profit Factor  | {g(stats, "ProfitLossRatio")}             |
+          | Total Trades   | {g(trades, "NumberOfTrades")}             |
+          | Total Fees     | {g(stats, "TotalFees")}                   |
+          """
+          print(summary)
+
+          with open("result_summary.md", "w") as f:
+              f.write(summary)
+          EOF
+
+      - name: Upload backtest artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-${{ matrix.strategy }}-${{ steps.backtest.outputs.timestamp }}
+          path: results/${{ matrix.strategy }}/
+          retention-days: 30
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '**Backtest result not available.**';
+            try {
+              body = fs.readFileSync('result_summary.md', 'utf8');
+            } catch (e) {}
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body,
+            });

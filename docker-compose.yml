@@ -1,0 +1,52 @@
+version: "3.8"
+
+# SRFM Lab — Docker Compose for parallel backtesting
+#
+# Usage:
+#   docker-compose up --scale worker=4   # run 4 parallel workers
+#   docker-compose run backtest lean backtest strategies/larsa-v1
+#
+# Workers read from the shared ./strategies and ./data volumes.
+# Results are written to ./results.
+
+services:
+
+  # ── Single backtest ──────────────────────────────────────────────────────────
+  backtest:
+    image: quantconnect/lean:latest
+    volumes:
+      - ./strategies:/workspace/strategies
+      - ./data:/workspace/data
+      - ./results:/workspace/results
+      - ./lib:/workspace/lib
+    working_dir: /workspace
+    environment:
+      - LEAN_WORKSPACE=/workspace
+    command: ["lean", "backtest", "strategies/larsa-v1", "--output", "results/larsa-v1/docker"]
+
+  # ── Parallel batch worker ────────────────────────────────────────────────────
+  worker:
+    image: quantconnect/lean:latest
+    volumes:
+      - ./strategies:/workspace/strategies
+      - ./data:/workspace/data
+      - ./results:/workspace/results
+      - ./lib:/workspace/lib
+    working_dir: /workspace
+    environment:
+      - LEAN_WORKSPACE=/workspace
+    # Overridden at runtime: docker-compose run worker lean backtest strategies/experiment-1
+    command: ["sleep", "infinity"]
+
+  # ── Jupyter research ─────────────────────────────────────────────────────────
+  research:
+    image: quantconnect/research:latest
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./research/notebooks:/workspace/notebooks
+      - ./data:/workspace/data
+      - ./lib:/workspace/lib
+      - ./results:/workspace/results
+    working_dir: /workspace
+    command: ["jupyter", "notebook", "--ip=0.0.0.0", "--allow-root", "--no-browser"]
