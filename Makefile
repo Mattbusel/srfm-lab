@@ -593,3 +593,11 @@ test-all: suite-v11 stress margin corrmon replay regime-stress sensitivity dddec
 .PHONY: dashboard-v11
 dashboard-v11:
 	streamlit run tools/dashboard_v11.py --server.port 8502
+
+# ── Local QC-equivalent backtest ────────────────────────────────────────────
+.PHONY: local
+local:
+ifndef s
+	$(error Usage: make local s=larsa-v12)
+endif
+	python tools/backtest_v12.py --strategy $(s)
