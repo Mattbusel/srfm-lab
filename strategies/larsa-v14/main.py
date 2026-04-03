@@ -261,6 +261,7 @@ class LarsaV14(QCAlgorithm):
 
         self.peak = 1_000_000.0
         self._last_exec_hour = None
+        self._last_harvest_day = None   # throttle harvest to once per day
 
         self.log(
             f"[v14 PARAMS] "
@@ -411,7 +412,7 @@ class LarsaV14(QCAlgorithm):
             # the right number of contracts relative to total portfolio.
             final_tail = float(tail_tgt * tail_scale * tail_frac)
 
-            if abs(final_tail - i1h.last_target) > 0.005:
+            if abs(final_tail - i1h.last_target) > 0.02:
                 if np.isclose(final_tail, 0.0):
                     i1h.bars_held = 0
                 elif np.sign(final_tail) != np.sign(i1h.last_target):
@@ -419,8 +420,10 @@ class LarsaV14(QCAlgorithm):
                 i1h.last_target = final_tail
                 self.set_holdings(mapped, final_tail)
 
-        # ── Gear 2: HARVEST MODE (mean reversion on harvest_equity) ──────────
-        if harvest_equity > 10_000:   # only active once there's meaningful capital
+        # ── Gear 2: HARVEST MODE (once per day — keeps order count manageable) ─
+        today = self.time.date()
+        if harvest_equity > 10_000 and today != self._last_harvest_day:
+            self._last_harvest_day = today
             self._run_harvest(data, harvest_frac)
 
         # ── Diagnostics ───────────────────────────────────────────────────────
