@@ -269,12 +269,11 @@ class LarsaV8(QCAlgorithm):
     def on_data(self, data):
         if self.is_warming_up: return
 
-        # Update portfolio peak and check circuit-breaker
         pv = self.portfolio.total_portfolio_value
         if pv > self.peak:
             self.peak = pv
         dd = (self.peak - pv) / (self.peak + 1e-9)
-        if dd >= 0.12:
+        if dd >= 0.20:
             self.liquidate()
             for inst in self.instr_1h.values():
                 inst.last_target = 0.0
@@ -323,18 +322,18 @@ class LarsaV8(QCAlgorithm):
             if i1h.bh_active: tf_score += 2
             if i15.bh_active: tf_score += 1
 
-            # TF_CAP is TOTAL portfolio allocation split across 3 instruments
-            total_cap = TF_CAP[tf_score]
-            per_inst_cap = total_cap / 3.0   # one-third each
+            # TF_CAP is max allocation per instrument.
+            # Portfolio exposure cap (Step 2) handles the case where all 3 fire simultaneously.
+            cap = TF_CAP[tf_score]
 
-            if per_inst_cap == 0.0:
+            if cap == 0.0:
                 tgt = 0.0
             else:
                 direction = self._get_direction(i15, i1h, i1d)
                 if direction == 0:
                     tgt = 0.0
                 else:
-                    tgt = per_inst_cap * direction
+                    tgt = cap * direction
 
                     # BEAR gate — block longs in sustained BEAR (hourly regime)
                     bear_rhb_thresh = 3 if sym == "YM" else 5
@@ -359,9 +358,9 @@ class LarsaV8(QCAlgorithm):
             if not i1d.bh_active and not i1h.bh_active:
                 i1h.pos_floor = 0.0
 
-            # Ramp-back scaling after circuit-breaker
+            # Ramp-back after circuit-breaker — half size for 5 bars then full
             if self.ramp_back > 0:
-                tgt = float(np.clip(tgt, -0.12, 0.12))
+                tgt *= 0.5
 
             raw_targets[sym] = (mapped, tgt)
 
