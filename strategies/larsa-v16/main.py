@@ -49,6 +49,7 @@ CF = {
 TF_CAP = {7: 0.65, 6: 0.55, 5: 0.45, 4: 0.35, 3: 0.30, 2: 0.25, 1: 0.15, 0: 0.0}
 
 MIN_HOLD_BARS = 4
+MAX_HOLD_BARS = 48   # force exit after 48 hours — take profit, go flat, reset
 
 N_INSTRUMENTS    = 3
 INST_CORRELATION = 0.90
@@ -344,6 +345,10 @@ class LarsaV16(QCAlgorithm):
             ceiling = TF_CAP[tf_score]
 
             if tf_score == 1 and np.isclose(i1h.last_target, 0.0):
+                ceiling = 0.0
+
+            # Max hold: after 48 hours force flat — take the profit, reset, wait for next setup
+            if i1h.bars_held >= MAX_HOLD_BARS:
                 ceiling = 0.0
 
             if ceiling == 0.0:
