@@ -236,7 +236,6 @@ class LarsaV8(QCAlgorithm):
             self.non_15m_instruments[f"{k}_1d"] = v
 
         self.peak = 1_000_000.0
-        self.ramp_back = 0
         self._last_exec_hour = None   # gate: only execute on new hourly bar
 
         # Charts
@@ -272,18 +271,6 @@ class LarsaV8(QCAlgorithm):
         pv = self.portfolio.total_portfolio_value
         if pv > self.peak:
             self.peak = pv
-        dd = (self.peak - pv) / (self.peak + 1e-9)
-        if dd >= 0.20:
-            self.liquidate()
-            for inst in self.instr_1h.values():
-                inst.last_target = 0.0
-                inst.pos_floor = 0.0
-            self.ramp_back = 5
-            self.peak = self.portfolio.total_portfolio_value
-            return
-
-        if self.ramp_back > 0:
-            self.ramp_back -= 1
 
         # Update hourly and daily instruments (15m is handled by consolidator)
         for inst in self.non_15m_instruments.values():
@@ -326,6 +313,13 @@ class LarsaV8(QCAlgorithm):
             # Portfolio exposure cap (Step 2) handles the case where all 3 fire simultaneously.
             cap = TF_CAP[tf_score]
 
+            # 15min alone (tf_score=1) never opens a new position.
+            # It boosts sizing only when hourly or daily BH is confirmed.
+            # This prevents noise re-entry after a big event collapses.
+            currently_flat = np.isclose(i1h.last_target, 0.0)
+            if tf_score == 1 and currently_flat:
+                cap = 0.0
+
             if cap == 0.0:
                 tgt = 0.0
             else:
@@ -357,10 +351,6 @@ class LarsaV8(QCAlgorithm):
                 i1h.pos_floor = 0.0
             if not i1d.bh_active and not i1h.bh_active:
                 i1h.pos_floor = 0.0
-
-            # Ramp-back after circuit-breaker — half size for 5 bars then full
-            if self.ramp_back > 0:
-                tgt *= 0.5
 
             raw_targets[sym] = (mapped, tgt)
 
