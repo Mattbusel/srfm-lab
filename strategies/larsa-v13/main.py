@@ -95,6 +95,8 @@ _EQUITY_EMA_K      = 2.0 / (_EQUITY_EMA_PERIOD + 1)
 CIRCUIT_BREAKER_DD   = 0.15   # go flat if equity < peak × (1 - 0.15)
 CIRCUIT_BREAKER_BARS = 48     # cooldown bars before resuming
 CIRCUIT_BREAKER_HALF = 48     # bars at half-size before returning to full
+REGIME_COOLDOWN_BARS = 8      # bars to sit flat after any regime transition
+                               # prevents entering new direction at V-bottom
 
 
 class FutureInstrument:
@@ -356,7 +358,7 @@ class LarsaV13(QCAlgorithm):
                     i1h.bars_held   = 0
                     i1h.pos_floor   = 0.0
             self._cb_flat_bars = CIRCUIT_BREAKER_BARS
-            self._cb_half_bars = CIRCUIT_BREAKER_BARS + CIRCUIT_BREAKER_HALF
+            self._cb_half_bars = CIRCUIT_BREAKER_HALF  # starts counting after flat ends
             for inst in self.non_15m_instruments.values():
                 self._process_instrument(data, inst)
             return
@@ -434,6 +436,13 @@ class LarsaV13(QCAlgorithm):
                     # ─────────────────────────────────────────────────────
 
                     tgt = cap * direction
+
+                    # v13: regime transition cooldown — sit out first 8 bars after
+                    # any regime change. Prevents entering the new direction at the
+                    # V-bottom of a crash (the diagnosed death spiral trigger).
+                    # rhb resets to 0 on every regime change, increments each bar.
+                    if i1h.rhb < 8:
+                        tgt = 0.0
 
                     if i1h.regime == MarketRegime.BEAR and tgt > 0 and i1h.rhb > (3 if sym == "YM" else 5):
                         tgt = 0.0
