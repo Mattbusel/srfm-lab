@@ -90,6 +90,11 @@ data-init:
 	lean data download --dataset "US Futures Security Master"
 	@echo "Security master downloaded. Run 'lean data download --dataset ...' for price data."
 
+# ── Lab dashboard ────────────────────────────────────────────────────────────
+.PHONY: lab
+lab:
+	python tools/lab.py
+
 # ── Install dependencies ──────────────────────────────────────────────────────
 .PHONY: install
 install:
