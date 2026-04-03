@@ -465,17 +465,14 @@ class LarsaV16(QCAlgorithm):
         Gear 3: Park idle capital (harvest bucket) long ZF during non-vol regimes.
         Exit entirely when HIGH_VOLATILITY detected — gear 1 takes over, free the capital.
         """
-        if harvest_frac < 0.01:
-            return  # nothing above $3M, nothing to park
-
         zf_mapped = self._zf_future.mapped
         if zf_mapped is None: return
         if zf_mapped not in self.securities: return
         if not self.securities[zf_mapped].exchange.exchange_open: return
 
-        # Exit treasury when vol event is starting (ES regime drives the call)
+        # Exit treasury when vol event is starting or equity dropped back below $3M
         es_regime = self.instr_1h["ES"].regime
-        if es_regime == MarketRegime.HIGH_VOLATILITY:
+        if harvest_frac < 0.01 or es_regime == MarketRegime.HIGH_VOLATILITY:
             target = 0.0
         else:
             target = TREASURY_ALLOC * harvest_frac
