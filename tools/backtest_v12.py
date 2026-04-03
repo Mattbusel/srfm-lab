@@ -447,11 +447,12 @@ def max_drawdown(equity_arr):
 # ═══════════════════════════════════════════════════════════════════════════════
 # Main backtest
 # ═══════════════════════════════════════════════════════════════════════════════
-def run(strategy="larsa-v12"):
+def run(strategy="larsa-v12", start_equity=None):
+    equity0 = float(start_equity) if start_equity is not None else START_EQUITY
 
     banner = "═" * 65
     print(banner)
-    print("  LARSA v12 — QC-Equivalent Local Backtest")
+    print(f"  LARSA v12 — QC-Equivalent Local Backtest  (equity=${equity0:,.0f})")
     print("  Data: Nov 2023 → Apr 2026  (ES/NQ/YM hourly)")
     print(banner)
 
@@ -461,11 +462,11 @@ def run(strategy="larsa-v12"):
     print(f"  Range: {timestamps[0].strftime('%Y-%m-%d')} → {timestamps[-1].strftime('%Y-%m-%d')}\n")
 
     instruments = {sym: Instrument(sym) for sym in SYMS}
-    broker      = SimulatedBroker(START_EQUITY)
+    broker      = SimulatedBroker(equity0)
 
     equity_curve   = []
     daily_returns  = []
-    last_day_eq    = START_EQUITY
+    last_day_eq    = equity0
     last_day_bar   = 0
     BARS_PER_DAY   = 6.5   # approximate
 
@@ -475,7 +476,7 @@ def run(strategy="larsa-v12"):
     completed_trades: list[TradeRecord] = []
     open_trades: dict[str, TradeRecord] = {}   # sym -> open TradeRecord
 
-    peak = START_EQUITY
+    peak = equity0
 
     for i, ts in enumerate(timestamps):
         bars = {sym: data[sym].iloc[i] for sym in SYMS}
@@ -628,7 +629,7 @@ def run(strategy="larsa-v12"):
         # ── regime stats (ES as proxy) ────────────────────────────────────────
         reg = instruments["ES"].regime.regime
         regime_counts[reg] += 1
-        regime_pnl[reg]    += bar_pnl_usd / START_EQUITY
+        regime_pnl[reg]    += bar_pnl_usd / equity0
 
     # Close any open trades at last price
     for sym, ot in open_trades.items():
@@ -643,7 +644,7 @@ def run(strategy="larsa-v12"):
     # ═══════════════════════════════════════════════════════════════════════════
     eq_arr      = np.array(equity_curve)
     final_eq    = float(eq_arr[-1])
-    total_ret   = (final_eq - START_EQUITY) / START_EQUITY
+    total_ret   = (final_eq - equity0) / equity0
     ann_ret     = annual_return(total_ret, n)
     mdd         = max_drawdown(eq_arr)
     sh          = sharpe(daily_returns)
@@ -790,7 +791,7 @@ def run(strategy="larsa-v12"):
     # ═══════════════════════════════════════════════════════════════════════════
     out = {
         "strategy":        strategy,
-        "start_equity":    START_EQUITY,
+        "start_equity":    equity0,
         "final_equity":    final_eq,
         "total_return_pct":total_ret * 100,
         "annual_return_pct":ann_ret * 100,
@@ -831,7 +832,7 @@ def run(strategy="larsa-v12"):
 
         # Equity
         ax = axes[0, 0]
-        ax.plot(ts_plot, eq_arr / START_EQUITY, color="#4c78a8", lw=1.5)
+        ax.plot(ts_plot, eq_arr / equity0, color="#4c78a8", lw=1.5)
         ax.axhline(1.0, color="gray", ls="--", lw=0.8)
         ax.set_title("Equity Curve (normalized)")
         ax.set_ylabel("Multiple of Start")
@@ -882,5 +883,7 @@ def run(strategy="larsa-v12"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--strategy", default="larsa-v12")
+    parser.add_argument("--equity", type=float, default=None,
+                        help="Override starting equity (default: 1_000_000)")
     args = parser.parse_args()
-    run(strategy=args.strategy)
+    run(strategy=args.strategy, start_equity=args.equity)
