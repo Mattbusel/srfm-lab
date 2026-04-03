@@ -4,3 +4,10 @@ pandas
 matplotlib
 seaborn
 scipy
+rich
+plotext
+jinja2
+polars
+duckdb
+click
+pyarrow

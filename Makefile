@@ -102,6 +102,92 @@ clean:
 	@sleep 3
 	rm -rf results/*/[0-9]*
 
+# ── Build Rust viz tool ───────────────────────────────────────────────────────
+.PHONY: viz-build
+viz-build:
+	cd viz && cargo build --release
+	@echo "srfm-viz built -> viz/target/release/srfm-viz"
+
+# ── Generate SRFM primitives (Python) ────────────────────────────────────────
+.PHONY: primitives
+primitives:
+	python tools/primitive_builder.py --csv data/NDX_hourly_poly.csv --cf 0.005
+	@echo "Primitives -> results/primitives.md"
+
+# ── Generate lab report (Python) ─────────────────────────────────────────────
+.PHONY: report
+report:
+	python tools/report_builder.py
+	@echo "Report -> results/lab_report.md"
+
+# ── Generate all graphics (Rust viz) ─────────────────────────────────────────
+.PHONY: graphics
+graphics: viz-build
+	@mkdir -p results/graphics
+	./viz/target/release/srfm-viz spacetime --csv data/NDX_hourly_poly.csv --cf 0.005 --out results/graphics/spacetime.svg
+	./viz/target/release/srfm-viz wells --json research/trade_analysis_data.json --out results/graphics/wells_calendar.svg
+	./viz/target/release/srfm-viz experiments --json results/v2_experiments.json --out results/graphics/experiments.svg
+	./viz/target/release/srfm-viz equity --json research/trade_analysis_data.json --out results/graphics/equity.svg
+	./viz/target/release/srfm-viz convergence --json research/trade_analysis_data.json --out results/graphics/convergence.svg
+	@echo "Graphics -> results/graphics/"
+
+# ── Full pipeline: primitives + report + graphics ────────────────────────────
+.PHONY: pipeline
+pipeline: primitives report graphics
+	@echo ""
+	@echo "Pipeline complete:"
+	@echo "  results/primitives.md"
+	@echo "  results/lab_report.md"
+	@echo "  results/graphics/*.svg"
+
+# ── Run experiment suite ──────────────────────────────────────────────────────
+.PHONY: experiments
+experiments:
+	python tools/experiment_runner.py --quick
+	@echo "Experiments -> results/v2_experiments.md"
+
+.PHONY: experiments-full
+experiments-full:
+	python tools/experiment_runner.py
+	@echo "Full experiments -> results/v2_experiments.md"
+
+# ── Multi-instrument arena (convergence testing) ──────────────────────────────
+.PHONY: arena-multi
+arena-multi:
+	python tools/arena_multi.py --mode synth --n-worlds 5 --n-bars 20000
+
+# ── v3 design research ────────────────────────────────────────────────────────
+.PHONY: v3-design
+v3-design:
+	@echo "v3 design doc -> results/v3_design.md"
+	@echo "Run: python tools/experiment_runner.py then review results/v3_design.md"
+
+.PHONY: regime-graph
+regime-graph:
+	python tools/regime_graph.py
+	@echo "Regime graph -> results/graphics/regime_states.dot/.svg"
+
+# ── Analytics query ───────────────────────────────────────────────────────────
+.PHONY: query
+query:
+ifndef q
+	python tools/query.py schema
+else
+	python tools/query.py ask "$(q)"
+endif
+
+# ── Analytics profile ─────────────────────────────────────────────────────────
+.PHONY: profile
+profile:
+	python tools/query.py profile
+
+# ── Statistical validation (R) ───────────────────────────────────────────────
+.PHONY: stats
+stats:
+	Rscript research/statistical_validation.R
+	@echo "Statistical validation -> results/graphics/stat_*.png"
+	@echo "Report -> results/statistical_report.md"
+
 .PHONY: help
 help:
 	@echo ""
@@ -118,4 +204,12 @@ help:
 	@echo "  make batch s=larsa-v1 variants=variants.json  Batch run variants"
 	@echo "  make data-init                                 Download LEAN security master"
 	@echo "  make install                                   Install Python dependencies"
+	@echo "  make viz-build                                Build Rust viz tool"
+	@echo "  make primitives                               Compute SRFM physics primitives"
+	@echo "  make report                                   Generate lab report markdown"
+	@echo "  make graphics                                 Generate all SVG graphics"
+	@echo "  make pipeline                                 Run full analysis pipeline"
+	@echo "  make experiments                              Run experiment suite (quick)"
+	@echo "  make experiments-full                         Run experiment suite (full, 10 synth worlds)"
+	@echo "  make stats                                    R statistical validation (requires R + packages)"
 	@echo ""

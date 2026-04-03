@@ -1,5 +1,5 @@
+# LARSA v3: CONV_SIZE (solo cap 0.40 vs multi 0.65) | pos_floor ctl>=5 70% w/decay
 # region imports
-# LARSA v3: ATR_SCALE compound protection | CONV_MASS multi-instrument boost | reverted BEAR_FAST + STOP_LOSS
 from AlgorithmImports import *
 import numpy as np
 from enum import IntEnum
@@ -88,7 +88,6 @@ class FutureInstrument:
         self.well_gain = 0.0
         self.prev_bh_mass = 0.0
         self.reform_bars = 0
-        self.atr_ratio = 1.0
         for ind in [self.e12, self.e26, self.e50, self.e200, self.rsi, self.macd,
                     self.mom, self.roc, self.atr, self.bb, self.std, self.adx]:
             algo.warm_up_indicator(self.sym, ind, h)
@@ -109,7 +108,6 @@ class FutureInstrument:
         if self.aw.is_ready:
             arr = np.array([self.aw[i] for i in range(int(self.aw.count))])
             atr_ratio = atr / arr.mean() if arr.mean() > 0 else 1.0
-        self.atr_ratio = atr_ratio
         prev = self.regime
         self.rhb += 1
         if atr_ratio >= 1.5:
@@ -403,7 +401,7 @@ class LarsaMultiFuturesAlgorithm(QCAlgorithm):
         elif (self.peak - pv_now)/(self.peak + 1e-9) >= 0.12:
             self.hwm_cooldown = 3; self.ramp_back = 5; self.grace_period = 50
             self.liquidate()
-            for inst in self.instruments.values(): inst.last_target = 0.0; inst.pos_floor = 0.0; inst.well_entry_pv = 0.0
+            for inst in self.instruments.values(): inst.last_target = 0.0; inst.pos_floor = 0.0
             return
         pv = self.portfolio.total_portfolio_value
         peak_gain = (self.peak - self.initial_equity)/self.initial_equity
@@ -416,7 +414,7 @@ class LarsaMultiFuturesAlgorithm(QCAlgorithm):
         if pv < profit_floor and peak_gain > 1.00 and self.grace_period == 0:
             self.trail_flat_bars = 5; self.ramp_back = 5; self.grace_period = 50
             self.liquidate()
-            for inst in self.instruments.values(): inst.last_target = 0.0; inst.well_entry_pv = 0.0
+            for inst in self.instruments.values(): inst.last_target = 0.0
             return
         if self.trail_flat_bars > 0:
             self.trail_flat_bars -= 1
@@ -425,7 +423,7 @@ class LarsaMultiFuturesAlgorithm(QCAlgorithm):
         elif self.grace_period == 0 and (self.peak - pv)/(self.peak + 1e-9) >= trail_pct:
             self.trail_flat_bars = 5; self.ramp_back = 5; self.grace_period = 50
             self.liquidate()
-            for inst in self.instruments.values(): inst.last_target = 0.0; inst.well_entry_pv = 0.0
+            for inst in self.instruments.values(): inst.last_target = 0.0
             return
         if self.grace_period > 0: self.grace_period -= 1
         if self.ramp_back > 0: self.ramp_back -= 1
@@ -433,11 +431,9 @@ class LarsaMultiFuturesAlgorithm(QCAlgorithm):
         vol_weights = self._inverse_vol_weights()
         tl_count = sum(1 for i in self.instruments.values() if i.bit == "TIMELIKE" and i.tl_confirm >= 3)
         bh_count = sum(1 for i in self.instruments.values() if i.bh_active)
-        total_bh_mass = sum(i.bh_mass for i in self.instruments.values() if i.bh_active)
         if bh_count >= 3: self.convergence = 2.5
         elif bh_count >= 2 and tl_count >= 3: self.convergence = 2.0
         elif bh_count >= 2: self.convergence = 1.7
-        elif bh_count == 1 and tl_count >= 3 and total_bh_mass > 3.0: self.convergence = 1.5  # v2 CONV_MASS
         elif tl_count >= 3: self.convergence = 1.4
         elif tl_count >= 2: self.convergence = 1.2
         else: self.convergence = 1.0
@@ -445,7 +441,9 @@ class LarsaMultiFuturesAlgorithm(QCAlgorithm):
         for key, inst in self.instruments.items():
             t = self._process_instrument(data, inst, rm, vol_weights.get(key, 0.33))
             if t is None: continue
-            tgt = float(np.clip(t, -0.65, 0.65))
+            bh_active_count = sum(1 for i in self.instruments.values() if i.bh_active)
+            cap = 0.65 if bh_active_count >= 2 else 0.40
+            tgt = float(np.clip(t, -cap, cap))
             if abs(tgt - inst.last_target) > 0.02:
                 mapped = inst.future.mapped
                 if mapped not in self.securities or not self.securities[mapped].exchange.exchange_open: continue
@@ -561,10 +559,6 @@ class LarsaMultiFuturesAlgorithm(QCAlgorithm):
         elif inst.mu > 1.2: max_lev = 1.5
         else: max_lev = 1.0
         max_lev *= self.convergence
-        # v2 ATR_SCALE: reduce position when vol spikes above 1.5x 50-bar ATR avg
-        if inst.atr_ratio > 1.5:
-            atr_scale = max(0.3, 1.5 / inst.atr_ratio)
-            tgt *= atr_scale; max_lev *= atr_scale
         tgt = float(np.clip(tgt, -max_lev, max_lev))
         killed = False
         geo_raw = float(np.arctanh(np.clip(abs(inst.geo_dev), 0.0, 0.9999)))
@@ -580,10 +574,11 @@ class LarsaMultiFuturesAlgorithm(QCAlgorithm):
             inst.weak_bars += 1
             if inst.weak_bars >= wb_thresh: tgt = 0.0; killed = True
         else: inst.weak_bars = 0
-        if not killed and abs(tgt) > 0.5 and inst.ctl >= 3:
-            inst.pos_floor = max(inst.pos_floor, 0.90*abs(tgt))
+        if not killed and abs(tgt) > 0.5 and inst.ctl >= 5:  # v3: trigger at ctl>=5 (was 3)
+            inst.pos_floor = max(inst.pos_floor, 0.70*abs(tgt))  # v3: 70% retention (was 90%)
         if not killed and inst.pos_floor > 0.0 and inst.last_target != 0.0:
             tgt = float(np.sign(inst.last_target)*max(abs(tgt), inst.pos_floor))
+            inst.pos_floor *= 0.95  # v3: 5%/bar decay even when holding
         if geo_raw > 1.5 or killed: inst.pos_floor = 0.0
         if self.ramp_back > 0: tgt = float(np.clip(tgt, -0.5, 0.5))
         if abs(tgt) < 0.02:
