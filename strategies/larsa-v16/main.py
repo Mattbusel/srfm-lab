@@ -342,9 +342,6 @@ class LarsaV16(QCAlgorithm):
 
             ceiling = TF_CAP[tf_score]
 
-            if tf_score == 1 and np.isclose(i1h.last_target, 0.0):
-                ceiling = 0.0
-
             # Max hold: after 48 hours force flat — take the profit, reset, wait for next setup
             if i1h.bars_held >= MAX_HOLD_BARS:
                 ceiling = 0.0
