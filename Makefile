@@ -294,6 +294,37 @@ endif
 config-check:
 	python tools/srfm_config.py strategies/larsa-v4/strategy.srfm
 
+# ── larsa-core (PyO3 Rust extension) ─────────────────────────────────────────
+.PHONY: larsa-core
+larsa-core:
+	CARGO_HOME=C:/Users/Matthew/.cargo CARGO_TARGET_DIR=C:/Users/Matthew/srfm-lab/crates/larsa-core/target \
+		python -m maturin build --release --manifest-path crates/larsa-core/Cargo.toml
+	pip install --force-reinstall crates/larsa-core/target/wheels/larsa_core-*.whl
+
+.PHONY: larsa-core-demo
+larsa-core-demo:
+	python tools/larsa_core_demo.py --benchmark
+
+.PHONY: larsa-core-clean
+larsa-core-clean:
+	CARGO_HOME=C:/Users/Matthew/.cargo CARGO_TARGET_DIR=C:/Users/Matthew/srfm-lab/crates/larsa-core/target \
+		cargo clean --manifest-path crates/larsa-core/Cargo.toml
+
+# ── Fast arena (Numba-JIT Python) ────────────────────────────────────────────
+.PHONY: fast-arena
+fast-arena:
+	python tools/fast_arena.py --benchmark
+
+# ── Rust parallel sweep ───────────────────────────────────────────────────────
+.PHONY: sweep-rust
+sweep-rust:
+	CARGO_HOME=C:/Users/Matthew/.cargo cargo run --manifest-path crates/srfm-tools/Cargo.toml --bin sweep --release -- --cf-range 0.001,0.015,20 --lev-range 0.30,0.80,10
+
+# ── Python parallel sweep ─────────────────────────────────────────────────────
+.PHONY: sweep-python
+sweep-python:
+	python -c "from tools.fast_arena import sweep_fast; from tools.arena_v2 import generate_synthetic; bars=generate_synthetic(20000); import json; r=sweep_fast(bars, {'cf':[0.002,0.004,0.006,0.008,0.010],'max_lev':[0.40,0.55,0.65,0.80]}); print(r.to_string())"
+
 .PHONY: help
 help:
 	@echo ""

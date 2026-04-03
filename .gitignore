@@ -38,3 +38,12 @@ config.json
 *.log
 viz/target/
 crates/srfm-tools/target/
+crates/*/target/
+target/
+*.d
+*.lock
+!Cargo.lock
+__pycache__/
+*.pyc
+results/optuna_study.db
+*.whl

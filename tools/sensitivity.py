@@ -1,274 +1,191 @@
 """
-sensitivity.py — Multi-dimensional parameter sensitivity analysis.
+sensitivity.py — One-at-a-time parameter sensitivity analysis for LARSA arena_v2.
 
-For each parameter, sweeps 5 values around the current setting, runs
-lean backtest, plots sensitivity surface, and flags overfitting risk.
+For each parameter in {cf, bh_form, bh_decay, max_lev}:
+  - Tests 7 evenly-spaced values across the parameter range
+  - Runs arena_v2 + 3 synthetic worlds at each value
+  - Records: sharpe, return, drawdown
+  - Computes impact score = (max_sharpe - min_sharpe) across the 7 values
 
-Overfitting flag: if return drops by > 30% from optimal when parameter
-changes by ±1 step, the strategy is too sensitive to that parameter.
+Outputs:
+  ASCII tornado chart to stdout
+  results/sensitivity.md with full tables
 
 Usage:
-    python tools/sensitivity.py strategies/larsa-v1 --params CF,BH_FORM,BH_DECAY --resolution 5
-    python tools/sensitivity.py strategies/larsa-v1 --params BH_FORM --resolution 7 --metric SharpeRatio
-
-Output:
-    results/larsa-v1/sensitivity/sensitivity_report.md
-    results/larsa-v1/sensitivity/<param>_sensitivity.png
-    results/larsa-v1/sensitivity/sensitivity_summary.csv
+    python tools/sensitivity.py --csv data/NDX_hourly_poly.csv
+    python tools/sensitivity.py --param cf
+    python tools/sensitivity.py --param bh_form --csv data/NDX_hourly_poly.csv
 """
 
 import argparse
-import csv
-import json
-import math
 import os
-import re
-import shutil
-import subprocess
 import sys
-import tempfile
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(__file__))
+from arena_v2 import run_v2, load_ohlcv, generate_synthetic, CONFIGS
+
+RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "results")
+
+# Default "center" config (ABCD on for full v2 experiments)
+DEFAULT_CFG = {"cf": 0.005, "bh_form": 1.5, "bh_collapse": 1.0, "bh_decay": 0.95}
+DEFAULT_LEV = 0.65
+EXP_FLAGS   = "ABCD"
+SYNTH_SEEDS = [42, 137, 999]
+
+PARAM_RANGES = {
+    "cf":       (0.0005, 0.010),
+    "bh_form":  (1.0,    3.0),
+    "bh_decay": (0.80,   0.99),
+    "max_lev":  (0.30,   0.80),
+}
+N_STEPS = 7
 
 
-# --- Parameter extraction -----------------------------------------------------
-
-def read_param(main_py: str, param: str) -> Optional[float]:
-    """Read current value of a constant from main.py."""
-    with open(main_py) as f:
-        code = f.read()
-    m = re.search(rf'^{re.escape(param)}\s*=\s*([0-9.e+-]+)', code, re.MULTILINE)
-    if m:
-        return float(m.group(1))
-    return None
+def make_cfg(base_cfg, param, value):
+    cfg = dict(base_cfg)
+    if param == "max_lev":
+        return cfg, value     # max_lev is passed separately
+    cfg[param] = value
+    return cfg, DEFAULT_LEV
 
 
-def patch_param(src: str, param: str, value: float, dst: str):
-    with open(src) as f:
-        code = f.read()
-    new_code, n = re.subn(
-        rf'^({re.escape(param)}\s*=\s*)[^\n#]+',
-        rf'\g<1>{value!r}',
-        code, flags=re.MULTILINE
-    )
-    if n == 0:
-        print(f"  [WARN] '{param}' not found in {src}", file=sys.stderr)
-    with open(dst, 'w') as f:
-        f.write(new_code)
-
-
-# --- Backtest runner ----------------------------------------------------------
-
-def run_backtest(strategy_dir: str, output_dir: str) -> Optional[str]:
-    os.makedirs(output_dir, exist_ok=True)
-    result = subprocess.run(
-        ['lean', 'backtest', strategy_dir, '--output', output_dir],
-        capture_output=True, text=True, timeout=900,
-    )
-    if result.returncode != 0:
-        return None
-    for name in ['result.json', 'backtest-results.json']:
-        p = os.path.join(output_dir, name)
-        if os.path.exists(p):
-            return p
-    jsons = list(Path(output_dir).glob('*.json'))
-    return str(jsons[0]) if jsons else None
-
-
-def extract_metric(result_json: str, metric: str) -> float:
+def run_one(bars, cfg, max_lev):
     try:
-        with open(result_json) as f:
-            data = json.load(f)
-        stats = data.get('TotalPerformance', {}).get('PortfolioStatistics', {})
-        v = stats.get(metric)
-        if v is None:
-            v = data.get('TotalPerformance', {}).get('TradeStatistics', {}).get(metric)
-        if isinstance(v, str):
-            v = v.replace('%', '').strip()
-            v = float(v)
-        return float(v) if v is not None else float('nan')
+        broker, _ = run_v2(bars, cfg, max_leverage=max_lev, exp_flags=EXP_FLAGS)
+        s = broker.stats()
+        return (
+            s.get("sharpe", 0.0),
+            s.get("total_return_pct", 0.0),
+            s.get("max_drawdown_pct", 0.0),
+        )
     except Exception:
-        return float('nan')
+        return 0.0, 0.0, 100.0
 
 
-# --- Sweep logic -------------------------------------------------------------
+def sweep_param(param, bars_arena, bars_synths, n_steps=N_STEPS):
+    lo, hi = PARAM_RANGES[param]
+    values = np.linspace(lo, hi, n_steps).tolist()
+    rows = []
+    for v in values:
+        cfg, lev = make_cfg(DEFAULT_CFG, param, v)
+        a_sh, a_ret, a_dd = run_one(bars_arena, cfg, lev)
 
-def build_values(center: float, resolution: int) -> List[float]:
-    """
-    Generate `resolution` values centred on `center`.
-    Spacing = max(center * 0.15, 0.0001) per step.
-    """
-    n     = resolution // 2
-    step  = max(abs(center) * 0.15, 0.0001)
-    vals  = [center + (i - n) * step for i in range(resolution)]
-    # Keep values positive for most parameters
-    return [max(1e-6, v) for v in vals]
+        synth_sh_list = []
+        for sb in bars_synths:
+            sh, _, _ = run_one(sb, cfg, lev)
+            synth_sh_list.append(sh)
+        s_sh = float(np.mean(synth_sh_list)) if synth_sh_list else 0.0
 
-
-def run_sweep(
-    strategy_dir: str,
-    param:        str,
-    values:       List[float],
-    metric:       str,
-    out_base:     str,
-) -> List[Tuple[float, float]]:
-    results = []
-    src_main = os.path.join(strategy_dir, 'main.py')
-    name     = Path(strategy_dir).name
-
-    for val in values:
-        label = f"{param}_{val:.6g}".replace('.', 'p')
-        out   = os.path.join(out_base, label)
-        print(f"  {param}={val:.6g} ...", end=' ', flush=True)
-
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_s = os.path.join(tmp, 'strategy')
-            shutil.copytree(strategy_dir, tmp_s)
-            patch_param(src_main, param, val, os.path.join(tmp_s, 'main.py'))
-            rp = run_backtest(tmp_s, out)
-            score = extract_metric(rp, metric) if rp else float('nan')
-
-        print(f"{metric}={score:.4f}" if not math.isnan(score) else "FAILED")
-        results.append((val, score))
-
-    return results
+        rows.append({
+            "value":        round(v, 6),
+            "arena_sharpe": round(a_sh, 4),
+            "synth_sharpe": round(s_sh, 4),
+            "arena_return": round(a_ret, 2),
+            "arena_dd":     round(a_dd, 2),
+        })
+        print(f"    {param}={v:.5f}  arena_sh={a_sh:.4f}  synth_sh={s_sh:.4f}  "
+              f"ret={a_ret:.1f}%  dd={a_dd:.1f}%")
+    return rows
 
 
-# --- Overfitting analysis ----------------------------------------------------
-
-def overfitting_risk(values: List[float], scores: List[float], threshold: float = 0.30) -> dict:
-    """
-    Compute how fast the score drops off from the optimum.
-    High sensitivity = overfit risk.
-    """
-    valid  = [(v, s) for v, s in zip(values, scores) if not math.isnan(s)]
-    if len(valid) < 3:
-        return {'risk': 'UNKNOWN', 'sensitivity': None}
-
-    xs, ys     = zip(*valid)
-    best_score = max(ys)
-    if best_score <= 0:
-        return {'risk': 'UNKNOWN', 'sensitivity': None}
-
-    # Adjacent drop: max fractional drop between consecutive steps
-    drops = [abs(ys[i] - ys[i-1]) / (abs(best_score) + 1e-9) for i in range(1, len(ys))]
-    max_drop = max(drops)
-
-    if max_drop > threshold:
-        risk = 'HIGH — parameter cliff detected'
-    elif max_drop > threshold * 0.5:
-        risk = 'MEDIUM — moderate sensitivity'
-    else:
-        risk = 'LOW — robust to this parameter'
-
-    return {'risk': risk, 'sensitivity': max_drop, 'best_score': best_score}
+def tornado_bar(impact, max_impact, width=24):
+    filled = int(round(impact / max_impact * width)) if max_impact > 0 else 0
+    return "\u2588" * filled + " " * (width - filled)
 
 
-# --- Plot ---------------------------------------------------------------------
-
-def plot_sensitivity(param: str, values: List[float], scores: List[float],
-                     metric: str, name: str, path: str):
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
-        return
-    valid = [(v, s) for v, s in zip(values, scores) if not math.isnan(s)]
-    if not valid:
-        return
-    xs, ys = zip(*valid)
-    fig, ax = plt.subplots(figsize=(9, 4))
-    ax.plot(xs, ys, 'o-', linewidth=2, markersize=7, color='steelblue')
-    best_x = xs[ys.index(max(ys))]
-    ax.axvline(best_x, color='green', linestyle='--', alpha=0.6, label=f'Best: {param}={best_x:.4g}')
-    ax.set_title(f'Sensitivity: {name} / {param} -> {metric}', fontweight='bold')
-    ax.set_xlabel(param)
-    ax.set_ylabel(metric)
-    ax.legend()
-    ax.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(path, dpi=150)
-    print(f"  PNG -> {path}")
+def print_tornado(impacts):
+    print("\nPARAMETER SENSITIVITY (impact on Sharpe)")
+    print("=" * 53)
+    max_imp = max(impacts.values()) if impacts else 1.0
+    for param, imp in sorted(impacts.items(), key=lambda x: -x[1]):
+        bar = tornado_bar(imp, max_imp)
+        print(f"{param:<8} {bar}  {imp:.3f}")
+    print()
+    most   = max(impacts, key=impacts.get)
+    least  = min(impacts, key=impacts.get)
+    lo_m, hi_m = PARAM_RANGES[most]
+    step_m = (hi_m - lo_m) / (N_STEPS - 1)
+    print(f"Most sensitive:  {most} (+/- {impacts[most]/2:.3f} Sharpe per {step_m:.4f} change)")
+    print(f"Least sensitive: {least} (safe to keep at default)")
 
 
-# --- Main ---------------------------------------------------------------------
+def write_md(all_results, impacts, path):
+    lines = ["# Parameter Sensitivity Analysis\n"]
+    lines.append("Objective metric: Sharpe ratio (arena + synthetic average)\n")
+    lines.append("## Impact Summary (Tornado)\n")
+    lines.append("| Parameter | Impact (Δ Sharpe) |\n")
+    lines.append("|-----------|------------------|\n")
+    for p, imp in sorted(impacts.items(), key=lambda x: -x[1]):
+        lines.append(f"| {p} | {imp:.4f} |\n")
+    lines.append("\n")
+
+    for param, rows in all_results.items():
+        lines.append(f"## {param}\n\n")
+        lines.append("| Value | Arena Sharpe | Synth Sharpe | Arena Return % | Arena DD % |\n")
+        lines.append("|-------|-------------|-------------|----------------|------------|\n")
+        for r in rows:
+            lines.append(f"| {r['value']:.6f} | {r['arena_sharpe']:.4f} | "
+                         f"{r['synth_sharpe']:.4f} | {r['arena_return']:.2f} | "
+                         f"{r['arena_dd']:.2f} |\n")
+        lines.append("\n")
+
+    with open(path, "w") as f:
+        f.writelines(lines)
+
 
 def main():
-    parser = argparse.ArgumentParser(description='SRFM parameter sensitivity')
-    parser.add_argument('strategy',        help='Strategy directory')
-    parser.add_argument('--params',        default='BH_FORM', help='Comma-separated param names')
-    parser.add_argument('--resolution',    type=int,   default=5,          help='Values per param')
-    parser.add_argument('--metric',        default='SharpeRatio')
-    parser.add_argument('--no-plot',       action='store_true')
-    args   = parser.parse_args()
+    parser = argparse.ArgumentParser(
+        description="One-at-a-time parameter sensitivity analysis for LARSA arena_v2.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument("--csv",   default="data/NDX_hourly_poly.csv",
+                        help="Path to OHLCV CSV (default: data/NDX_hourly_poly.csv)")
+    parser.add_argument("--param", default=None,
+                        choices=list(PARAM_RANGES.keys()),
+                        help="Test just one parameter (default: all)")
+    parser.add_argument("--steps", type=int, default=N_STEPS,
+                        help=f"Number of test values per parameter (default: {N_STEPS})")
+    parser.add_argument("--synth-bars", type=int, default=20000,
+                        help="Bars per synthetic world (default: 20000)")
+    args = parser.parse_args()
 
-    params   = [p.strip() for p in args.params.split(',')]
-    name     = Path(args.strategy).name
-    src_main = os.path.join(args.strategy, 'main.py')
-    out_base = os.path.join('results', name, 'sensitivity')
-    os.makedirs(out_base, exist_ok=True)
+    os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    all_results: Dict[str, List[Tuple[float, float]]] = {}
-    report_rows = []
+    # Load arena data
+    csv_path = args.csv
+    if not os.path.isabs(csv_path):
+        csv_path = os.path.join(os.path.dirname(__file__), "..", csv_path)
+    if os.path.exists(csv_path):
+        print(f"Loading arena data from {csv_path} ...")
+        bars_arena = load_ohlcv(csv_path)
+        print(f"  {len(bars_arena)} bars loaded.")
+    else:
+        print(f"WARNING: {csv_path} not found — using synthetic data for arena.")
+        bars_arena = generate_synthetic(args.synth_bars, seed=0)
 
-    for param in params:
-        print(f"\n[Param: {param}]")
-        center = read_param(src_main, param)
-        if center is None:
-            print(f"  [SKIP] '{param}' not found in {src_main}")
-            continue
-        print(f"  Current value: {center}")
-        values = build_values(center, args.resolution)
-        print(f"  Testing: {[f'{v:.4g}' for v in values]}")
+    bars_synths = [generate_synthetic(args.synth_bars, seed=s) for s in SYNTH_SEEDS]
 
-        results = run_sweep(args.strategy, param, values, args.metric, out_base)
-        all_results[param] = results
+    params_to_test = [args.param] if args.param else list(PARAM_RANGES.keys())
 
-        vals   = [r[0] for r in results]
-        scores = [r[1] for r in results]
-        risk   = overfitting_risk(vals, scores)
+    all_results = {}
+    impacts = {}
 
-        print(f"  Overfitting risk: {risk['risk']}")
+    for param in params_to_test:
+        print(f"\n--- Sweeping: {param} ({args.steps} values) ---")
+        rows = sweep_param(param, bars_arena, bars_synths, n_steps=args.steps)
+        all_results[param] = rows
+        sharpes = [r["arena_sharpe"] for r in rows]
+        impacts[param] = round(max(sharpes) - min(sharpes), 4)
 
-        for v, s in results:
-            report_rows.append({
-                'param': param, 'value': v, 'score': s,
-                'metric': args.metric, 'risk': risk['risk'],
-            })
+    print_tornado(impacts)
 
-        if not args.no_plot:
-            plot_sensitivity(
-                param, vals, scores, args.metric, name,
-                os.path.join(out_base, f'{param}_sensitivity.png'),
-            )
-
-    # CSV
-    csv_path = os.path.join(out_base, 'sensitivity_summary.csv')
-    with open(csv_path, 'w', newline='') as f:
-        if report_rows:
-            w = csv.DictWriter(f, fieldnames=report_rows[0].keys())
-            w.writeheader(); w.writerows(report_rows)
-    print(f"\nCSV -> {csv_path}")
-
-    # Markdown report
-    md_path = os.path.join(out_base, 'sensitivity_report.md')
-    with open(md_path, 'w') as f:
-        f.write(f"# Parameter Sensitivity Report — {name}\n\n")
-        f.write(f"Metric: **{args.metric}**\n\n")
-        for param, results in all_results.items():
-            vals   = [r[0] for r in results]
-            scores = [r[1] for r in results]
-            risk   = overfitting_risk(vals, scores)
-            f.write(f"## {param}\n\n")
-            f.write(f"- Overfitting risk: **{risk['risk']}**\n")
-            if risk.get('sensitivity') is not None:
-                f.write(f"- Max adjacent drop: {risk['sensitivity']:.1%}\n")
-            f.write(f"- Best {args.metric}: {risk.get('best_score', 'N/A'):.4f}\n\n")
-            f.write(f"| Value | {args.metric} |\n|-------|--------|\n")
-            for v, s in results:
-                f.write(f"| {v:.4g} | {s:.4f if not math.isnan(s) else 'FAILED'} |\n")
-            f.write("\n")
-    print(f"MD  -> {md_path}")
+    md_path = os.path.join(RESULTS_DIR, "sensitivity.md")
+    write_md(all_results, impacts, md_path)
+    print(f"\nDetailed results saved → {md_path}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
