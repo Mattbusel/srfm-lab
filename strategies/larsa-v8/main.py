@@ -237,6 +237,7 @@ class LarsaV8(QCAlgorithm):
 
         self.peak = 1_000_000.0
         self.ramp_back = 0
+        self._last_exec_hour = None   # gate: only execute on new hourly bar
 
         # Charts
         rc = Chart("Regime")
@@ -288,6 +289,14 @@ class LarsaV8(QCAlgorithm):
         # Update hourly and daily instruments (15m is handled by consolidator)
         for inst in self.non_15m_instruments.values():
             self._process_instrument(data, inst)
+
+        # Gate execution to hourly bar boundaries only.
+        # on_data fires every minute (due to minute-resolution 15m subscriptions),
+        # but we only trade when a new hourly bar has arrived — prevents fee blowup.
+        current_hour = self.time.replace(minute=0, second=0, microsecond=0)
+        if current_hour == self._last_exec_hour:
+            return
+        self._last_exec_hour = current_hour
 
         # Compute tf_score and execute per underlying
         for sym in ["ES", "NQ", "YM"]:
