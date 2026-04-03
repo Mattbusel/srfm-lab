@@ -93,9 +93,7 @@ class FutureInstrument:
         self.bh_mass = 0.0
         self.bh_form = 1.5
         self.bh_collapse = 1.0
-        # Daily BH decays fast (exits in ~3 days after move ends).
-        # Hourly/15m stay at 0.95 so entries still form normally.
-        self.bh_decay = 0.70 if res_label == "1d" else 0.95
+        self.bh_decay = 0.95
         self.bh_active = False
         self.bh_dir = 0
         self.bh_entry_price = 0.0
