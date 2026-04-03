@@ -171,6 +171,19 @@ experiments-full:
 	python tools/experiment_runner.py
 	@echo "Full experiments -> results/v2_experiments.md"
 
+# ── v8 multi-resolution arena ────────────────────────────────────────────────
+.PHONY: arena-v8
+arena-v8:
+	python tools/arena_v8.py --mode both --n-synth 5
+
+.PHONY: arena-v8-synth
+arena-v8-synth:
+	python tools/arena_v8.py --mode synth --n-synth 10 --no-lab
+
+.PHONY: arena-v8-real
+arena-v8-real:
+	python tools/arena_v8.py --mode real
+
 # ── Multi-instrument arena (convergence testing) ──────────────────────────────
 .PHONY: arena-multi
 arena-multi:
