@@ -57,7 +57,7 @@ _CORR_FACTOR = math.sqrt(N_INSTRUMENTS + N_INSTRUMENTS * (N_INSTRUMENTS - 1) * I
 PER_INST_RISK = PORTFOLIO_DAILY_RISK / _CORR_FACTOR   # ≈ 0.003450
 
 # v14: Two-gear split
-TAIL_FIXED_CAPITAL = 22_000_000.0  # Gear 1 scales with equity up to $22M
+TAIL_FIXED_CAPITAL = 3_000_000.0   # Gear 1 fixed at $3M (proven Geeky Orange Sheep level)
 HARVEST_RISK_PER_INST = 0.02       # 2% of harvest allocation per instrument
 HARVEST_Z_ENTRY = 1.5              # enter fade when |z-score| exceeds this
 HARVEST_Z_EXIT  = 0.3              # exit when z-score returns near zero
