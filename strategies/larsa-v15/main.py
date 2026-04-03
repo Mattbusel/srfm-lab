@@ -119,7 +119,8 @@ class FutureInstrument:
         self.ctl = 0
         self.bit = "UNKNOWN"
         self.bc = 0
-        self.last_target = 0.0
+        self.last_target = 0.0   # combined target (for set_holdings threshold)
+        self.g1_target   = 0.0   # gear1-only target (for gear1 hold gate / reversal logic)
         self.bars_held = 0
 
         # Gear 2 harvest state
@@ -362,10 +363,6 @@ class LarsaV15(QCAlgorithm):
             combined = float(raw_combined[sym] * port_scale)
 
             if abs(combined - i1h.last_target) > 0.02:
-                if np.isclose(combined, 0.0):
-                    i1h.bars_held = 0
-                elif np.sign(combined) != np.sign(i1h.last_target):
-                    i1h.bars_held = 0
                 i1h.last_target = combined
                 self.set_holdings(mapped, combined)
 
@@ -385,7 +382,7 @@ class LarsaV15(QCAlgorithm):
         targets = {"ES": 0.0, "NQ": 0.0, "YM": 0.0}
 
         for i1h in self.instr_1h.values():
-            if abs(i1h.last_target) > 0.02:
+            if abs(i1h.g1_target) > 0.02:
                 i1h.bars_held += 1
 
         raw = {}
@@ -399,7 +396,7 @@ class LarsaV15(QCAlgorithm):
 
             tf_score = (4 * int(i1d.bh_active) + 2 * int(i1h.bh_active) + int(i15.bh_active))
             ceiling  = TF_CAP[tf_score]
-            if tf_score == 1 and np.isclose(i1h.last_target, 0.0):
+            if tf_score == 1 and np.isclose(i1h.g1_target, 0.0):
                 ceiling = 0.0
 
             if ceiling == 0.0:
@@ -433,26 +430,28 @@ class LarsaV15(QCAlgorithm):
             # pos_floor
             if tf_score >= 6 and not np.isclose(tgt, 0.0) and abs(tgt) > 0.15 and i1h.ctl >= 5:
                 i1h.pos_floor = max(i1h.pos_floor, 0.70 * abs(tgt))
-            if i1h.pos_floor > 0.0 and tf_score >= 4 and not np.isclose(i1h.last_target, 0.0):
-                tgt = float(np.sign(i1h.last_target) * max(abs(tgt), i1h.pos_floor))
+            if i1h.pos_floor > 0.0 and tf_score >= 4 and not np.isclose(i1h.g1_target, 0.0):
+                tgt = float(np.sign(i1h.g1_target) * max(abs(tgt), i1h.pos_floor))
                 i1h.pos_floor *= 0.95
             if tf_score < 4 or np.isclose(tgt, 0.0):
                 i1h.pos_floor = 0.0
             if not i1d.bh_active and not i1h.bh_active:
                 i1h.pos_floor = 0.0
 
-            is_reversal = (not np.isclose(i1h.last_target, 0.0) and
+            is_reversal = (not np.isclose(i1h.g1_target, 0.0) and
                            not np.isclose(tgt, 0.0) and
-                           np.sign(tgt) != np.sign(i1h.last_target))
+                           np.sign(tgt) != np.sign(i1h.g1_target))
             if is_reversal and i1h.bars_held < MIN_HOLD_BARS:
-                tgt = i1h.last_target
+                tgt = i1h.g1_target
 
             raw[sym] = tgt
 
         total_exp = sum(abs(v) for v in raw.values())
         scale = 1.0 / total_exp if total_exp > 1.0 else 1.0
         for sym in ["ES", "NQ", "YM"]:
-            targets[sym] = raw[sym] * scale * tail_frac
+            g1_scaled = raw[sym] * scale * tail_frac
+            self.instr_1h[sym].g1_target = g1_scaled
+            targets[sym] = g1_scaled
         return targets
 
     # ── GEAR 2: Harvest / Mean Reversion ─────────────────────────────────────
