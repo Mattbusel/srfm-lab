@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>LARSA Convergence Well Gallery</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a1a; color: #c9d1d9; font-family: 'Courier New', monospace; overflow: hidden; }
+
+    #info {
+      position: absolute; top: 12px; left: 12px; z-index: 100;
+      background: rgba(10,10,30,0.85); border: 1px solid #333;
+      padding: 12px 18px; border-radius: 6px; max-width: 320px;
+    }
+    #info h1 { color: #58a6ff; font-size: 14px; margin-bottom: 6px; }
+    #info p  { font-size: 11px; color: #888; line-height: 1.6; }
+
+    #popup {
+      display: none;
+      position: absolute; z-index: 200;
+      background: rgba(13,17,23,0.96); border: 1px solid #58a6ff;
+      padding: 14px 18px; border-radius: 8px;
+      min-width: 220px; pointer-events: none;
+    }
+    #popup h2 { color: #58a6ff; font-size: 13px; margin-bottom: 8px; }
+    #popup .row { display: flex; justify-content: space-between; font-size: 11px; margin: 3px 0; }
+    #popup .lbl { color: #888; }
+    #popup .val { color: #c9d1d9; }
+    #popup .win  { color: #00ff88; font-weight: bold; }
+    #popup .loss { color: #ff4444; font-weight: bold; }
+
+    #legend {
+      position: absolute; bottom: 12px; left: 12px; z-index: 100;
+      background: rgba(10,10,30,0.85); border: 1px solid #333;
+      padding: 10px 14px; border-radius: 6px; font-size: 11px;
+    }
+    #legend .dot { display: inline-block; width: 10px; height: 10px;
+                   border-radius: 50%; margin-right: 6px; }
+
+    #controls {
+      position: absolute; bottom: 12px; right: 12px; z-index: 100;
+      background: rgba(10,10,30,0.85); border: 1px solid #333;
+      padding: 10px 14px; border-radius: 6px; font-size: 11px; color: #888;
+    }
+
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+
+<div id="info">
+  <h1>LARSA Convergence Well Gallery</h1>
+  <p>Top 10 gravitational wells by P&L magnitude.<br>
+     Each surface = a convergence event.<br>
+     Depth ∝ BH mass. <b>Hover</b> a well for details.<br>
+     <b>Drag</b> to orbit · <b>Scroll</b> to zoom.</p>
+</div>
+
+<div id="popup">
+  <h2 id="pop-title"></h2>
+  <div class="row"><span class="lbl">Instruments</span><span class="val" id="pop-inst"></span></div>
+  <div class="row"><span class="lbl">P&L</span><span id="pop-pnl"></span></div>
+  <div class="row"><span class="lbl">Duration</span><span class="val" id="pop-dur"></span></div>
+  <div class="row"><span class="lbl">Result</span><span id="pop-result"></span></div>
+</div>
+
+<div id="legend">
+  <div><span class="dot" style="background:#00ff88"></span>Winning well</div>
+  <div style="margin-top:4px"><span class="dot" style="background:#ff4444"></span>Losing well</div>
+</div>
+
+<div id="controls">
+  Drag: orbit &nbsp;|&nbsp; Scroll: zoom &nbsp;|&nbsp; Hover: details
+</div>
+
+<script>
+// ── Well data (top 10 from trade_analysis_data.json) ─────────────────────────
+const wells = [
+  {date:"2018-02-07", instruments:"NQ",      pnl:178560,  win:true,  duration_h:3,  bh_mass:2.1},
+  {date:"2018-10-11", instruments:"ES",       pnl:-127750, win:false, duration_h:6,  bh_mass:1.8},
+  {date:"2020-02-24", instruments:"ES+NQ",    pnl:312500,  win:true,  duration_h:18, bh_mass:2.4},
+  {date:"2020-11-06", instruments:"YM",       pnl:436205,  win:true,  duration_h:67, bh_mass:2.6},
+  {date:"2021-01-27", instruments:"ES+NQ+YM", pnl:215000,  win:true,  duration_h:24, bh_mass:2.2},
+  {date:"2022-03-16", instruments:"ES",       pnl:-148200, win:false, duration_h:8,  bh_mass:1.6},
+  {date:"2023-03-13", instruments:"NQ",       pnl:198400,  win:true,  duration_h:12, bh_mass:1.9},
+  {date:"2023-11-13", instruments:"NQ+YM",    pnl:328200,  win:true,  duration_h:20, bh_mass:2.3},
+  {date:"2023-12-12", instruments:"NQ+YM",    pnl:453285,  win:true,  duration_h:30, bh_mass:2.7},
+  {date:"2024-08-05", instruments:"ES+YM",    pnl:287650,  win:true,  duration_h:15, bh_mass:2.0},
+];
+
+// ── Three.js setup ───────────────────────────────────────────────────────────
+const W = window.innerWidth, H = window.innerHeight;
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a1a);
+scene.fog = new THREE.FogExp2(0x0a0a1a, 0.015);
+
+const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 1000);
+camera.position.set(0, 18, 28);
+camera.lookAt(0, 0, 0);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 5;
+controls.maxDistance = 80;
+
+// Lights
+scene.add(new THREE.AmbientLight(0x1a1a3a, 1.5));
+const dirLight = new THREE.DirectionalLight(0x6688ff, 1.2);
+dirLight.position.set(5, 20, 10);
+dirLight.castShadow = true;
+scene.add(dirLight);
+scene.add(new THREE.PointLight(0x00ffaa, 0.6, 40));
+
+// Grid
+const grid = new THREE.GridHelper(60, 30, 0x222244, 0x111133);
+scene.add(grid);
+
+// ── Well mesh builder ────────────────────────────────────────────────────────
+const GRID_RES = 40;
+
+function wellHeight(u, v, bhMass, pnlMag) {
+  const cx = u - 0.5, cy = v - 0.5;
+  const r2 = cx * cx + cy * cy;
+  const depth = bhMass * (pnlMag / 400000) * 3.5;
+  return -depth * Math.exp(-r2 * 14) + 0.3 * Math.sin(u * Math.PI * 4) * 0.1;
+}
+
+function buildWellMesh(well, cx, cz) {
+  const pnlMag = Math.abs(well.pnl);
+  const size = 4.5 + (pnlMag / 450000) * 2.5;
+  const geom = new THREE.BufferGeometry();
+  const positions = [], colors = [], indices = [];
+
+  const baseColor = well.win
+    ? new THREE.Color(0x00ff88)
+    : new THREE.Color(0xff3333);
+  const rimColor  = well.win
+    ? new THREE.Color(0x004422)
+    : new THREE.Color(0x440011);
+
+  for (let i = 0; i <= GRID_RES; i++) {
+    for (let j = 0; j <= GRID_RES; j++) {
+      const u = i / GRID_RES, v = j / GRID_RES;
+      const x = (u - 0.5) * size;
+      const z = (v - 0.5) * size;
+      const y = wellHeight(u, v, well.bh_mass, pnlMag);
+      positions.push(cx + x, y, cz + z);
+      // Colour: bright at well centre, dim at edges
+      const t = Math.exp(-(u - 0.5) ** 2 * 12 - (v - 0.5) ** 2 * 12);
+      const c = rimColor.clone().lerp(baseColor, t);
+      colors.push(c.r, c.g, c.b);
+    }
+  }
+  for (let i = 0; i < GRID_RES; i++) {
+    for (let j = 0; j < GRID_RES; j++) {
+      const a = i * (GRID_RES + 1) + j;
+      const b = a + 1;
+      const c = a + (GRID_RES + 1);
+      const d = c + 1;
+      indices.push(a, b, d, a, d, c);
+    }
+  }
+
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute('color',    new THREE.Float32BufferAttribute(colors,    3));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+
+  const mat = new THREE.MeshPhongMaterial({
+    vertexColors: true,
+    side: THREE.DoubleSide,
+    shininess: 80,
+    transparent: true,
+    opacity: 0.88,
+    wireframe: false,
+  });
+
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.receiveShadow = true;
+  mesh.userData = { well, cx, cz };
+
+  // Wireframe overlay
+  const wireMat = new THREE.MeshBasicMaterial({
+    color: well.win ? 0x00ff8844 : 0xff444444,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.12,
+  });
+  const wire = new THREE.Mesh(geom, wireMat);
+  mesh.add(wire);
+
+  return mesh;
+}
+
+// ── Label sprite ─────────────────────────────────────────────────────────────
+function makeLabel(text, color) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,0)';
+  ctx.fillRect(0, 0, 256, 64);
+  ctx.font = 'bold 18px monospace';
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  ctx.fillText(text, 128, 38);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(3.5, 0.9, 1);
+  return sprite;
+}
+
+// ── Place wells in a grid ────────────────────────────────────────────────────
+const wellMeshes = [];
+const COLS = 4, PAD = 13;
+
+wells.forEach((well, idx) => {
+  const col = idx % COLS;
+  const row = Math.floor(idx / COLS);
+  const cx = (col - (COLS - 1) / 2) * PAD;
+  const cz = (row - 0.5) * PAD;
+
+  const mesh = buildWellMesh(well, cx, cz);
+  scene.add(mesh);
+  wellMeshes.push(mesh);
+
+  const labelColor = well.win ? '#00ff88' : '#ff4444';
+  const label = makeLabel(
+    well.date + ' ' + (well.win ? '▲' : '▼') + ' $' + (well.pnl / 1000).toFixed(0) + 'k',
+    labelColor
+  );
+  label.position.set(cx, 1.8, cz);
+  scene.add(label);
+});
+
+// ── Raycasting for hover ─────────────────────────────────────────────────────
+const raycaster = new THREE.Raycaster();
+const mouse     = new THREE.Vector2();
+const popup     = document.getElementById('popup');
+let   hoveredMesh = null;
+
+window.addEventListener('mousemove', e => {
+  mouse.x =  (e.clientX / W) * 2 - 1;
+  mouse.y = -(e.clientY / H) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(wellMeshes, false);
+
+  if (hits.length > 0) {
+    const mesh = hits[0].object;
+    if (mesh !== hoveredMesh) {
+      if (hoveredMesh) hoveredMesh.material.emissive && (hoveredMesh.material.emissive.setHex(0x000000));
+      hoveredMesh = mesh;
+      hoveredMesh.material.emissive && hoveredMesh.material.emissive.setHex(0x112233);
+    }
+    const w = mesh.userData.well;
+    document.getElementById('pop-title').textContent = 'Well: ' + w.date;
+    document.getElementById('pop-inst').textContent  = w.instruments;
+    const pnlEl = document.getElementById('pop-pnl');
+    pnlEl.textContent = '$' + w.pnl.toLocaleString();
+    pnlEl.className   = 'val ' + (w.win ? 'win' : 'loss');
+    document.getElementById('pop-dur').textContent    = w.duration_h + 'h';
+    const resEl = document.getElementById('pop-result');
+    resEl.textContent = w.win ? 'WIN' : 'LOSS';
+    resEl.className   = w.win ? 'win' : 'loss';
+
+    popup.style.display = 'block';
+    popup.style.left = (e.clientX + 16) + 'px';
+    popup.style.top  = (e.clientY - 10) + 'px';
+  } else {
+    if (hoveredMesh) {
+      hoveredMesh.material.emissive && hoveredMesh.material.emissive.setHex(0x000000);
+      hoveredMesh = null;
+    }
+    popup.style.display = 'none';
+  }
+});
+
+// ── Animation loop ───────────────────────────────────────────────────────────
+let frame = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  frame++;
+  const t = frame * 0.012;
+
+  // Pulse wells
+  wellMeshes.forEach((mesh, i) => {
+    const w = mesh.userData.well;
+    const pulse = 1 + 0.04 * Math.sin(t + i * 0.9) * (Math.abs(w.pnl) / 450000);
+    mesh.scale.y = pulse;
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  const W2 = window.innerWidth, H2 = window.innerHeight;
+  camera.aspect = W2 / H2;
+  camera.updateProjectionMatrix();
+  renderer.setSize(W2, H2);
+});
+
+animate();
+</script>
+</body>
+</html>

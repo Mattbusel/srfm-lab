@@ -325,6 +325,106 @@ sweep-rust:
 sweep-python:
 	python -c "from tools.fast_arena import sweep_fast; from tools.arena_v2 import generate_synthetic; bars=generate_synthetic(20000); import json; r=sweep_fast(bars, {'cf':[0.002,0.004,0.006,0.008,0.010],'max_lev':[0.40,0.55,0.65,0.80]}); print(r.to_string())"
 
+# ── QuantStats tearsheet ────────────────────────────────────────────
+.PHONY: tearsheet
+tearsheet:
+	python tools/quantstats_report.py --json research/trade_analysis_data.json
+	@echo "Open results/tearsheet.html in browser"
+
+# ── Optuna Bayesian optimization ────────────────────────────────────
+# (sweep already defined above for param sweeps; autotuner is distinct)
+.PHONY: autotune
+autotune:
+	python tools/autotuner.py --trials 100 --csv data/NDX_hourly_poly.csv
+
+# ── Rust turbo arena ────────────────────────────────────────────────
+.PHONY: turbo
+turbo:
+	CARGO_HOME=C:/Users/Matthew/.cargo cargo build --manifest-path crates/srfm-tools/Cargo.toml --bin srfm_turbo --release
+	./crates/srfm-tools/target/release/srfm_turbo --synthetic 50000 --trials 10000
+
+# ── SHAP explainer ──────────────────────────────────────────────────
+.PHONY: explain
+explain:
+	python tools/explainer.py
+
+# ── HMM regime detection ────────────────────────────────────────────
+.PHONY: hmm
+hmm:
+	python tools/hmm_regime.py --csv data/NDX_hourly_poly.csv
+
+# ── GARCH volatility ────────────────────────────────────────────────
+.PHONY: garch
+garch:
+	python tools/garch_vol.py --csv data/NDX_hourly_poly.csv
+
+# ── Feature mining ──────────────────────────────────────────────────
+.PHONY: features
+features:
+	python tools/feature_mine.py --csv data/NDX_hourly_poly.csv
+
+# ── Kelly optimal sizing ────────────────────────────────────────────
+.PHONY: kelly
+kelly:
+	python tools/kelly.py
+
+# ── WASM build ──────────────────────────────────────────────────────
+.PHONY: wasm
+wasm:
+	cd crates/larsa-wasm && CARGO_HOME=C:/Users/Matthew/.cargo wasm-pack build --target web
+	@echo "WASM built: crates/larsa-wasm/pkg/"
+
+# ── Terminal dashboard ──────────────────────────────────────────────
+.PHONY: tui
+tui:
+	cd cmd/srfm-tui && go run .
+
+# ── Manim animation ─────────────────────────────────────────────────
+.PHONY: animate
+animate:
+	manim -pql tools/manim_srfm.py SRFM
+	@echo "Or: python tools/manim_srfm.py (SVG storyboard fallback)"
+
+# ── 3D well gallery ─────────────────────────────────────────────────
+.PHONY: gallery
+gallery:
+	@echo "Open tools/web/well_gallery.html in browser"
+	python -m http.server 8080 --directory tools/web &
+
+# ── Interactive regime graph ─────────────────────────────────────────
+.PHONY: network
+network:
+	python tools/regime_network.py 2>/dev/null || \
+		echo "Opening tools/web/regime_force.html directly"
+	@echo "Open tools/web/regime_force.html in browser"
+
+# ── R statistical reports ───────────────────────────────────────────
+.PHONY: r-tearsheet
+r-tearsheet:
+	Rscript scripts/r_tearsheet.R
+
+.PHONY: r-garch
+r-garch:
+	Rscript scripts/r_garch.R
+
+.PHONY: r-tables
+r-tables:
+	Rscript scripts/r_tables.R
+
+.PHONY: r-install
+r-install:
+	Rscript scripts/install_r_packages.R
+
+# ── Live Dash dashboard ─────────────────────────────────────────────
+.PHONY: dash
+dash:
+	python tools/dash_app.py
+
+# ── Run everything ──────────────────────────────────────────────────
+.PHONY: all
+all: kelly hmm garch features explain network tearsheet turbo
+	@echo "All tools complete. Results in results/"
+
 .PHONY: help
 help:
 	@echo ""
@@ -374,4 +474,23 @@ help:
 	@echo "  make stats                        Run R statistical tests"
 	@echo "  make journal                      Show experiment journal"
 	@echo "  make regime-graph                 Graphviz state machine"
+	@echo ""
+	@echo "── Statistical / Visualization ───────────────────────────"
+	@echo "  make tearsheet                    QuantStats HTML tearsheet"
+	@echo "  make r-tearsheet                  R PerformanceAnalytics tearsheet"
+	@echo "  make r-garch                      R DCC-GARCH vol forecasts"
+	@echo "  make r-tables                     R GT publication tables"
+	@echo "  make r-install                    Install R packages"
+	@echo "  make tui                          Go terminal dashboard"
+	@echo "  make gallery                      3D well gallery (browser)"
+	@echo "  make network                      D3 regime network (browser)"
+	@echo "  make animate                      Manim SRFM animation"
+	@echo "  make dash                         Live Dash dashboard"
+	@echo "  make wasm                         Build WASM module"
+	@echo "  make turbo                        Rust turbo arena"
+	@echo "  make explain                      SHAP explainer"
+	@echo "  make hmm                          HMM regime detection"
+	@echo "  make garch                        Python GARCH volatility"
+	@echo "  make features                     Feature mining"
+	@echo "  make kelly                        Kelly optimal sizing"
 	@echo ""

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>LARSA Regime Transition Network</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a1a;
+      color: #c9d1d9;
+      font-family: 'Courier New', monospace;
+      overflow: hidden;
+    }
+
+    #title {
+      position: absolute; top: 14px; left: 50%;
+      transform: translateX(-50%);
+      color: #58a6ff; font-size: 15px; font-weight: bold;
+      text-align: center; z-index: 10;
+      pointer-events: none;
+    }
+    #subtitle {
+      position: absolute; top: 36px; left: 50%;
+      transform: translateX(-50%);
+      color: #666; font-size: 11px;
+      text-align: center; z-index: 10;
+      pointer-events: none;
+    }
+
+    #legend {
+      position: absolute; top: 14px; left: 14px; z-index: 10;
+      background: rgba(10,10,30,0.9); border: 1px solid #333;
+      padding: 10px 14px; border-radius: 6px; font-size: 11px;
+    }
+    #legend h3 { color: #58a6ff; font-size: 11px; margin-bottom: 8px; }
+    .leg-row { display: flex; align-items: center; margin: 4px 0; }
+    .leg-dot  { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; flex-shrink:0; }
+    .leg-line { width: 24px; height: 3px; margin-right: 8px; flex-shrink:0; }
+
+    #stats {
+      position: absolute; top: 14px; right: 14px; z-index: 10;
+      background: rgba(10,10,30,0.9); border: 1px solid #333;
+      padding: 10px 14px; border-radius: 6px; font-size: 11px;
+      min-width: 200px;
+    }
+    #stats h3 { color: #58a6ff; font-size: 11px; margin-bottom: 8px; }
+    .stat-row  { display: flex; justify-content: space-between; margin: 3px 0; }
+    .stat-lbl  { color: #888; }
+    .stat-val  { color: #c9d1d9; }
+
+    #tooltip {
+      position: absolute; z-index: 200;
+      background: rgba(13,17,23,0.96); border: 1px solid #58a6ff;
+      padding: 10px 14px; border-radius: 6px;
+      font-size: 11px; pointer-events: none;
+      display: none; min-width: 200px;
+    }
+    #tooltip h4 { color: #58a6ff; margin-bottom: 6px; }
+    #tooltip .t-row { display: flex; justify-content: space-between; margin: 2px 0; }
+
+    svg { display: block; }
+    .node-label { font-size: 13px; font-weight: bold; pointer-events: none; }
+    .link-label { font-size: 9px; fill: #888; pointer-events: none; }
+    .link       { stroke-opacity: 0.7; }
+  </style>
+</head>
+<body>
+
+<div id="title">LARSA Regime Transition Network</div>
+<div id="subtitle">Node size ∝ time in regime &nbsp;·&nbsp; Edge width ∝ transition frequency &nbsp;·&nbsp; Hover for details</div>
+
+<div id="legend">
+  <h3>Regimes</h3>
+  <div class="leg-row"><div class="leg-dot" style="background:#00dd66"></div>BULL</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#ff4444"></div>BEAR</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#ffcc00"></div>SIDEWAYS</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#cc44ff"></div>HIGH_VOL</div>
+  <hr style="border-color:#333;margin:8px 0">
+  <h3>Transitions</h3>
+  <div class="leg-row"><div class="leg-line" style="background:#00ff88"></div>Profitable (&gt;50% WR)</div>
+  <div class="leg-row"><div class="leg-line" style="background:#ff4444"></div>Loss-generating (&lt;50% WR)</div>
+  <div class="leg-row"><div class="leg-line" style="background:#888"></div>Neutral</div>
+</div>
+
+<div id="stats">
+  <h3>Summary Statistics</h3>
+  <div class="stat-row"><span class="stat-lbl">Total transitions</span><span class="stat-val">355</span></div>
+  <div class="stat-row"><span class="stat-lbl">Most common</span><span class="stat-val">BULL→BULL</span></div>
+  <div class="stat-row"><span class="stat-lbl">Best transition WR</span><span class="stat-val" style="color:#00ff88">BULL→BULL 55%</span></div>
+  <div class="stat-row"><span class="stat-lbl">Worst transition WR</span><span class="stat-val" style="color:#ff4444">SIDE→BEAR 39%</span></div>
+  <div class="stat-row"><span class="stat-lbl">Avg. Sharpe (BULL)</span><span class="stat-val">4.29</span></div>
+</div>
+
+<div id="tooltip">
+  <h4 id="tt-title"></h4>
+  <div class="t-row"><span class="stat-lbl">Trades</span><span class="stat-val" id="tt-trades"></span></div>
+  <div class="t-row"><span class="stat-lbl">Win Rate</span><span id="tt-wr"></span></div>
+  <div class="t-row"><span class="stat-lbl">Frequency</span><span class="stat-val" id="tt-freq"></span></div>
+</div>
+
+<svg id="svg"></svg>
+
+<script>
+// ── Data ─────────────────────────────────────────────────────────────────────
+const nodes = [
+  {id: "BULL",     label: "BULL",     color: "#00dd66", time_pct: 0.55, trades: 287},
+  {id: "SIDEWAYS", label: "SIDEWAYS", color: "#ffcc00", time_pct: 0.23, trades: 56},
+  {id: "BEAR",     label: "BEAR",     color: "#ff4444", time_pct: 0.14, trades: 23},
+  {id: "HIGH_VOL", label: "HIGH VOL", color: "#cc44ff", time_pct: 0.08, trades: 11},
+];
+
+// source, target, freq (0-1 within source), trades, win_rate
+const links = [
+  {source:"BULL",     target:"BULL",     freq:0.971, trades:287, wr:0.55},
+  {source:"BULL",     target:"SIDEWAYS", freq:0.024, trades:45,  wr:0.48},
+  {source:"BULL",     target:"BEAR",     freq:0.003, trades:8,   wr:0.38},
+  {source:"BULL",     target:"HIGH_VOL", freq:0.002, trades:5,   wr:0.40},
+  {source:"SIDEWAYS", target:"BULL",     freq:0.68,  trades:38,  wr:0.51},
+  {source:"SIDEWAYS", target:"SIDEWAYS", freq:0.20,  trades:28,  wr:0.46},
+  {source:"SIDEWAYS", target:"BEAR",     freq:0.08,  trades:21,  wr:0.39},
+  {source:"SIDEWAYS", target:"HIGH_VOL", freq:0.04,  trades:9,   wr:0.44},
+  {source:"BEAR",     target:"BULL",     freq:0.45,  trades:17,  wr:0.47},
+  {source:"BEAR",     target:"SIDEWAYS", freq:0.30,  trades:12,  wr:0.42},
+  {source:"BEAR",     target:"BEAR",     freq:0.18,  trades:23,  wr:0.35},
+  {source:"BEAR",     target:"HIGH_VOL", freq:0.07,  trades:6,   wr:0.33},
+  {source:"HIGH_VOL", target:"BULL",     freq:0.55,  trades:11,  wr:0.45},
+  {source:"HIGH_VOL", target:"BEAR",     freq:0.25,  trades:8,   wr:0.38},
+  {source:"HIGH_VOL", target:"SIDEWAYS", freq:0.15,  trades:5,   wr:0.40},
+  {source:"HIGH_VOL", target:"HIGH_VOL", freq:0.05,  trades:3,   wr:0.33},
+];
+
+// ── SVG setup ─────────────────────────────────────────────────────────────────
+const W = window.innerWidth, H = window.innerHeight;
+const svg = d3.select('#svg').attr('width', W).attr('height', H);
+
+// Arrow marker defs
+const defs = svg.append('defs');
+['profitable', 'loss', 'neutral'].forEach(t => {
+  const col = t === 'profitable' ? '#00ff88' : t === 'loss' ? '#ff4444' : '#666688';
+  defs.append('marker')
+    .attr('id', 'arrow-' + t)
+    .attr('viewBox', '0 -5 10 10')
+    .attr('refX', 28)
+    .attr('refY', 0)
+    .attr('markerWidth', 6)
+    .attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path')
+      .attr('d', 'M0,-5L10,0L0,5')
+      .attr('fill', col);
+});
+
+// Background stars
+const starGroup = svg.append('g');
+for (let i = 0; i < 120; i++) {
+  starGroup.append('circle')
+    .attr('cx', Math.random() * W)
+    .attr('cy', Math.random() * H)
+    .attr('r',  Math.random() * 1.2 + 0.2)
+    .attr('fill', '#ffffff')
+    .attr('opacity', Math.random() * 0.4 + 0.1);
+}
+
+// Link scale
+const maxFreq = d3.max(links, d => d.freq);
+const strokeScale = d3.scaleLinear().domain([0, maxFreq]).range([1, 10]);
+
+function linkColor(d) {
+  return d.wr > 0.50 ? '#00ff88' : d.wr < 0.45 ? '#ff4444' : '#666688';
+}
+function linkType(d) {
+  return d.wr > 0.50 ? 'profitable' : d.wr < 0.45 ? 'loss' : 'neutral';
+}
+
+// Link elements
+const linkG = svg.append('g').attr('class', 'links');
+const linkSel = linkG.selectAll('line')
+  .data(links)
+  .enter().append('line')
+    .attr('class', 'link')
+    .attr('stroke', d => linkColor(d))
+    .attr('stroke-width', d => strokeScale(d.freq))
+    .attr('marker-end', d => 'url(#arrow-' + linkType(d) + ')');
+
+// Link labels
+const linkLabelSel = linkG.selectAll('text')
+  .data(links.filter(d => d.freq > 0.05 && d.source !== d.target))
+  .enter().append('text')
+    .attr('class', 'link-label')
+    .text(d => (d.wr * 100).toFixed(0) + '%');
+
+// Node radius scale
+const rScale = d3.scaleSqrt().domain([0, 1]).range([20, 65]);
+
+// Node elements
+const nodeG = svg.append('g').attr('class', 'nodes');
+const nodeData = nodes.map(d => ({...d}));
+
+const nodeSel = nodeG.selectAll('g')
+  .data(nodeData)
+  .enter().append('g')
+    .call(d3.drag()
+      .on('start', dragStart)
+      .on('drag',  dragged)
+      .on('end',   dragEnd));
+
+// Glow filter
+const glowDef = defs.append('filter').attr('id', 'glow');
+glowDef.append('feGaussianBlur').attr('stdDeviation', '6').attr('result', 'blur');
+const feMerge = glowDef.append('feMerge');
+feMerge.append('feMergeNode').attr('in', 'blur');
+feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
+nodeSel.append('circle')
+  .attr('r', d => rScale(d.time_pct))
+  .attr('fill', d => d.color + '33')
+  .attr('stroke', d => d.color)
+  .attr('stroke-width', 2.5)
+  .attr('filter', 'url(#glow)');
+
+// Pulse ring
+nodeSel.append('circle')
+  .attr('class', 'pulse-ring')
+  .attr('r', d => rScale(d.time_pct))
+  .attr('fill', 'none')
+  .attr('stroke', d => d.color)
+  .attr('stroke-width', 1.5)
+  .attr('opacity', 0.5);
+
+nodeSel.append('text')
+  .attr('class', 'node-label')
+  .attr('text-anchor', 'middle')
+  .attr('dy', '0.35em')
+  .attr('fill', d => d.color)
+  .text(d => d.label);
+
+nodeSel.append('text')
+  .attr('text-anchor', 'middle')
+  .attr('dy', d => rScale(d.time_pct) + 14)
+  .attr('fill', '#888')
+  .attr('font-size', '10px')
+  .text(d => d.trades + ' trades');
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+const tooltip = document.getElementById('tooltip');
+
+linkSel
+  .on('mousemove', (event, d) => {
+    const src = typeof d.source === 'object' ? d.source.id : d.source;
+    const tgt = typeof d.target === 'object' ? d.target.id : d.target;
+    document.getElementById('tt-title').textContent  = src + ' → ' + tgt;
+    document.getElementById('tt-trades').textContent = d.trades;
+    const wrEl = document.getElementById('tt-wr');
+    wrEl.textContent = (d.wr * 100).toFixed(0) + '%';
+    wrEl.style.color = d.wr > 0.50 ? '#00ff88' : '#ff4444';
+    document.getElementById('tt-freq').textContent   = (d.freq * 100).toFixed(1) + '%';
+    tooltip.style.display = 'block';
+    tooltip.style.left = (event.pageX + 14) + 'px';
+    tooltip.style.top  = (event.pageY - 10) + 'px';
+  })
+  .on('mouseleave', () => { tooltip.style.display = 'none'; });
+
+nodeSel
+  .on('mousemove', (event, d) => {
+    document.getElementById('tt-title').textContent  = d.label + ' regime';
+    document.getElementById('tt-trades').textContent = d.trades;
+    document.getElementById('tt-wr').textContent     = '';
+    document.getElementById('tt-freq').textContent   = (d.time_pct * 100).toFixed(0) + '% of time';
+    tooltip.style.display = 'block';
+    tooltip.style.left = (event.pageX + 14) + 'px';
+    tooltip.style.top  = (event.pageY - 10) + 'px';
+  })
+  .on('mouseleave', () => { tooltip.style.display = 'none'; });
+
+// ── Force simulation ──────────────────────────────────────────────────────────
+const simulation = d3.forceSimulation(nodeData)
+  .force('charge', d3.forceManyBody().strength(-600))
+  .force('center',  d3.forceCenter(W / 2, H / 2))
+  .force('link',    d3.forceLink(links).id(d => d.id).distance(220).strength(0.4))
+  .force('collide', d3.forceCollide().radius(d => rScale(d.time_pct) + 20))
+  .on('tick', ticked);
+
+function ticked() {
+  linkSel
+    .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+    .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+
+  linkLabelSel.attr('x', d => {
+    const sx = typeof d.source === 'object' ? d.source.x : 0;
+    const tx = typeof d.target === 'object' ? d.target.x : 0;
+    return (sx + tx) / 2;
+  }).attr('y', d => {
+    const sy = typeof d.source === 'object' ? d.source.y : 0;
+    const ty = typeof d.target === 'object' ? d.target.y : 0;
+    return (sy + ty) / 2 - 4;
+  });
+
+  nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+}
+
+function dragStart(event, d) {
+  if (!event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x; d.fy = d.y;
+}
+function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+function dragEnd(event, d) {
+  if (!event.active) simulation.alphaTarget(0);
+  d.fx = null; d.fy = null;
+}
+
+// ── Pulse animation ───────────────────────────────────────────────────────────
+function pulse() {
+  nodeG.selectAll('.pulse-ring')
+    .transition().duration(1400)
+      .attr('r', d => rScale(d.time_pct) * 1.55)
+      .attr('opacity', 0)
+    .transition().duration(0)
+      .attr('r', d => rScale(d.time_pct))
+      .attr('opacity', 0.5)
+    .on('end', pulse);
+}
+pulse();
+
+window.addEventListener('resize', () => {
+  const W2 = window.innerWidth, H2 = window.innerHeight;
+  svg.attr('width', W2).attr('height', H2);
+  simulation.force('center', d3.forceCenter(W2 / 2, H2 / 2)).alpha(0.3).restart();
+});
+</script>
+</body>
+</html>
