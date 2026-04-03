@@ -1,0 +1,42 @@
+# LARSA v3 Strategy Config
+# Generated: 2026-04-03
+# QC backtest: 2018-01-01 to 2024-12-31, $1M IB margin, ES/NQ/YM hourly
+
+version = v3
+class = LarsaMultiFuturesAlgorithm
+
+[physics]
+cf_es = 0.001
+cf_nq = 0.0012
+cf_ym = 0.0008
+bh_form = 1.5
+bh_collapse = 1.0
+bh_decay = 0.95
+
+[sizing]
+max_leverage = 0.65
+solo_bh_cap = 0.40
+convergence_2x = 1.7
+convergence_3x = 2.5
+
+[gates]
+tl_req_normal = 3
+tl_req_high_vol = 1
+pos_floor_trigger_ctl = 5
+pos_floor_retention = 0.70
+pos_floor_decay = 0.95
+geo_raw_kill = 2.0
+weak_bars_kill = 3
+min_bar_count = 120
+
+[risk]
+max_drawdown_gate = 0.12
+daily_loss_limit = 0.03
+trail_at_150pct = 0.10
+trail_at_100pct = 0.12
+trail_at_50pct = 0.15
+
+[instruments]
+es_multiplier = 50
+nq_multiplier = 20
+ym_multiplier = 5

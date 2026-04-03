@@ -1,0 +1,7958 @@
+{
+  "summary": {
+    "n_trades": 485,
+    "n_wells": 273,
+    "total_pnl": 2101548.75,
+    "total_fees": 99964.25,
+    "net_pnl": 2001584.5,
+    "total_return_pct": 210.154875,
+    "win_rate_pct": 52.37113402061856,
+    "win_pnl": 7532031.25,
+    "loss_pnl": -5430482.5,
+    "pnl_ratio": 1.3869911651496898,
+    "max_dd_pct": 37.54267068273092,
+    "sharpe": 4.759958923116142,
+    "avg_trade_duration_h": 12.74742268041237,
+    "by_instrument": {
+      "NQ": {
+        "pnl": 673435.0,
+        "count": 159,
+        "wins": 87
+      },
+      "ES": {
+        "pnl": 1033693.75,
+        "count": 203,
+        "wins": 107
+      },
+      "YM": {
+        "pnl": 394420.0,
+        "count": 123,
+        "wins": 60
+      }
+    },
+    "by_direction": {
+      "Sell": {
+        "pnl": 435487.5,
+        "count": 112,
+        "wins": 58
+      },
+      "Buy": {
+        "pnl": 1666061.25,
+        "count": 373,
+        "wins": 196
+      }
+    },
+    "n_wells_win": 142,
+    "n_wells_loss": 131,
+    "well_win_rate": 52.01465201465202,
+    "well_avg_win_pnl": 45446.52288732395,
+    "well_avg_loss_pnl": -33220.28625954199
+  },
+  "by_year": {
+    "2018": {
+      "pnl": -136765.0,
+      "count": 68,
+      "wins": 31
+    },
+    "2019": {
+      "pnl": -27913.75,
+      "count": 106,
+      "wins": 45
+    },
+    "2020": {
+      "pnl": 340115.0,
+      "count": 37,
+      "wins": 22
+    },
+    "2021": {
+      "pnl": 60805.0,
+      "count": 92,
+      "wins": 47
+    },
+    "2022": {
+      "pnl": 251950.0,
+      "count": 12,
+      "wins": 7
+    },
+    "2023": {
+      "pnl": 878072.5,
+      "count": 70,
+      "wins": 40
+    },
+    "2024": {
+      "pnl": 735285.0,
+      "count": 100,
+      "wins": 62
+    }
+  },
+  "by_instrument": {
+    "NQ": {
+      "pnl": 673435.0,
+      "count": 159,
+      "wins": 87
+    },
+    "ES": {
+      "pnl": 1033693.75,
+      "count": 203,
+      "wins": 107
+    },
+    "YM": {
+      "pnl": 394420.0,
+      "count": 123,
+      "wins": 60
+    }
+  },
+  "by_direction": {
+    "Sell": {
+      "pnl": 435487.5,
+      "count": 112,
+      "wins": 58
+    },
+    "Buy": {
+      "pnl": 1666061.25,
+      "count": 373,
+      "wins": 196
+    }
+  },
+  "wells": [
+    {
+      "start": "2018-02-07T17:00:00+00:00",
+      "end": "2018-02-07T20:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 108540.0,
+      "total_fees": 550.4000000000001,
+      "net_pnl": 107989.6,
+      "pnl_pct": 10.854,
+      "max_qty": 66,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-03-12T18:00:00+00:00",
+      "end": "2018-03-13T14:00:00+00:00",
+      "duration_h": 20.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 36860.0,
+      "total_fees": 589.0999999999999,
+      "net_pnl": 36270.9,
+      "pnl_pct": 3.6859999999999995,
+      "max_qty": 69,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-03-26T16:00:00+00:00",
+      "end": "2018-03-26T17:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": -40115.0,
+      "total_fees": 610.6,
+      "net_pnl": -40725.6,
+      "pnl_pct": -4.0115,
+      "max_qty": 71,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-04-18T17:00:00+00:00",
+      "end": "2018-04-18T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -12075.0,
+      "total_fees": 296.7,
+      "net_pnl": -12371.7,
+      "pnl_pct": -1.2075,
+      "max_qty": 69,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-04-23T14:00:00+00:00",
+      "end": "2018-04-23T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 18500.0,
+      "total_fees": 318.2,
+      "net_pnl": 18181.8,
+      "pnl_pct": 1.8499999999999999,
+      "max_qty": 74,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-05-11T19:00:00+00:00",
+      "end": "2018-05-11T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 15990.0,
+      "total_fees": 352.6,
+      "net_pnl": 15637.4,
+      "pnl_pct": 1.599,
+      "max_qty": 82,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-05-14T20:00:00+00:00",
+      "end": "2018-05-15T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -188385.0,
+      "total_fees": 679.4,
+      "net_pnl": -189064.4,
+      "pnl_pct": -18.8385,
+      "max_qty": 83,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-05-22T14:00:00+00:00",
+      "end": "2018-05-22T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -20355.0,
+      "total_fees": 296.7,
+      "net_pnl": -20651.7,
+      "pnl_pct": -2.0355000000000003,
+      "max_qty": 69,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-05-28T15:00:00+00:00",
+      "end": "2018-05-28T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 6462.5,
+      "total_fees": 202.1,
+      "net_pnl": 6260.4,
+      "pnl_pct": 0.64625,
+      "max_qty": 47,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-06-04T18:00:00+00:00",
+      "end": "2018-06-05T14:00:00+00:00",
+      "duration_h": 20.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 42915.0,
+      "total_fees": 498.79999999999995,
+      "net_pnl": 42416.2,
+      "pnl_pct": 4.2915,
+      "max_qty": 59,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-06-06T14:00:00+00:00",
+      "end": "2018-06-06T16:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 31000.0,
+      "total_fees": 266.6,
+      "net_pnl": 30733.4,
+      "pnl_pct": 3.1,
+      "max_qty": 62,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-06-08T20:00:00+00:00",
+      "end": "2018-06-11T20:00:00+00:00",
+      "duration_h": 72.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 13700.0,
+      "total_fees": 829.9000000000001,
+      "net_pnl": 12870.1,
+      "pnl_pct": 1.37,
+      "max_qty": 66,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-06-12T15:00:00+00:00",
+      "end": "2018-06-12T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 9750.0,
+      "total_fees": 279.5,
+      "net_pnl": 9470.5,
+      "pnl_pct": 0.975,
+      "max_qty": 65,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-06-15T17:00:00+00:00",
+      "end": "2018-06-15T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 7500.0,
+      "total_fees": 258.0,
+      "net_pnl": 7242.0,
+      "pnl_pct": 0.75,
+      "max_qty": 60,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-06-18T18:00:00+00:00",
+      "end": "2018-06-18T20:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": -8300.0,
+      "total_fees": 283.8,
+      "net_pnl": -8583.8,
+      "pnl_pct": -0.83,
+      "max_qty": 56,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-06-22T16:00:00+00:00",
+      "end": "2018-06-22T18:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -22050.0,
+      "total_fees": 270.9,
+      "net_pnl": -22320.9,
+      "pnl_pct": -2.205,
+      "max_qty": 63,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-06-26T15:00:00+00:00",
+      "end": "2018-06-26T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -12800.0,
+      "total_fees": 275.2,
+      "net_pnl": -13075.2,
+      "pnl_pct": -1.28,
+      "max_qty": 64,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-07-09T17:00:00+00:00",
+      "end": "2018-07-10T19:00:00+00:00",
+      "duration_h": 26.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 55940.0,
+      "total_fees": 821.3,
+      "net_pnl": 55118.7,
+      "pnl_pct": 5.593999999999999,
+      "max_qty": 66,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-07-11T19:00:00+00:00",
+      "end": "2018-07-12T20:00:00+00:00",
+      "duration_h": 25.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy",
+        "Sell"
+      ],
+      "n_trades": 3,
+      "total_pnl": -9275.0,
+      "total_fees": 640.6999999999999,
+      "net_pnl": -9915.7,
+      "pnl_pct": -0.9275,
+      "max_qty": 67,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-07-13T18:00:00+00:00",
+      "end": "2018-07-16T15:00:00+00:00",
+      "duration_h": 69.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": -53385.0,
+      "total_fees": 877.2,
+      "net_pnl": -54262.2,
+      "pnl_pct": -5.3385,
+      "max_qty": 75,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-07-17T20:00:00+00:00",
+      "end": "2018-07-18T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -24000.0,
+      "total_fees": 258.0,
+      "net_pnl": -24258.0,
+      "pnl_pct": -2.4,
+      "max_qty": 60,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-07-20T15:00:00+00:00",
+      "end": "2018-07-24T14:00:00+00:00",
+      "duration_h": 95.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy",
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": -48320.0,
+      "total_fees": 524.6,
+      "net_pnl": -48844.6,
+      "pnl_pct": -4.832,
+      "max_qty": 70,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-07-26T20:00:00+00:00",
+      "end": "2018-07-27T17:00:00+00:00",
+      "duration_h": 21.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -49825.0,
+      "total_fees": 528.9,
+      "net_pnl": -50353.9,
+      "pnl_pct": -4.9825,
+      "max_qty": 65,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-08-07T17:00:00+00:00",
+      "end": "2018-08-07T20:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -20300.0,
+      "total_fees": 498.8,
+      "net_pnl": -20798.8,
+      "pnl_pct": -2.03,
+      "max_qty": 62,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-08-08T18:00:00+00:00",
+      "end": "2018-08-08T21:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -40735.0,
+      "total_fees": 447.20000000000005,
+      "net_pnl": -41182.2,
+      "pnl_pct": -4.0735,
+      "max_qty": 53,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-08-09T18:00:00+00:00",
+      "end": "2018-08-09T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -2025.0,
+      "total_fees": 77.4,
+      "net_pnl": -2102.4,
+      "pnl_pct": -0.20249999999999999,
+      "max_qty": 18,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-08-13T19:00:00+00:00",
+      "end": "2018-08-13T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 19000.0,
+      "total_fees": 382.7,
+      "net_pnl": 18617.3,
+      "pnl_pct": 1.9,
+      "max_qty": 49,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-08-20T19:00:00+00:00",
+      "end": "2018-08-21T20:00:00+00:00",
+      "duration_h": 25.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 11440.0,
+      "total_fees": 516.0,
+      "net_pnl": 10924.0,
+      "pnl_pct": 1.1440000000000001,
+      "max_qty": 61,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-08-23T14:00:00+00:00",
+      "end": "2018-08-23T16:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -28500.0,
+      "total_fees": 258.0,
+      "net_pnl": -28758.0,
+      "pnl_pct": -2.85,
+      "max_qty": 60,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-08-27T19:00:00+00:00",
+      "end": "2018-08-30T14:00:00+00:00",
+      "duration_h": 67.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 5,
+      "total_pnl": 74285.0,
+      "total_fees": 1092.2,
+      "net_pnl": 73192.8,
+      "pnl_pct": 7.4285000000000005,
+      "max_qty": 54,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-08-31T14:00:00+00:00",
+      "end": "2018-08-31T20:00:00+00:00",
+      "duration_h": 6.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy",
+        "Sell"
+      ],
+      "n_trades": 3,
+      "total_pnl": 6207.5,
+      "total_fees": 683.7,
+      "net_pnl": 5523.8,
+      "pnl_pct": 0.62075,
+      "max_qty": 54,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-09-05T17:00:00+00:00",
+      "end": "2018-09-05T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -8437.5,
+      "total_fees": 193.5,
+      "net_pnl": -8631.0,
+      "pnl_pct": -0.84375,
+      "max_qty": 45,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-09-07T14:00:00+00:00",
+      "end": "2018-09-07T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -15237.5,
+      "total_fees": 227.9,
+      "net_pnl": -15465.4,
+      "pnl_pct": -1.52375,
+      "max_qty": 53,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-09-13T19:00:00+00:00",
+      "end": "2018-09-14T15:00:00+00:00",
+      "duration_h": 20.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 7060.0,
+      "total_fees": 223.6,
+      "net_pnl": 6836.4,
+      "pnl_pct": 0.7060000000000001,
+      "max_qty": 42,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-09-20T19:00:00+00:00",
+      "end": "2018-09-21T14:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 12750.0,
+      "total_fees": 219.3,
+      "net_pnl": 12530.7,
+      "pnl_pct": 1.275,
+      "max_qty": 51,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2018-09-24T19:00:00+00:00",
+      "end": "2018-09-25T15:00:00+00:00",
+      "duration_h": 20.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -6410.0,
+      "total_fees": 473.0,
+      "net_pnl": -6883.0,
+      "pnl_pct": -0.641,
+      "max_qty": 58,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-09-26T14:00:00+00:00",
+      "end": "2018-09-26T16:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": -4750.0,
+      "total_fees": 154.8,
+      "net_pnl": -4904.8,
+      "pnl_pct": -0.475,
+      "max_qty": 32,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-10-08T20:00:00+00:00",
+      "end": "2018-10-09T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -33810.0,
+      "total_fees": 210.7,
+      "net_pnl": -34020.7,
+      "pnl_pct": -3.381,
+      "max_qty": 49,
+      "is_win": false,
+      "year": 2018
+    },
+    {
+      "start": "2018-10-12T15:00:00+00:00",
+      "end": "2018-10-12T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 34425.0,
+      "total_fees": 193.5,
+      "net_pnl": 34231.5,
+      "pnl_pct": 3.4425,
+      "max_qty": 45,
+      "is_win": true,
+      "year": 2018
+    },
+    {
+      "start": "2019-01-31T21:00:00+00:00",
+      "end": "2019-02-01T15:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -9562.5,
+      "total_fees": 219.3,
+      "net_pnl": -9781.8,
+      "pnl_pct": -0.9562499999999999,
+      "max_qty": 51,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-02-04T16:00:00+00:00",
+      "end": "2019-02-04T17:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 18125.0,
+      "total_fees": 215.0,
+      "net_pnl": 17910.0,
+      "pnl_pct": 1.8124999999999998,
+      "max_qty": 50,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-02-06T20:00:00+00:00",
+      "end": "2019-02-07T15:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -102487.5,
+      "total_fees": 391.3,
+      "net_pnl": -102878.8,
+      "pnl_pct": -10.24875,
+      "max_qty": 51,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-02-14T16:00:00+00:00",
+      "end": "2019-02-14T17:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 6650.0,
+      "total_fees": 150.5,
+      "net_pnl": 6499.5,
+      "pnl_pct": 0.6649999999999999,
+      "max_qty": 35,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-02-15T18:00:00+00:00",
+      "end": "2019-02-15T20:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 7312.5,
+      "total_fees": 193.5,
+      "net_pnl": 7119.0,
+      "pnl_pct": 0.7312500000000001,
+      "max_qty": 45,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-02-18T16:00:00+00:00",
+      "end": "2019-02-19T15:00:00+00:00",
+      "duration_h": 23.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -10395.0,
+      "total_fees": 352.6,
+      "net_pnl": -10747.6,
+      "pnl_pct": -1.0394999999999999,
+      "max_qty": 46,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-03-12T19:00:00+00:00",
+      "end": "2019-03-12T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -6840.0,
+      "total_fees": 154.8,
+      "net_pnl": -6994.8,
+      "pnl_pct": -0.6839999999999999,
+      "max_qty": 36,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-03-14T19:00:00+00:00",
+      "end": "2019-03-19T14:00:00+00:00",
+      "duration_h": 115.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 77762.5,
+      "total_fees": 559.0,
+      "net_pnl": 77203.5,
+      "pnl_pct": 7.77625,
+      "max_qty": 48,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-04-01T20:00:00+00:00",
+      "end": "2019-04-03T14:00:00+00:00",
+      "duration_h": 42.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 70980.0,
+      "total_fees": 550.4,
+      "net_pnl": 70429.6,
+      "pnl_pct": 7.098,
+      "max_qty": 50,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-04-05T17:00:00+00:00",
+      "end": "2019-04-08T14:00:00+00:00",
+      "duration_h": 69.0,
+      "instruments": [
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -58695.0,
+      "total_fees": 417.1,
+      "net_pnl": -59112.1,
+      "pnl_pct": -5.8694999999999995,
+      "max_qty": 55,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-04-17T20:00:00+00:00",
+      "end": "2019-04-18T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 17595.0,
+      "total_fees": 219.3,
+      "net_pnl": 17375.7,
+      "pnl_pct": 1.7595,
+      "max_qty": 51,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-04-23T19:00:00+00:00",
+      "end": "2019-04-24T15:00:00+00:00",
+      "duration_h": 20.0,
+      "instruments": [
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 10075.0,
+      "total_fees": 262.3,
+      "net_pnl": 9812.7,
+      "pnl_pct": 1.0075,
+      "max_qty": 40,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-04-26T19:00:00+00:00",
+      "end": "2019-04-26T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -17680.0,
+      "total_fees": 223.6,
+      "net_pnl": -17903.6,
+      "pnl_pct": -1.7680000000000002,
+      "max_qty": 52,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-06-12T14:00:00+00:00",
+      "end": "2019-06-12T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -25300.0,
+      "total_fees": 442.9,
+      "net_pnl": -25742.9,
+      "pnl_pct": -2.53,
+      "max_qty": 55,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-06-18T19:00:00+00:00",
+      "end": "2019-06-19T19:00:00+00:00",
+      "duration_h": 24.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 75236.25,
+      "total_fees": 466.55,
+      "net_pnl": 74769.7,
+      "pnl_pct": 7.523625000000001,
+      "max_qty": 47,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-06-21T18:00:00+00:00",
+      "end": "2019-06-21T20:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -12112.5,
+      "total_fees": 219.3,
+      "net_pnl": -12331.8,
+      "pnl_pct": -1.21125,
+      "max_qty": 51,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-06-24T15:00:00+00:00",
+      "end": "2019-06-24T18:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -10380.0,
+      "total_fees": 399.9,
+      "net_pnl": -10779.9,
+      "pnl_pct": -1.038,
+      "max_qty": 51,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-06-26T17:00:00+00:00",
+      "end": "2019-06-26T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 22480.0,
+      "total_fees": 404.20000000000005,
+      "net_pnl": 22075.8,
+      "pnl_pct": 2.248,
+      "max_qty": 51,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-07-04T15:00:00+00:00",
+      "end": "2019-07-05T14:00:00+00:00",
+      "duration_h": 23.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -65025.0,
+      "total_fees": 219.3,
+      "net_pnl": -65244.3,
+      "pnl_pct": -6.5024999999999995,
+      "max_qty": 51,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-07-08T19:00:00+00:00",
+      "end": "2019-07-09T15:00:00+00:00",
+      "duration_h": 20.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 3,
+      "total_pnl": -15445.0,
+      "total_fees": 245.1,
+      "net_pnl": -15690.1,
+      "pnl_pct": -1.5445,
+      "max_qty": 23,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-07-15T15:00:00+00:00",
+      "end": "2019-07-16T16:00:00+00:00",
+      "duration_h": 25.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": -28155.0,
+      "total_fees": 589.1,
+      "net_pnl": -28744.1,
+      "pnl_pct": -2.8155,
+      "max_qty": 53,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-07-19T16:00:00+00:00",
+      "end": "2019-07-19T17:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 12240.0,
+      "total_fees": 219.3,
+      "net_pnl": 12020.7,
+      "pnl_pct": 1.224,
+      "max_qty": 51,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-07-22T20:00:00+00:00",
+      "end": "2019-07-23T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -17100.0,
+      "total_fees": 193.5,
+      "net_pnl": -17293.5,
+      "pnl_pct": -1.71,
+      "max_qty": 45,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-07-31T15:00:00+00:00",
+      "end": "2019-07-31T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -12100.0,
+      "total_fees": 189.2,
+      "net_pnl": -12289.2,
+      "pnl_pct": -1.21,
+      "max_qty": 44,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-08-05T18:00:00+00:00",
+      "end": "2019-08-05T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 13227.5,
+      "total_fees": 94.6,
+      "net_pnl": 13132.9,
+      "pnl_pct": 1.3227499999999999,
+      "max_qty": 11,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-08-06T16:00:00+00:00",
+      "end": "2019-08-06T17:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 17470.0,
+      "total_fees": 408.5,
+      "net_pnl": 17061.5,
+      "pnl_pct": 1.7469999999999999,
+      "max_qty": 51,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-09-05T19:00:00+00:00",
+      "end": "2019-09-06T14:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -287.5,
+      "total_fees": 184.9,
+      "net_pnl": -472.4,
+      "pnl_pct": -0.028749999999999998,
+      "max_qty": 34,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-09-12T15:00:00+00:00",
+      "end": "2019-09-12T20:00:00+00:00",
+      "duration_h": 5.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": -19590.0,
+      "total_fees": 593.4,
+      "net_pnl": -20183.4,
+      "pnl_pct": -1.959,
+      "max_qty": 52,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-09-13T15:00:00+00:00",
+      "end": "2019-09-13T18:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": -17295.0,
+      "total_fees": 563.3,
+      "net_pnl": -17858.3,
+      "pnl_pct": -1.7295,
+      "max_qty": 50,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-09-18T18:00:00+00:00",
+      "end": "2019-09-18T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 18900.0,
+      "total_fees": 180.6,
+      "net_pnl": 18719.4,
+      "pnl_pct": 1.8900000000000001,
+      "max_qty": 42,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-09-23T19:00:00+00:00",
+      "end": "2019-09-23T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 9435.0,
+      "total_fees": 159.1,
+      "net_pnl": 9275.9,
+      "pnl_pct": 0.9435000000000001,
+      "max_qty": 37,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-10-15T19:00:00+00:00",
+      "end": "2019-10-15T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -19710.0,
+      "total_fees": 412.8,
+      "net_pnl": -20122.8,
+      "pnl_pct": -1.9709999999999999,
+      "max_qty": 51,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-10-22T14:00:00+00:00",
+      "end": "2019-10-22T16:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": -2075.0,
+      "total_fees": 107.5,
+      "net_pnl": -2182.5,
+      "pnl_pct": -0.2075,
+      "max_qty": 13,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-10-23T17:00:00+00:00",
+      "end": "2019-10-23T19:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 5620.0,
+      "total_fees": 120.4,
+      "net_pnl": 5499.6,
+      "pnl_pct": 0.562,
+      "max_qty": 24,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-10-28T17:00:00+00:00",
+      "end": "2019-10-29T14:00:00+00:00",
+      "duration_h": 21.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -4570.0,
+      "total_fees": 344.0,
+      "net_pnl": -4914.0,
+      "pnl_pct": -0.457,
+      "max_qty": 44,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-10-30T17:00:00+00:00",
+      "end": "2019-10-30T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -9900.0,
+      "total_fees": 189.2,
+      "net_pnl": -10089.2,
+      "pnl_pct": -0.9900000000000001,
+      "max_qty": 44,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-11-04T18:00:00+00:00",
+      "end": "2019-11-05T21:00:00+00:00",
+      "duration_h": 27.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 4,
+      "total_pnl": -16187.5,
+      "total_fees": 782.6,
+      "net_pnl": -16970.1,
+      "pnl_pct": -1.6187500000000001,
+      "max_qty": 54,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-11-06T16:00:00+00:00",
+      "end": "2019-11-06T17:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -11130.0,
+      "total_fees": 227.9,
+      "net_pnl": -11357.9,
+      "pnl_pct": -1.113,
+      "max_qty": 53,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-11-08T18:00:00+00:00",
+      "end": "2019-11-08T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -4680.0,
+      "total_fees": 223.6,
+      "net_pnl": -4903.6,
+      "pnl_pct": -0.468,
+      "max_qty": 52,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-11-18T17:00:00+00:00",
+      "end": "2019-11-19T15:00:00+00:00",
+      "duration_h": 22.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -2600.0,
+      "total_fees": 223.6,
+      "net_pnl": -2823.6,
+      "pnl_pct": -0.26,
+      "max_qty": 52,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-11-25T19:00:00+00:00",
+      "end": "2019-11-25T21:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 8100.0,
+      "total_fees": 154.8,
+      "net_pnl": 7945.2,
+      "pnl_pct": 0.8099999999999999,
+      "max_qty": 36,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-11-26T18:00:00+00:00",
+      "end": "2019-11-28T15:00:00+00:00",
+      "duration_h": 45.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 5,
+      "total_pnl": 19295.0,
+      "total_fees": 890.1,
+      "net_pnl": 18404.9,
+      "pnl_pct": 1.9295,
+      "max_qty": 52,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-11-29T15:00:00+00:00",
+      "end": "2019-11-29T18:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -35975.0,
+      "total_fees": 339.7,
+      "net_pnl": -36314.7,
+      "pnl_pct": -3.5975,
+      "max_qty": 42,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-12-06T19:00:00+00:00",
+      "end": "2019-12-09T21:00:00+00:00",
+      "duration_h": 74.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": -9275.0,
+      "total_fees": 473.0,
+      "net_pnl": -9748.0,
+      "pnl_pct": -0.9275,
+      "max_qty": 40,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-12-11T19:00:00+00:00",
+      "end": "2019-12-11T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -13800.0,
+      "total_fees": 197.8,
+      "net_pnl": -13997.8,
+      "pnl_pct": -1.38,
+      "max_qty": 46,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-12-13T21:00:00+00:00",
+      "end": "2019-12-16T20:00:00+00:00",
+      "duration_h": 71.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 4,
+      "total_pnl": 72227.5,
+      "total_fees": 743.9,
+      "net_pnl": 71483.6,
+      "pnl_pct": 7.22275,
+      "max_qty": 56,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-12-17T15:00:00+00:00",
+      "end": "2019-12-17T17:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 13507.5,
+      "total_fees": 417.1,
+      "net_pnl": 13090.4,
+      "pnl_pct": 1.3507500000000001,
+      "max_qty": 54,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-12-18T18:00:00+00:00",
+      "end": "2019-12-18T21:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -19410.0,
+      "total_fees": 352.6,
+      "net_pnl": -19762.6,
+      "pnl_pct": -1.941,
+      "max_qty": 44,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-12-19T16:00:00+00:00",
+      "end": "2019-12-20T21:00:00+00:00",
+      "duration_h": 29.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 5,
+      "total_pnl": 41267.5,
+      "total_fees": 954.6,
+      "net_pnl": 40312.9,
+      "pnl_pct": 4.1267499999999995,
+      "max_qty": 58,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-12-23T16:00:00+00:00",
+      "end": "2019-12-24T15:00:00+00:00",
+      "duration_h": 23.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -22687.5,
+      "total_fees": 361.2,
+      "net_pnl": -23048.7,
+      "pnl_pct": -2.26875,
+      "max_qty": 45,
+      "is_win": false,
+      "year": 2019
+    },
+    {
+      "start": "2019-12-26T18:00:00+00:00",
+      "end": "2019-12-26T21:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 29425.0,
+      "total_fees": 425.7,
+      "net_pnl": 28999.3,
+      "pnl_pct": 2.9425,
+      "max_qty": 55,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-12-27T19:00:00+00:00",
+      "end": "2019-12-27T21:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 5410.0,
+      "total_fees": 417.1,
+      "net_pnl": 4992.9,
+      "pnl_pct": 0.541,
+      "max_qty": 57,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2019-12-31T15:00:00+00:00",
+      "end": "2019-12-31T21:00:00+00:00",
+      "duration_h": 6.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 4,
+      "total_pnl": 195.0,
+      "total_fees": 756.8,
+      "net_pnl": -561.8,
+      "pnl_pct": 0.0195,
+      "max_qty": 48,
+      "is_win": true,
+      "year": 2019
+    },
+    {
+      "start": "2020-01-02T17:00:00+00:00",
+      "end": "2020-01-02T20:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 40970.0,
+      "total_fees": 619.2,
+      "net_pnl": 40350.8,
+      "pnl_pct": 4.0969999999999995,
+      "max_qty": 58,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-01-03T16:00:00+00:00",
+      "end": "2020-01-03T19:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 12530.0,
+      "total_fees": 653.6,
+      "net_pnl": 11876.4,
+      "pnl_pct": 1.253,
+      "max_qty": 62,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-01-17T18:00:00+00:00",
+      "end": "2020-01-21T17:00:00+00:00",
+      "duration_h": 95.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 7620.0,
+      "total_fees": 610.6,
+      "net_pnl": 7009.4,
+      "pnl_pct": 0.762,
+      "max_qty": 56,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-01-22T18:00:00+00:00",
+      "end": "2020-01-22T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -9840.0,
+      "total_fees": 176.3,
+      "net_pnl": -10016.3,
+      "pnl_pct": -0.984,
+      "max_qty": 41,
+      "is_win": false,
+      "year": 2020
+    },
+    {
+      "start": "2020-02-03T20:00:00+00:00",
+      "end": "2020-02-03T21:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 9800.0,
+      "total_fees": 240.8,
+      "net_pnl": 9559.2,
+      "pnl_pct": 0.98,
+      "max_qty": 56,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-02-06T21:00:00+00:00",
+      "end": "2020-02-07T15:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -95977.5,
+      "total_fees": 442.9,
+      "net_pnl": -96420.4,
+      "pnl_pct": -9.59775,
+      "max_qty": 56,
+      "is_win": false,
+      "year": 2020
+    },
+    {
+      "start": "2020-02-12T20:00:00+00:00",
+      "end": "2020-02-13T15:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -24087.5,
+      "total_fees": 176.3,
+      "net_pnl": -24263.8,
+      "pnl_pct": -2.40875,
+      "max_qty": 41,
+      "is_win": false,
+      "year": 2020
+    },
+    {
+      "start": "2020-02-26T21:00:00+00:00",
+      "end": "2020-02-27T16:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 122000.0,
+      "total_fees": 172.0,
+      "net_pnl": 121828.0,
+      "pnl_pct": 12.2,
+      "max_qty": 40,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-03-02T18:00:00+00:00",
+      "end": "2020-03-02T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 57492.5,
+      "total_fees": 339.70000000000005,
+      "net_pnl": 57152.8,
+      "pnl_pct": 5.74925,
+      "max_qty": 43,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-05-12T16:00:00+00:00",
+      "end": "2020-05-12T18:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -14512.5,
+      "total_fees": 116.1,
+      "net_pnl": -14628.6,
+      "pnl_pct": -1.45125,
+      "max_qty": 27,
+      "is_win": false,
+      "year": 2020
+    },
+    {
+      "start": "2020-05-19T18:00:00+00:00",
+      "end": "2020-05-19T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -21630.0,
+      "total_fees": 90.3,
+      "net_pnl": -21720.3,
+      "pnl_pct": -2.163,
+      "max_qty": 21,
+      "is_win": false,
+      "year": 2020
+    },
+    {
+      "start": "2020-06-04T14:00:00+00:00",
+      "end": "2020-06-04T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 8450.0,
+      "total_fees": 111.8,
+      "net_pnl": 8338.2,
+      "pnl_pct": 0.845,
+      "max_qty": 26,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-06-08T17:00:00+00:00",
+      "end": "2020-06-08T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 11700.0,
+      "total_fees": 111.8,
+      "net_pnl": 11588.2,
+      "pnl_pct": 1.17,
+      "max_qty": 26,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-07-01T20:00:00+00:00",
+      "end": "2020-07-02T19:00:00+00:00",
+      "duration_h": 23.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 74140.0,
+      "total_fees": 266.6,
+      "net_pnl": 73873.4,
+      "pnl_pct": 7.414,
+      "max_qty": 27,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-08-04T16:00:00+00:00",
+      "end": "2020-08-04T17:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -8050.0,
+      "total_fees": 98.9,
+      "net_pnl": -8148.9,
+      "pnl_pct": -0.8049999999999999,
+      "max_qty": 23,
+      "is_win": false,
+      "year": 2020
+    },
+    {
+      "start": "2020-08-05T17:00:00+00:00",
+      "end": "2020-08-06T14:00:00+00:00",
+      "duration_h": 21.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 13292.5,
+      "total_fees": 223.60000000000002,
+      "net_pnl": 13068.9,
+      "pnl_pct": 1.32925,
+      "max_qty": 29,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-08-07T14:00:00+00:00",
+      "end": "2020-08-07T16:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -32450.0,
+      "total_fees": 94.6,
+      "net_pnl": -32544.6,
+      "pnl_pct": -3.245,
+      "max_qty": 22,
+      "is_win": false,
+      "year": 2020
+    },
+    {
+      "start": "2020-08-13T14:00:00+00:00",
+      "end": "2020-08-13T19:00:00+00:00",
+      "duration_h": 5.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -23405.0,
+      "total_fees": 305.3,
+      "net_pnl": -23710.3,
+      "pnl_pct": -2.3405,
+      "max_qty": 36,
+      "is_win": false,
+      "year": 2020
+    },
+    {
+      "start": "2020-10-13T17:00:00+00:00",
+      "end": "2020-10-13T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -9100.0,
+      "total_fees": 150.5,
+      "net_pnl": -9250.5,
+      "pnl_pct": -0.91,
+      "max_qty": 35,
+      "is_win": false,
+      "year": 2020
+    },
+    {
+      "start": "2020-11-06T21:00:00+00:00",
+      "end": "2020-11-09T16:00:00+00:00",
+      "duration_h": 67.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 192610.0,
+      "total_fees": 146.2,
+      "net_pnl": 192463.8,
+      "pnl_pct": 19.261,
+      "max_qty": 34,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-11-24T21:00:00+00:00",
+      "end": "2020-11-25T15:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -16662.5,
+      "total_fees": 133.3,
+      "net_pnl": -16795.8,
+      "pnl_pct": -1.66625,
+      "max_qty": 31,
+      "is_win": false,
+      "year": 2020
+    },
+    {
+      "start": "2020-11-26T15:00:00+00:00",
+      "end": "2020-11-27T15:00:00+00:00",
+      "duration_h": 24.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 12000.0,
+      "total_fees": 137.6,
+      "net_pnl": 11862.4,
+      "pnl_pct": 1.2,
+      "max_qty": 32,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-12-10T16:00:00+00:00",
+      "end": "2020-12-10T17:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 17325.0,
+      "total_fees": 141.9,
+      "net_pnl": 17183.1,
+      "pnl_pct": 1.7325,
+      "max_qty": 33,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2020-12-17T18:00:00+00:00",
+      "end": "2020-12-17T21:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 15900.0,
+      "total_fees": 262.3,
+      "net_pnl": 15637.7,
+      "pnl_pct": 1.59,
+      "max_qty": 36,
+      "is_win": true,
+      "year": 2020
+    },
+    {
+      "start": "2021-01-20T21:00:00+00:00",
+      "end": "2021-01-21T16:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 16650.0,
+      "total_fees": 159.1,
+      "net_pnl": 16490.9,
+      "pnl_pct": 1.6650000000000003,
+      "max_qty": 29,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-01-22T15:00:00+00:00",
+      "end": "2021-01-22T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -16900.0,
+      "total_fees": 111.8,
+      "net_pnl": -17011.8,
+      "pnl_pct": -1.69,
+      "max_qty": 26,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-02-08T20:00:00+00:00",
+      "end": "2021-02-08T21:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 22375.0,
+      "total_fees": 107.5,
+      "net_pnl": 22267.5,
+      "pnl_pct": 2.2375,
+      "max_qty": 25,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-02-10T19:00:00+00:00",
+      "end": "2021-02-10T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 18400.0,
+      "total_fees": 197.8,
+      "net_pnl": 18202.2,
+      "pnl_pct": 1.8399999999999999,
+      "max_qty": 46,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-03-12T18:00:00+00:00",
+      "end": "2021-03-12T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 8695.0,
+      "total_fees": 202.1,
+      "net_pnl": 8492.9,
+      "pnl_pct": 0.8694999999999999,
+      "max_qty": 47,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-03-15T15:00:00+00:00",
+      "end": "2021-03-15T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -17550.0,
+      "total_fees": 167.7,
+      "net_pnl": -17717.7,
+      "pnl_pct": -1.755,
+      "max_qty": 39,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-03-16T17:00:00+00:00",
+      "end": "2021-03-16T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -11400.0,
+      "total_fees": 163.4,
+      "net_pnl": -11563.4,
+      "pnl_pct": -1.1400000000000001,
+      "max_qty": 38,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-03-22T17:00:00+00:00",
+      "end": "2021-03-22T19:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": -17750.0,
+      "total_fees": 197.79999999999998,
+      "net_pnl": -17947.8,
+      "pnl_pct": -1.775,
+      "max_qty": 42,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-04-06T14:00:00+00:00",
+      "end": "2021-04-06T20:00:00+00:00",
+      "duration_h": 6.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -25112.5,
+      "total_fees": 352.6,
+      "net_pnl": -25465.1,
+      "pnl_pct": -2.51125,
+      "max_qty": 45,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-04-07T14:00:00+00:00",
+      "end": "2021-04-07T16:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -28420.0,
+      "total_fees": 344.0,
+      "net_pnl": -28764.0,
+      "pnl_pct": -2.842,
+      "max_qty": 44,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-04-08T17:00:00+00:00",
+      "end": "2021-04-09T14:00:00+00:00",
+      "duration_h": 21.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 13455.0,
+      "total_fees": 253.7,
+      "net_pnl": 13201.3,
+      "pnl_pct": 1.3455,
+      "max_qty": 35,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-04-13T15:00:00+00:00",
+      "end": "2021-04-13T17:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -4050.0,
+      "total_fees": 154.8,
+      "net_pnl": -4204.8,
+      "pnl_pct": -0.40499999999999997,
+      "max_qty": 36,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-04-14T14:00:00+00:00",
+      "end": "2021-04-14T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -28320.0,
+      "total_fees": 103.2,
+      "net_pnl": -28423.2,
+      "pnl_pct": -2.8320000000000003,
+      "max_qty": 24,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-04-15T20:00:00+00:00",
+      "end": "2021-04-16T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -25200.0,
+      "total_fees": 103.2,
+      "net_pnl": -25303.2,
+      "pnl_pct": -2.52,
+      "max_qty": 24,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-04-30T17:00:00+00:00",
+      "end": "2021-04-30T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 18450.0,
+      "total_fees": 77.4,
+      "net_pnl": 18372.6,
+      "pnl_pct": 1.8450000000000002,
+      "max_qty": 18,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-05-07T18:00:00+00:00",
+      "end": "2021-05-07T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 5600.0,
+      "total_fees": 137.6,
+      "net_pnl": 5462.4,
+      "pnl_pct": 0.5599999999999999,
+      "max_qty": 32,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-05-26T14:00:00+00:00",
+      "end": "2021-05-26T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 16920.0,
+      "total_fees": 103.2,
+      "net_pnl": 16816.8,
+      "pnl_pct": 1.6920000000000002,
+      "max_qty": 24,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-06-02T20:00:00+00:00",
+      "end": "2021-06-03T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -42785.0,
+      "total_fees": 184.9,
+      "net_pnl": -42969.9,
+      "pnl_pct": -4.278499999999999,
+      "max_qty": 43,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-06-09T19:00:00+00:00",
+      "end": "2021-06-09T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 15300.0,
+      "total_fees": 146.2,
+      "net_pnl": 15153.8,
+      "pnl_pct": 1.53,
+      "max_qty": 34,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-06-10T20:00:00+00:00",
+      "end": "2021-06-11T20:00:00+00:00",
+      "duration_h": 24.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 15755.0,
+      "total_fees": 98.9,
+      "net_pnl": 15656.1,
+      "pnl_pct": 1.5755000000000001,
+      "max_qty": 23,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-06-15T20:00:00+00:00",
+      "end": "2021-06-16T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 24360.0,
+      "total_fees": 103.2,
+      "net_pnl": 24256.8,
+      "pnl_pct": 2.436,
+      "max_qty": 24,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-06-24T20:00:00+00:00",
+      "end": "2021-06-28T19:00:00+00:00",
+      "duration_h": 95.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 4,
+      "total_pnl": 32097.5,
+      "total_fees": 511.70000000000005,
+      "net_pnl": 31585.8,
+      "pnl_pct": 3.20975,
+      "max_qty": 36,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-06-29T14:00:00+00:00",
+      "end": "2021-07-06T14:00:00+00:00",
+      "duration_h": 168.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 9,
+      "total_pnl": 34845.0,
+      "total_fees": 1302.9,
+      "net_pnl": 33542.1,
+      "pnl_pct": 3.4845,
+      "max_qty": 46,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-07-09T15:00:00+00:00",
+      "end": "2021-07-09T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 16330.0,
+      "total_fees": 197.8,
+      "net_pnl": 16132.2,
+      "pnl_pct": 1.633,
+      "max_qty": 46,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-07-22T18:00:00+00:00",
+      "end": "2021-07-27T14:00:00+00:00",
+      "duration_h": 116.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 5,
+      "total_pnl": -23685.0,
+      "total_fees": 683.6999999999999,
+      "net_pnl": -24368.7,
+      "pnl_pct": -2.3685,
+      "max_qty": 40,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-07-29T18:00:00+00:00",
+      "end": "2021-07-29T20:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -15262.5,
+      "total_fees": 159.1,
+      "net_pnl": -15421.6,
+      "pnl_pct": -1.52625,
+      "max_qty": 37,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-08-02T14:00:00+00:00",
+      "end": "2021-08-02T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -18090.0,
+      "total_fees": 77.4,
+      "net_pnl": -18167.4,
+      "pnl_pct": -1.809,
+      "max_qty": 18,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-08-11T20:00:00+00:00",
+      "end": "2021-08-12T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -10120.0,
+      "total_fees": 189.2,
+      "net_pnl": -10309.2,
+      "pnl_pct": -1.012,
+      "max_qty": 44,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-08-13T15:00:00+00:00",
+      "end": "2021-08-13T20:00:00+00:00",
+      "duration_h": 5.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -2070.0,
+      "total_fees": 344.0,
+      "net_pnl": -2414.0,
+      "pnl_pct": -0.207,
+      "max_qty": 44,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-08-24T16:00:00+00:00",
+      "end": "2021-08-26T14:00:00+00:00",
+      "duration_h": 46.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 5,
+      "total_pnl": -16245.0,
+      "total_fees": 640.7,
+      "net_pnl": -16885.7,
+      "pnl_pct": -1.6244999999999998,
+      "max_qty": 35,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-08-27T18:00:00+00:00",
+      "end": "2021-08-27T20:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -8000.0,
+      "total_fees": 245.1,
+      "net_pnl": -8245.1,
+      "pnl_pct": -0.8,
+      "max_qty": 34,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-08-30T19:00:00+00:00",
+      "end": "2021-08-30T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -11962.5,
+      "total_fees": 141.9,
+      "net_pnl": -12104.4,
+      "pnl_pct": -1.1962499999999998,
+      "max_qty": 33,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-08-31T18:00:00+00:00",
+      "end": "2021-09-01T19:00:00+00:00",
+      "duration_h": 25.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 14057.5,
+      "total_fees": 335.4,
+      "net_pnl": 13722.1,
+      "pnl_pct": 1.40575,
+      "max_qty": 33,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-09-02T17:00:00+00:00",
+      "end": "2021-09-02T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -18150.0,
+      "total_fees": 94.6,
+      "net_pnl": -18244.6,
+      "pnl_pct": -1.815,
+      "max_qty": 22,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-09-08T20:00:00+00:00",
+      "end": "2021-09-09T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -14025.0,
+      "total_fees": 141.9,
+      "net_pnl": -14166.9,
+      "pnl_pct": -1.4024999999999999,
+      "max_qty": 33,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-09-15T14:00:00+00:00",
+      "end": "2021-09-15T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 7140.0,
+      "total_fees": 180.6,
+      "net_pnl": 6959.4,
+      "pnl_pct": 0.714,
+      "max_qty": 42,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-10-18T19:00:00+00:00",
+      "end": "2021-10-19T20:00:00+00:00",
+      "duration_h": 25.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 4,
+      "total_pnl": 39137.5,
+      "total_fees": 567.6,
+      "net_pnl": 38569.9,
+      "pnl_pct": 3.91375,
+      "max_qty": 42,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-10-20T15:00:00+00:00",
+      "end": "2021-10-20T17:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -5520.0,
+      "total_fees": 98.9,
+      "net_pnl": -5618.9,
+      "pnl_pct": -0.5519999999999999,
+      "max_qty": 23,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-10-21T14:00:00+00:00",
+      "end": "2021-10-21T19:00:00+00:00",
+      "duration_h": 5.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 17750.0,
+      "total_fees": 331.1,
+      "net_pnl": 17418.9,
+      "pnl_pct": 1.775,
+      "max_qty": 43,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-10-25T20:00:00+00:00",
+      "end": "2021-10-26T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 31450.0,
+      "total_fees": 146.2,
+      "net_pnl": 31303.8,
+      "pnl_pct": 3.145,
+      "max_qty": 34,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-11-02T20:00:00+00:00",
+      "end": "2021-11-03T16:00:00+00:00",
+      "duration_h": 20.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -5762.5,
+      "total_fees": 249.4,
+      "net_pnl": -6011.9,
+      "pnl_pct": -0.57625,
+      "max_qty": 35,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-11-04T17:00:00+00:00",
+      "end": "2021-11-04T19:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -3500.0,
+      "total_fees": 150.5,
+      "net_pnl": -3650.5,
+      "pnl_pct": -0.35000000000000003,
+      "max_qty": 35,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-11-08T15:00:00+00:00",
+      "end": "2021-11-08T21:00:00+00:00",
+      "duration_h": 6.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 1547.5,
+      "total_fees": 249.4,
+      "net_pnl": 1298.1,
+      "pnl_pct": 0.15475,
+      "max_qty": 35,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-11-11T18:00:00+00:00",
+      "end": "2021-11-12T16:00:00+00:00",
+      "duration_h": 22.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 3,
+      "total_pnl": -51900.0,
+      "total_fees": 404.2,
+      "net_pnl": -52304.2,
+      "pnl_pct": -5.19,
+      "max_qty": 35,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-11-17T21:00:00+00:00",
+      "end": "2021-11-18T15:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 21400.0,
+      "total_fees": 172.0,
+      "net_pnl": 21228.0,
+      "pnl_pct": 2.1399999999999997,
+      "max_qty": 40,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-11-19T20:00:00+00:00",
+      "end": "2021-11-22T15:00:00+00:00",
+      "duration_h": 67.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 63710.0,
+      "total_fees": 98.9,
+      "net_pnl": 63611.1,
+      "pnl_pct": 6.371,
+      "max_qty": 23,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2021-12-27T20:00:00+00:00",
+      "end": "2021-12-30T20:00:00+00:00",
+      "duration_h": 72.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 8,
+      "total_pnl": -410.0,
+      "total_fees": 1096.5,
+      "net_pnl": -1506.5,
+      "pnl_pct": -0.041,
+      "max_qty": 49,
+      "is_win": false,
+      "year": 2021
+    },
+    {
+      "start": "2021-12-31T18:00:00+00:00",
+      "end": "2021-12-31T21:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 27570.0,
+      "total_fees": 98.89999999999999,
+      "net_pnl": 27471.1,
+      "pnl_pct": 2.757,
+      "max_qty": 21,
+      "is_win": true,
+      "year": 2021
+    },
+    {
+      "start": "2022-01-06T20:00:00+00:00",
+      "end": "2022-01-06T21:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 29750.0,
+      "total_fees": 107.5,
+      "net_pnl": 29642.5,
+      "pnl_pct": 2.9749999999999996,
+      "max_qty": 25,
+      "is_win": true,
+      "year": 2022
+    },
+    {
+      "start": "2022-01-07T18:00:00+00:00",
+      "end": "2022-01-07T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 17145.0,
+      "total_fees": 116.1,
+      "net_pnl": 17028.9,
+      "pnl_pct": 1.7145000000000001,
+      "max_qty": 27,
+      "is_win": true,
+      "year": 2022
+    },
+    {
+      "start": "2022-07-27T18:00:00+00:00",
+      "end": "2022-07-27T20:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 102660.0,
+      "total_fees": 124.7,
+      "net_pnl": 102535.3,
+      "pnl_pct": 10.266,
+      "max_qty": 29,
+      "is_win": true,
+      "year": 2022
+    },
+    {
+      "start": "2022-08-01T14:00:00+00:00",
+      "end": "2022-08-01T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 54600.0,
+      "total_fees": 120.4,
+      "net_pnl": 54479.6,
+      "pnl_pct": 5.46,
+      "max_qty": 28,
+      "is_win": true,
+      "year": 2022
+    },
+    {
+      "start": "2022-08-15T20:00:00+00:00",
+      "end": "2022-08-16T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -12500.0,
+      "total_fees": 215.0,
+      "net_pnl": -12715.0,
+      "pnl_pct": -1.25,
+      "max_qty": 50,
+      "is_win": false,
+      "year": 2022
+    },
+    {
+      "start": "2022-08-23T19:00:00+00:00",
+      "end": "2022-08-23T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 18060.0,
+      "total_fees": 120.4,
+      "net_pnl": 17939.6,
+      "pnl_pct": 1.806,
+      "max_qty": 28,
+      "is_win": true,
+      "year": 2022
+    },
+    {
+      "start": "2022-08-24T20:00:00+00:00",
+      "end": "2022-08-25T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -52650.0,
+      "total_fees": 167.7,
+      "net_pnl": -52817.7,
+      "pnl_pct": -5.265000000000001,
+      "max_qty": 39,
+      "is_win": false,
+      "year": 2022
+    },
+    {
+      "start": "2022-11-14T15:00:00+00:00",
+      "end": "2022-11-14T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 10240.0,
+      "total_fees": 275.2,
+      "net_pnl": 9964.8,
+      "pnl_pct": 1.024,
+      "max_qty": 64,
+      "is_win": true,
+      "year": 2022
+    },
+    {
+      "start": "2022-11-25T18:00:00+00:00",
+      "end": "2022-11-28T15:00:00+00:00",
+      "duration_h": 69.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -57500.0,
+      "total_fees": 197.8,
+      "net_pnl": -57697.8,
+      "pnl_pct": -5.75,
+      "max_qty": 46,
+      "is_win": false,
+      "year": 2022
+    },
+    {
+      "start": "2022-11-29T20:00:00+00:00",
+      "end": "2022-11-29T21:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -12650.0,
+      "total_fees": 189.2,
+      "net_pnl": -12839.2,
+      "pnl_pct": -1.265,
+      "max_qty": 44,
+      "is_win": false,
+      "year": 2022
+    },
+    {
+      "start": "2022-12-20T21:00:00+00:00",
+      "end": "2022-12-22T16:00:00+00:00",
+      "duration_h": 43.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 154795.0,
+      "total_fees": 245.10000000000002,
+      "net_pnl": 154549.9,
+      "pnl_pct": 15.479499999999998,
+      "max_qty": 29,
+      "is_win": true,
+      "year": 2022
+    },
+    {
+      "start": "2023-02-06T20:00:00+00:00",
+      "end": "2023-02-06T21:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -11520.0,
+      "total_fees": 137.6,
+      "net_pnl": -11657.6,
+      "pnl_pct": -1.1520000000000001,
+      "max_qty": 32,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-02-22T16:00:00+00:00",
+      "end": "2023-02-22T18:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -19380.0,
+      "total_fees": 292.4,
+      "net_pnl": -19672.4,
+      "pnl_pct": -1.9380000000000002,
+      "max_qty": 68,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-03-13T14:00:00+00:00",
+      "end": "2023-03-13T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -38190.0,
+      "total_fees": 288.1,
+      "net_pnl": -38478.1,
+      "pnl_pct": -3.819,
+      "max_qty": 67,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-03-31T19:00:00+00:00",
+      "end": "2023-03-31T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 39050.0,
+      "total_fees": 189.2,
+      "net_pnl": 38860.8,
+      "pnl_pct": 3.9050000000000002,
+      "max_qty": 44,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-04-03T18:00:00+00:00",
+      "end": "2023-04-03T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 29700.0,
+      "total_fees": 129.0,
+      "net_pnl": 29571.0,
+      "pnl_pct": 2.97,
+      "max_qty": 30,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-04-04T14:00:00+00:00",
+      "end": "2023-04-04T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -42880.0,
+      "total_fees": 275.2,
+      "net_pnl": -43155.2,
+      "pnl_pct": -4.288,
+      "max_qty": 64,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-05-01T15:00:00+00:00",
+      "end": "2023-05-01T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -15805.0,
+      "total_fees": 124.7,
+      "net_pnl": -15929.7,
+      "pnl_pct": -1.5805,
+      "max_qty": 29,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-05-02T14:00:00+00:00",
+      "end": "2023-05-02T16:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -96135.0,
+      "total_fees": 124.7,
+      "net_pnl": -96259.7,
+      "pnl_pct": -9.6135,
+      "max_qty": 29,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-05-16T19:00:00+00:00",
+      "end": "2023-05-16T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -29160.0,
+      "total_fees": 116.1,
+      "net_pnl": -29276.1,
+      "pnl_pct": -2.916,
+      "max_qty": 27,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-05-19T19:00:00+00:00",
+      "end": "2023-05-22T19:00:00+00:00",
+      "duration_h": 72.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 50800.0,
+      "total_fees": 227.89999999999998,
+      "net_pnl": 50572.1,
+      "pnl_pct": 5.08,
+      "max_qty": 27,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-05-29T16:00:00+00:00",
+      "end": "2023-05-30T18:00:00+00:00",
+      "duration_h": 26.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": -32180.0,
+      "total_fees": 417.1,
+      "net_pnl": -32597.1,
+      "pnl_pct": -3.218,
+      "max_qty": 42,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-06-02T18:00:00+00:00",
+      "end": "2023-06-05T17:00:00+00:00",
+      "duration_h": 71.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 73957.5,
+      "total_fees": 292.4,
+      "net_pnl": 73665.1,
+      "pnl_pct": 7.39575,
+      "max_qty": 38,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-06-07T19:00:00+00:00",
+      "end": "2023-06-08T15:00:00+00:00",
+      "duration_h": 20.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy",
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": -20512.5,
+      "total_fees": 219.29999999999998,
+      "net_pnl": -20731.8,
+      "pnl_pct": -2.05125,
+      "max_qty": 43,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-06-14T17:00:00+00:00",
+      "end": "2023-06-14T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -14000.0,
+      "total_fees": 137.6,
+      "net_pnl": -14137.6,
+      "pnl_pct": -1.4000000000000001,
+      "max_qty": 32,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-06-16T15:00:00+00:00",
+      "end": "2023-06-16T17:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 15820.0,
+      "total_fees": 120.4,
+      "net_pnl": 15699.6,
+      "pnl_pct": 1.582,
+      "max_qty": 28,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-06-21T17:00:00+00:00",
+      "end": "2023-06-21T20:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 22667.5,
+      "total_fees": 395.6,
+      "net_pnl": 22271.9,
+      "pnl_pct": 2.26675,
+      "max_qty": 59,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-06-22T15:00:00+00:00",
+      "end": "2023-06-22T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -20900.0,
+      "total_fees": 163.4,
+      "net_pnl": -21063.4,
+      "pnl_pct": -2.09,
+      "max_qty": 38,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-07-03T17:00:00+00:00",
+      "end": "2023-07-05T14:00:00+00:00",
+      "duration_h": 45.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -64525.0,
+      "total_fees": 434.29999999999995,
+      "net_pnl": -64959.3,
+      "pnl_pct": -6.4525,
+      "max_qty": 59,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-07-07T15:00:00+00:00",
+      "end": "2023-07-07T17:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": -25265.0,
+      "total_fees": 240.79999999999998,
+      "net_pnl": -25505.8,
+      "pnl_pct": -2.5265,
+      "max_qty": 39,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-07-12T19:00:00+00:00",
+      "end": "2023-07-18T14:00:00+00:00",
+      "duration_h": 139.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 6,
+      "total_pnl": 136195.0,
+      "total_fees": 1333.0,
+      "net_pnl": 134862.0,
+      "pnl_pct": 13.6195,
+      "max_qty": 59,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-07-19T20:00:00+00:00",
+      "end": "2023-07-20T15:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -36850.0,
+      "total_fees": 189.2,
+      "net_pnl": -37039.2,
+      "pnl_pct": -3.685,
+      "max_qty": 44,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-07-21T14:00:00+00:00",
+      "end": "2023-07-21T16:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 18275.0,
+      "total_fees": 184.9,
+      "net_pnl": 18090.1,
+      "pnl_pct": 1.8275,
+      "max_qty": 43,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-07-24T18:00:00+00:00",
+      "end": "2023-07-26T14:00:00+00:00",
+      "duration_h": 44.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": -58550.0,
+      "total_fees": 700.9,
+      "net_pnl": -59250.9,
+      "pnl_pct": -5.8549999999999995,
+      "max_qty": 61,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-08-22T14:00:00+00:00",
+      "end": "2023-08-22T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 21170.0,
+      "total_fees": 249.4,
+      "net_pnl": 20920.6,
+      "pnl_pct": 2.117,
+      "max_qty": 58,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-09-05T16:00:00+00:00",
+      "end": "2023-09-05T17:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 8510.0,
+      "total_fees": 197.8,
+      "net_pnl": 8312.2,
+      "pnl_pct": 0.851,
+      "max_qty": 46,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-09-07T14:00:00+00:00",
+      "end": "2023-09-07T18:00:00+00:00",
+      "duration_h": 4.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -21830.0,
+      "total_fees": 253.7,
+      "net_pnl": -22083.7,
+      "pnl_pct": -2.183,
+      "max_qty": 59,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-09-08T17:00:00+00:00",
+      "end": "2023-09-08T19:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 24087.5,
+      "total_fees": 176.3,
+      "net_pnl": 23911.2,
+      "pnl_pct": 2.40875,
+      "max_qty": 41,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-09-20T18:00:00+00:00",
+      "end": "2023-09-20T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 73850.0,
+      "total_fees": 301.0,
+      "net_pnl": 73549.0,
+      "pnl_pct": 7.385,
+      "max_qty": 42,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-09-21T17:00:00+00:00",
+      "end": "2023-09-21T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -16650.0,
+      "total_fees": 154.8,
+      "net_pnl": -16804.8,
+      "pnl_pct": -1.6650000000000003,
+      "max_qty": 36,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-10-27T15:00:00+00:00",
+      "end": "2023-10-27T17:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 37950.0,
+      "total_fees": 189.2,
+      "net_pnl": 37760.8,
+      "pnl_pct": 3.795,
+      "max_qty": 44,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-11-07T19:00:00+00:00",
+      "end": "2023-11-08T16:00:00+00:00",
+      "duration_h": 21.0,
+      "instruments": [
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -6460.0,
+      "total_fees": 404.2,
+      "net_pnl": -6864.2,
+      "pnl_pct": -0.6459999999999999,
+      "max_qty": 64,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-11-13T20:00:00+00:00",
+      "end": "2023-11-14T16:00:00+00:00",
+      "duration_h": 20.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 350190.0,
+      "total_fees": 593.4,
+      "net_pnl": 349596.6,
+      "pnl_pct": 35.019,
+      "max_qty": 63,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-11-15T20:00:00+00:00",
+      "end": "2023-11-15T21:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -14985.0,
+      "total_fees": 159.1,
+      "net_pnl": -15144.1,
+      "pnl_pct": -1.4985,
+      "max_qty": 37,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-11-17T18:00:00+00:00",
+      "end": "2023-11-20T19:00:00+00:00",
+      "duration_h": 73.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 4,
+      "total_pnl": 177807.5,
+      "total_fees": 821.3,
+      "net_pnl": 176986.2,
+      "pnl_pct": 17.78075,
+      "max_qty": 59,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-11-21T18:00:00+00:00",
+      "end": "2023-11-24T15:00:00+00:00",
+      "duration_h": 69.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 4,
+      "total_pnl": 128075.0,
+      "total_fees": 1294.3,
+      "net_pnl": 126780.7,
+      "pnl_pct": 12.8075,
+      "max_qty": 90,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-11-27T18:00:00+00:00",
+      "end": "2023-11-28T15:00:00+00:00",
+      "duration_h": 21.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 2760.0,
+      "total_fees": 395.6,
+      "net_pnl": 2364.4,
+      "pnl_pct": 0.27599999999999997,
+      "max_qty": 92,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-12-04T21:00:00+00:00",
+      "end": "2023-12-05T15:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -77740.0,
+      "total_fees": 395.6,
+      "net_pnl": -78135.6,
+      "pnl_pct": -7.774,
+      "max_qty": 92,
+      "is_win": false,
+      "year": 2023
+    },
+    {
+      "start": "2023-12-12T15:00:00+00:00",
+      "end": "2023-12-13T21:00:00+00:00",
+      "duration_h": 30.0,
+      "instruments": [
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 245910.0,
+      "total_fees": 954.6,
+      "net_pnl": 244955.4,
+      "pnl_pct": 24.590999999999998,
+      "max_qty": 90,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2023-12-18T20:00:00+00:00",
+      "end": "2023-12-19T21:00:00+00:00",
+      "duration_h": 25.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 4,
+      "total_pnl": 84815.0,
+      "total_fees": 1251.3,
+      "net_pnl": 83563.7,
+      "pnl_pct": 8.4815,
+      "max_qty": 100,
+      "is_win": true,
+      "year": 2023
+    },
+    {
+      "start": "2024-01-04T19:00:00+00:00",
+      "end": "2024-01-04T21:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 57340.0,
+      "total_fees": 202.1,
+      "net_pnl": 57137.9,
+      "pnl_pct": 5.734,
+      "max_qty": 47,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-01-10T15:00:00+00:00",
+      "end": "2024-01-10T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 52320.0,
+      "total_fees": 206.4,
+      "net_pnl": 52113.6,
+      "pnl_pct": 5.232,
+      "max_qty": 48,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-01-22T20:00:00+00:00",
+      "end": "2024-01-23T21:00:00+00:00",
+      "duration_h": 25.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 36275.0,
+      "total_fees": 1070.6999999999998,
+      "net_pnl": 35204.3,
+      "pnl_pct": 3.6275000000000004,
+      "max_qty": 103,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-01-31T15:00:00+00:00",
+      "end": "2024-01-31T18:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 6300.0,
+      "total_fees": 451.5,
+      "net_pnl": 5848.5,
+      "pnl_pct": 0.63,
+      "max_qty": 105,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-02-06T16:00:00+00:00",
+      "end": "2024-02-06T19:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 26250.0,
+      "total_fees": 322.5,
+      "net_pnl": 25927.5,
+      "pnl_pct": 2.625,
+      "max_qty": 75,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-02-08T15:00:00+00:00",
+      "end": "2024-02-12T16:00:00+00:00",
+      "duration_h": 97.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 5,
+      "total_pnl": 186135.0,
+      "total_fees": 1328.7,
+      "net_pnl": 184806.3,
+      "pnl_pct": 18.6135,
+      "max_qty": 79,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-02-15T18:00:00+00:00",
+      "end": "2024-02-15T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 53662.5,
+      "total_fees": 348.3,
+      "net_pnl": 53314.2,
+      "pnl_pct": 5.36625,
+      "max_qty": 81,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-02-23T19:00:00+00:00",
+      "end": "2024-02-23T21:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": -64500.0,
+      "total_fees": 1087.9,
+      "net_pnl": -65587.9,
+      "pnl_pct": -6.45,
+      "max_qty": 115,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-02-26T19:00:00+00:00",
+      "end": "2024-02-26T21:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -37462.5,
+      "total_fees": 348.3,
+      "net_pnl": -37810.8,
+      "pnl_pct": -3.7462500000000003,
+      "max_qty": 81,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-02-27T20:00:00+00:00",
+      "end": "2024-02-28T15:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 88480.0,
+      "total_fees": 481.6,
+      "net_pnl": 87998.4,
+      "pnl_pct": 8.848,
+      "max_qty": 112,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-03-04T17:00:00+00:00",
+      "end": "2024-03-04T20:00:00+00:00",
+      "duration_h": 3.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 44075.0,
+      "total_fees": 352.6,
+      "net_pnl": 43722.4,
+      "pnl_pct": 4.407500000000001,
+      "max_qty": 82,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-03-25T17:00:00+00:00",
+      "end": "2024-03-26T15:00:00+00:00",
+      "duration_h": 22.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy",
+        "Sell"
+      ],
+      "n_trades": 4,
+      "total_pnl": -56910.0,
+      "total_fees": 1010.5,
+      "net_pnl": -57920.5,
+      "pnl_pct": -5.691,
+      "max_qty": 118,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-03-28T15:00:00+00:00",
+      "end": "2024-03-28T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 18400.0,
+      "total_fees": 494.5,
+      "net_pnl": 17905.5,
+      "pnl_pct": 1.8399999999999999,
+      "max_qty": 115,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-04-09T19:00:00+00:00",
+      "end": "2024-04-09T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -98020.0,
+      "total_fees": 498.8,
+      "net_pnl": -98518.8,
+      "pnl_pct": -9.802,
+      "max_qty": 116,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-05-02T17:00:00+00:00",
+      "end": "2024-05-02T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -64187.5,
+      "total_fees": 339.7,
+      "net_pnl": -64527.2,
+      "pnl_pct": -6.418749999999999,
+      "max_qty": 79,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-05-08T14:00:00+00:00",
+      "end": "2024-05-09T15:00:00+00:00",
+      "duration_h": 25.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": 95547.5,
+      "total_fees": 1032.0,
+      "net_pnl": 94515.5,
+      "pnl_pct": 9.554749999999999,
+      "max_qty": 109,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-05-10T18:00:00+00:00",
+      "end": "2024-05-14T14:00:00+00:00",
+      "duration_h": 92.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 4,
+      "total_pnl": 89992.5,
+      "total_fees": 1423.3,
+      "net_pnl": 88569.2,
+      "pnl_pct": 8.99925,
+      "max_qty": 113,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-05-16T14:00:00+00:00",
+      "end": "2024-05-16T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 42900.0,
+      "total_fees": 236.5,
+      "net_pnl": 42663.5,
+      "pnl_pct": 4.29,
+      "max_qty": 55,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-05-17T15:00:00+00:00",
+      "end": "2024-05-17T20:00:00+00:00",
+      "duration_h": 5.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 15750.0,
+      "total_fees": 361.2,
+      "net_pnl": 15388.8,
+      "pnl_pct": 1.575,
+      "max_qty": 84,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-05-20T17:00:00+00:00",
+      "end": "2024-05-20T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -42500.0,
+      "total_fees": 365.5,
+      "net_pnl": -42865.5,
+      "pnl_pct": -4.25,
+      "max_qty": 85,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-05-21T14:00:00+00:00",
+      "end": "2024-05-21T18:00:00+00:00",
+      "duration_h": 4.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 41860.0,
+      "total_fees": 868.5999999999999,
+      "net_pnl": 40991.4,
+      "pnl_pct": 4.186,
+      "max_qty": 118,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-05-22T17:00:00+00:00",
+      "end": "2024-05-22T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -36120.0,
+      "total_fees": 240.8,
+      "net_pnl": -36360.8,
+      "pnl_pct": -3.612,
+      "max_qty": 56,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-05-29T18:00:00+00:00",
+      "end": "2024-05-29T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 29500.0,
+      "total_fees": 507.4,
+      "net_pnl": 28992.6,
+      "pnl_pct": 2.9499999999999997,
+      "max_qty": 118,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-06-06T16:00:00+00:00",
+      "end": "2024-06-07T14:00:00+00:00",
+      "duration_h": 22.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -75892.5,
+      "total_fees": 606.3,
+      "net_pnl": -76498.8,
+      "pnl_pct": -7.58925,
+      "max_qty": 85,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-06-12T18:00:00+00:00",
+      "end": "2024-06-12T20:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -82175.0,
+      "total_fees": 589.1,
+      "net_pnl": -82764.1,
+      "pnl_pct": -8.2175,
+      "max_qty": 82,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-06-14T17:00:00+00:00",
+      "end": "2024-06-14T18:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 26235.0,
+      "total_fees": 227.9,
+      "net_pnl": 26007.1,
+      "pnl_pct": 2.6235,
+      "max_qty": 53,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-06-17T14:00:00+00:00",
+      "end": "2024-06-17T16:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 62805.0,
+      "total_fees": 227.9,
+      "net_pnl": 62577.1,
+      "pnl_pct": 6.2805,
+      "max_qty": 53,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-06-18T15:00:00+00:00",
+      "end": "2024-06-20T18:00:00+00:00",
+      "duration_h": 51.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 4,
+      "total_pnl": -169300.0,
+      "total_fees": 1191.1,
+      "net_pnl": -170491.1,
+      "pnl_pct": -16.93,
+      "max_qty": 84,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-06-25T15:00:00+00:00",
+      "end": "2024-06-25T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -27912.5,
+      "total_fees": 331.1,
+      "net_pnl": -28243.6,
+      "pnl_pct": -2.79125,
+      "max_qty": 77,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-06-26T20:00:00+00:00",
+      "end": "2024-06-27T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 455.0,
+      "total_fees": 391.3,
+      "net_pnl": 63.69999999999999,
+      "pnl_pct": 0.0455,
+      "max_qty": 91,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-07-03T20:00:00+00:00",
+      "end": "2024-07-04T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -40080.0,
+      "total_fees": 206.4,
+      "net_pnl": -40286.4,
+      "pnl_pct": -4.008,
+      "max_qty": 48,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-07-08T18:00:00+00:00",
+      "end": "2024-07-10T16:00:00+00:00",
+      "duration_h": 46.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy",
+        "Sell"
+      ],
+      "n_trades": 5,
+      "total_pnl": 144537.5,
+      "total_fees": 1406.1,
+      "net_pnl": 143131.4,
+      "pnl_pct": 14.453750000000001,
+      "max_qty": 85,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-07-17T19:00:00+00:00",
+      "end": "2024-07-18T14:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 72225.0,
+      "total_fees": 460.1,
+      "net_pnl": 71764.9,
+      "pnl_pct": 7.2225,
+      "max_qty": 107,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-08-16T20:00:00+00:00",
+      "end": "2024-08-19T15:00:00+00:00",
+      "duration_h": 67.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 77875.0,
+      "total_fees": 301.0,
+      "net_pnl": 77574.0,
+      "pnl_pct": 7.7875,
+      "max_qty": 70,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-08-20T16:00:00+00:00",
+      "end": "2024-08-22T15:00:00+00:00",
+      "duration_h": 47.0,
+      "instruments": [
+        "ES",
+        "NQ",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 4,
+      "total_pnl": 102300.0,
+      "total_fees": 1401.8,
+      "net_pnl": 100898.2,
+      "pnl_pct": 10.23,
+      "max_qty": 106,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-09-06T19:00:00+00:00",
+      "end": "2024-09-09T15:00:00+00:00",
+      "duration_h": 68.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": -106250.0,
+      "total_fees": 318.2,
+      "net_pnl": -106568.2,
+      "pnl_pct": -10.625,
+      "max_qty": 64,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-09-24T14:00:00+00:00",
+      "end": "2024-09-24T20:00:00+00:00",
+      "duration_h": 6.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 94395.0,
+      "total_fees": 709.5,
+      "net_pnl": 93685.5,
+      "pnl_pct": 9.4395,
+      "max_qty": 97,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-10-11T20:00:00+00:00",
+      "end": "2024-10-15T16:00:00+00:00",
+      "duration_h": 92.0,
+      "instruments": [
+        "ES",
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 3,
+      "total_pnl": -114975.0,
+      "total_fees": 821.3,
+      "net_pnl": -115796.3,
+      "pnl_pct": -11.497499999999999,
+      "max_qty": 73,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-10-16T14:00:00+00:00",
+      "end": "2024-10-16T15:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 31825.0,
+      "total_fees": 288.1,
+      "net_pnl": 31536.9,
+      "pnl_pct": 3.1825,
+      "max_qty": 67,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-10-17T20:00:00+00:00",
+      "end": "2024-10-18T14:00:00+00:00",
+      "duration_h": 18.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -97920.0,
+      "total_fees": 412.8,
+      "net_pnl": -98332.8,
+      "pnl_pct": -9.792,
+      "max_qty": 96,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-11-04T16:00:00+00:00",
+      "end": "2024-11-04T17:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 91812.5,
+      "total_fees": 279.5,
+      "net_pnl": 91533.0,
+      "pnl_pct": 9.18125,
+      "max_qty": 65,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-11-08T17:00:00+00:00",
+      "end": "2024-11-08T19:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 27280.0,
+      "total_fees": 189.2,
+      "net_pnl": 27090.8,
+      "pnl_pct": 2.7279999999999998,
+      "max_qty": 44,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-11-11T21:00:00+00:00",
+      "end": "2024-11-12T16:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -115990.0,
+      "total_fees": 705.2,
+      "net_pnl": -116695.2,
+      "pnl_pct": -11.599,
+      "max_qty": 96,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-11-13T16:00:00+00:00",
+      "end": "2024-11-13T17:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 29700.0,
+      "total_fees": 283.8,
+      "net_pnl": 29416.2,
+      "pnl_pct": 2.97,
+      "max_qty": 66,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-11-14T18:00:00+00:00",
+      "end": "2024-11-14T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 42180.0,
+      "total_fees": 163.4,
+      "net_pnl": 42016.6,
+      "pnl_pct": 4.218,
+      "max_qty": 38,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-11-18T20:00:00+00:00",
+      "end": "2024-11-19T15:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 2,
+      "total_pnl": 84287.5,
+      "total_fees": 266.6,
+      "net_pnl": 84020.9,
+      "pnl_pct": 8.42875,
+      "max_qty": 57,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-11-22T21:00:00+00:00",
+      "end": "2024-11-25T16:00:00+00:00",
+      "duration_h": 67.0,
+      "instruments": [
+        "ES",
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": 328805.0,
+      "total_fees": 718.0999999999999,
+      "net_pnl": 328086.9,
+      "pnl_pct": 32.8805,
+      "max_qty": 98,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-11-26T20:00:00+00:00",
+      "end": "2024-11-26T21:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 23400.0,
+      "total_fees": 335.4,
+      "net_pnl": 23064.6,
+      "pnl_pct": 2.34,
+      "max_qty": 78,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-11-27T21:00:00+00:00",
+      "end": "2024-12-02T15:00:00+00:00",
+      "duration_h": 114.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 2,
+      "total_pnl": -55180.0,
+      "total_fees": 954.6,
+      "net_pnl": -56134.6,
+      "pnl_pct": -5.518,
+      "max_qty": 112,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-12-04T19:00:00+00:00",
+      "end": "2024-12-04T20:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 39750.0,
+      "total_fees": 215.0,
+      "net_pnl": 39535.0,
+      "pnl_pct": 3.975,
+      "max_qty": 50,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-12-05T15:00:00+00:00",
+      "end": "2024-12-05T17:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 19890.0,
+      "total_fees": 219.3,
+      "net_pnl": 19670.7,
+      "pnl_pct": 1.989,
+      "max_qty": 51,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-12-06T18:00:00+00:00",
+      "end": "2024-12-06T19:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": 40035.0,
+      "total_fees": 219.3,
+      "net_pnl": 39815.7,
+      "pnl_pct": 4.0035,
+      "max_qty": 51,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-12-09T15:00:00+00:00",
+      "end": "2024-12-09T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -121160.0,
+      "total_fees": 223.6,
+      "net_pnl": -121383.6,
+      "pnl_pct": -12.116,
+      "max_qty": 52,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-12-10T15:00:00+00:00",
+      "end": "2024-12-10T21:00:00+00:00",
+      "duration_h": 6.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 5,
+      "total_pnl": 73400.0,
+      "total_fees": 460.1,
+      "net_pnl": 72939.9,
+      "pnl_pct": 7.340000000000001,
+      "max_qty": 46,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-12-11T20:00:00+00:00",
+      "end": "2024-12-12T15:00:00+00:00",
+      "duration_h": 19.0,
+      "instruments": [
+        "NQ"
+      ],
+      "directions": [
+        "Buy"
+      ],
+      "n_trades": 1,
+      "total_pnl": -120360.0,
+      "total_fees": 219.3,
+      "net_pnl": -120579.3,
+      "pnl_pct": -12.036,
+      "max_qty": 51,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-12-13T21:00:00+00:00",
+      "end": "2024-12-16T15:00:00+00:00",
+      "duration_h": 66.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -11025.0,
+      "total_fees": 451.5,
+      "net_pnl": -11476.5,
+      "pnl_pct": -1.1025,
+      "max_qty": 105,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-12-19T17:00:00+00:00",
+      "end": "2024-12-19T19:00:00+00:00",
+      "duration_h": 2.0,
+      "instruments": [
+        "YM"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": -87675.0,
+      "total_fees": 451.5,
+      "net_pnl": -88126.5,
+      "pnl_pct": -8.7675,
+      "max_qty": 105,
+      "is_win": false,
+      "year": 2024
+    },
+    {
+      "start": "2024-12-20T20:00:00+00:00",
+      "end": "2024-12-20T21:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 52925.0,
+      "total_fees": 313.9,
+      "net_pnl": 52611.1,
+      "pnl_pct": 5.2925,
+      "max_qty": 73,
+      "is_win": true,
+      "year": 2024
+    },
+    {
+      "start": "2024-12-23T15:00:00+00:00",
+      "end": "2024-12-23T16:00:00+00:00",
+      "duration_h": 1.0,
+      "instruments": [
+        "ES"
+      ],
+      "directions": [
+        "Sell"
+      ],
+      "n_trades": 1,
+      "total_pnl": 9975.0,
+      "total_fees": 60.2,
+      "net_pnl": 9914.8,
+      "pnl_pct": 0.9974999999999999,
+      "max_qty": 14,
+      "is_win": true,
+      "year": 2024
+    }
+  ],
+  "equity_curve": [
+    [
+      "2018-02-07T17:00:00+00:00",
+      1000000.0
+    ],
+    [
+      "2018-02-07T18:00:00+00:00",
+      1066960.0
+    ],
+    [
+      "2018-02-07T20:00:00+00:00",
+      1108540.0
+    ],
+    [
+      "2018-03-12T19:00:00+00:00",
+      1094740.0
+    ],
+    [
+      "2018-03-13T14:00:00+00:00",
+      1145400.0
+    ],
+    [
+      "2018-03-26T17:00:00+00:00",
+      1129425.0
+    ],
+    [
+      "2018-03-26T17:00:00+00:00",
+      1105285.0
+    ],
+    [
+      "2018-04-18T18:00:00+00:00",
+      1093210.0
+    ],
+    [
+      "2018-04-23T15:00:00+00:00",
+      1111710.0
+    ],
+    [
+      "2018-05-11T20:00:00+00:00",
+      1127700.0
+    ],
+    [
+      "2018-05-15T14:00:00+00:00",
+      1030200.0
+    ],
+    [
+      "2018-05-15T14:00:00+00:00",
+      939315.0
+    ],
+    [
+      "2018-05-22T15:00:00+00:00",
+      918960.0
+    ],
+    [
+      "2018-05-28T16:00:00+00:00",
+      925422.5
+    ],
+    [
+      "2018-06-05T14:00:00+00:00",
+      938697.5
+    ],
+    [
+      "2018-06-05T14:00:00+00:00",
+      968337.5
+    ],
+    [
+      "2018-06-06T16:00:00+00:00",
+      999337.5
+    ],
+    [
+      "2018-06-11T14:00:00+00:00",
+      1013287.5
+    ],
+    [
+      "2018-06-11T16:00:00+00:00",
+      1029537.5
+    ],
+    [
+      "2018-06-11T20:00:00+00:00",
+      1013037.5
+    ],
+    [
+      "2018-06-12T16:00:00+00:00",
+      1022787.5
+    ],
+    [
+      "2018-06-15T18:00:00+00:00",
+      1030287.5
+    ],
+    [
+      "2018-06-18T20:00:00+00:00",
+      1023987.5
+    ],
+    [
+      "2018-06-18T20:00:00+00:00",
+      1021987.5
+    ],
+    [
+      "2018-06-22T18:00:00+00:00",
+      999937.5
+    ],
+    [
+      "2018-06-26T16:00:00+00:00",
+      987137.5
+    ],
+    [
+      "2018-07-09T18:00:00+00:00",
+      998727.5
+    ],
+    [
+      "2018-07-10T14:00:00+00:00",
+      1031527.5
+    ],
+    [
+      "2018-07-10T19:00:00+00:00",
+      1043077.5
+    ],
+    [
+      "2018-07-11T20:00:00+00:00",
+      1033865.0
+    ],
+    [
+      "2018-07-12T14:00:00+00:00",
+      1023240.0
+    ],
+    [
+      "2018-07-12T20:00:00+00:00",
+      1033802.5
+    ],
+    [
+      "2018-07-16T14:00:00+00:00",
+      1023902.5
+    ],
+    [
+      "2018-07-16T15:00:00+00:00",
+      1010027.5
+    ],
+    [
+      "2018-07-16T15:00:00+00:00",
+      980417.5
+    ],
+    [
+      "2018-07-18T14:00:00+00:00",
+      956417.5
+    ],
+    [
+      "2018-07-23T14:00:00+00:00",
+      942417.5
+    ],
+    [
+      "2018-07-24T14:00:00+00:00",
+      908097.5
+    ],
+    [
+      "2018-07-27T14:00:00+00:00",
+      900847.5
+    ],
+    [
+      "2018-07-27T17:00:00+00:00",
+      858272.5
+    ],
+    [
+      "2018-08-07T20:00:00+00:00",
+      848822.5
+    ],
+    [
+      "2018-08-07T20:00:00+00:00",
+      837972.5
+    ],
+    [
+      "2018-08-08T21:00:00+00:00",
+      819422.5
+    ],
+    [
+      "2018-08-08T21:00:00+00:00",
+      797237.5
+    ],
+    [
+      "2018-08-09T19:00:00+00:00",
+      795212.5
+    ],
+    [
+      "2018-08-13T20:00:00+00:00",
+      805012.5
+    ],
+    [
+      "2018-08-13T20:00:00+00:00",
+      814212.5
+    ],
+    [
+      "2018-08-21T14:00:00+00:00",
+      836632.5
+    ],
+    [
+      "2018-08-21T20:00:00+00:00",
+      825652.5
+    ],
+    [
+      "2018-08-23T16:00:00+00:00",
+      797152.5
+    ],
+    [
+      "2018-08-28T14:00:00+00:00",
+      808177.5
+    ],
+    [
+      "2018-08-28T14:00:00+00:00",
+      829737.5
+    ],
+    [
+      "2018-08-29T14:00:00+00:00",
+      858552.5
+    ],
+    [
+      "2018-08-29T15:00:00+00:00",
+      882777.5
+    ],
+    [
+      "2018-08-30T14:00:00+00:00",
+      871437.5
+    ],
+    [
+      "2018-08-31T15:00:00+00:00",
+      878725.0
+    ],
+    [
+      "2018-08-31T20:00:00+00:00",
+      861175.0
+    ],
+    [
+      "2018-08-31T20:00:00+00:00",
+      877645.0
+    ],
+    [
+      "2018-09-05T18:00:00+00:00",
+      869207.5
+    ],
+    [
+      "2018-09-07T15:00:00+00:00",
+      853970.0
+    ],
+    [
+      "2018-09-14T14:00:00+00:00",
+      859430.0
+    ],
+    [
+      "2018-09-14T15:00:00+00:00",
+      861030.0
+    ],
+    [
+      "2018-09-21T14:00:00+00:00",
+      873780.0
+    ],
+    [
+      "2018-09-25T14:00:00+00:00",
+      878420.0
+    ],
+    [
+      "2018-09-25T15:00:00+00:00",
+      867370.0
+    ],
+    [
+      "2018-09-26T15:00:00+00:00",
+      867020.0
+    ],
+    [
+      "2018-09-26T16:00:00+00:00",
+      862620.0
+    ],
+    [
+      "2018-10-09T14:00:00+00:00",
+      828810.0
+    ],
+    [
+      "2018-10-12T16:00:00+00:00",
+      863235.0
+    ],
+    [
+      "2019-02-01T15:00:00+00:00",
+      853672.5
+    ],
+    [
+      "2019-02-04T17:00:00+00:00",
+      871797.5
+    ],
+    [
+      "2019-02-07T15:00:00+00:00",
+      822710.0
+    ],
+    [
+      "2019-02-07T15:00:00+00:00",
+      769310.0
+    ],
+    [
+      "2019-02-14T17:00:00+00:00",
+      775960.0
+    ],
+    [
+      "2019-02-15T20:00:00+00:00",
+      783272.5
+    ],
+    [
+      "2019-02-19T15:00:00+00:00",
+      778097.5
+    ],
+    [
+      "2019-02-19T15:00:00+00:00",
+      772877.5
+    ],
+    [
+      "2019-03-12T20:00:00+00:00",
+      766037.5
+    ],
+    [
+      "2019-03-15T14:00:00+00:00",
+      800512.5
+    ],
+    [
+      "2019-03-18T14:00:00+00:00",
+      824600.0
+    ],
+    [
+      "2019-03-19T14:00:00+00:00",
+      843800.0
+    ],
+    [
+      "2019-04-02T15:00:00+00:00",
+      852575.0
+    ],
+    [
+      "2019-04-03T14:00:00+00:00",
+      876950.0
+    ],
+    [
+      "2019-04-03T14:00:00+00:00",
+      914780.0
+    ],
+    [
+      "2019-04-08T14:00:00+00:00",
+      896510.0
+    ],
+    [
+      "2019-04-08T14:00:00+00:00",
+      856085.0
+    ],
+    [
+      "2019-04-18T14:00:00+00:00",
+      873680.0
+    ],
+    [
+      "2019-04-24T15:00:00+00:00",
+      880080.0
+    ],
+    [
+      "2019-04-24T15:00:00+00:00",
+      883755.0
+    ],
+    [
+      "2019-04-26T20:00:00+00:00",
+      866075.0
+    ],
+    [
+      "2019-06-12T15:00:00+00:00",
+      852875.0
+    ],
+    [
+      "2019-06-12T15:00:00+00:00",
+      840775.0
+    ],
+    [
+      "2019-06-18T20:00:00+00:00",
+      830830.0
+    ],
+    [
+      "2019-06-19T19:00:00+00:00",
+      844630.0
+    ],
+    [
+      "2019-06-21T20:00:00+00:00",
+      832517.5
+    ],
+    [
+      "2019-06-22T17:30:00+00:00",
+      903898.75
+    ],
+    [
+      "2019-06-24T18:00:00+00:00",
+      901168.75
+    ],
+    [
+      "2019-06-24T18:00:00+00:00",
+      893518.75
+    ],
+    [
+      "2019-06-26T18:00:00+00:00",
+      904268.75
+    ],
+    [
+      "2019-06-26T18:00:00+00:00",
+      915998.75
+    ],
+    [
+      "2019-07-05T14:00:00+00:00",
+      850973.75
+    ],
+    [
+      "2019-07-08T20:00:00+00:00",
+      848098.75
+    ],
+    [
+      "2019-07-09T15:00:00+00:00",
+      845073.75
+    ],
+    [
+      "2019-07-09T15:00:00+00:00",
+      835528.75
+    ],
+    [
+      "2019-07-15T19:00:00+00:00",
+      834998.75
+    ],
+    [
+      "2019-07-16T16:00:00+00:00",
+      826373.75
+    ],
+    [
+      "2019-07-16T16:00:00+00:00",
+      807373.75
+    ],
+    [
+      "2019-07-19T17:00:00+00:00",
+      819613.75
+    ],
+    [
+      "2019-07-23T14:00:00+00:00",
+      802513.75
+    ],
+    [
+      "2019-07-31T16:00:00+00:00",
+      790413.75
+    ],
+    [
+      "2019-08-05T19:00:00+00:00",
+      797701.25
+    ],
+    [
+      "2019-08-05T19:00:00+00:00",
+      803641.25
+    ],
+    [
+      "2019-08-06T17:00:00+00:00",
+      812441.25
+    ],
+    [
+      "2019-08-06T17:00:00+00:00",
+      821111.25
+    ],
+    [
+      "2019-09-06T14:00:00+00:00",
+      820261.25
+    ],
+    [
+      "2019-09-06T14:00:00+00:00",
+      820823.75
+    ],
+    [
+      "2019-09-12T16:00:00+00:00",
+      848903.75
+    ],
+    [
+      "2019-09-12T20:00:00+00:00",
+      827753.75
+    ],
+    [
+      "2019-09-12T20:00:00+00:00",
+      801233.75
+    ],
+    [
+      "2019-09-13T16:00:00+00:00",
+      792538.75
+    ],
+    [
+      "2019-09-13T18:00:00+00:00",
+      785938.75
+    ],
+    [
+      "2019-09-13T18:00:00+00:00",
+      783938.75
+    ],
+    [
+      "2019-09-18T19:00:00+00:00",
+      802838.75
+    ],
+    [
+      "2019-09-23T20:00:00+00:00",
+      812273.75
+    ],
+    [
+      "2019-10-15T20:00:00+00:00",
+      803273.75
+    ],
+    [
+      "2019-10-15T20:00:00+00:00",
+      792563.75
+    ],
+    [
+      "2019-10-22T15:00:00+00:00",
+      791723.75
+    ],
+    [
+      "2019-10-22T16:00:00+00:00",
+      790488.75
+    ],
+    [
+      "2019-10-23T18:00:00+00:00",
+      790588.75
+    ],
+    [
+      "2019-10-23T19:00:00+00:00",
+      796108.75
+    ],
+    [
+      "2019-10-29T14:00:00+00:00",
+      775588.75
+    ],
+    [
+      "2019-10-29T15:00:00+00:00",
+      791538.75
+    ],
+    [
+      "2019-10-30T18:00:00+00:00",
+      781638.75
+    ],
+    [
+      "2019-11-05T15:00:00+00:00",
+      797838.75
+    ],
+    [
+      "2019-11-05T16:00:00+00:00",
+      783213.75
+    ],
+    [
+      "2019-11-05T21:00:00+00:00",
+      775901.25
+    ],
+    [
+      "2019-11-05T21:00:00+00:00",
+      765451.25
+    ],
+    [
+      "2019-11-06T17:00:00+00:00",
+      754321.25
+    ],
+    [
+      "2019-11-08T19:00:00+00:00",
+      749641.25
+    ],
+    [
+      "2019-11-19T15:00:00+00:00",
+      747041.25
+    ],
+    [
+      "2019-11-25T21:00:00+00:00",
+      755141.25
+    ],
+    [
+      "2019-11-26T19:00:00+00:00",
+      747453.75
+    ],
+    [
+      "2019-11-27T15:00:00+00:00",
+      758253.75
+    ],
+    [
+      "2019-11-27T19:00:00+00:00",
+      766966.25
+    ],
+    [
+      "2019-11-27T19:00:00+00:00",
+      775546.25
+    ],
+    [
+      "2019-11-28T15:00:00+00:00",
+      774436.25
+    ],
+    [
+      "2019-11-29T18:00:00+00:00",
+      759736.25
+    ],
+    [
+      "2019-11-29T18:00:00+00:00",
+      738461.25
+    ],
+    [
+      "2019-12-09T15:00:00+00:00",
+      751586.25
+    ],
+    [
+      "2019-12-09T17:00:00+00:00",
+      741086.25
+    ],
+    [
+      "2019-12-09T21:00:00+00:00",
+      729186.25
+    ],
+    [
+      "2019-12-11T20:00:00+00:00",
+      715386.25
+    ],
+    [
+      "2019-12-16T15:00:00+00:00",
+      756823.75
+    ],
+    [
+      "2019-12-16T15:00:00+00:00",
+      809013.75
+    ],
+    [
+      "2019-12-16T20:00:00+00:00",
+      796413.75
+    ],
+    [
+      "2019-12-16T20:00:00+00:00",
+      787613.75
+    ],
+    [
+      "2019-12-17T17:00:00+00:00",
+      802733.75
+    ],
+    [
+      "2019-12-17T21:00:00+00:00",
+      801121.25
+    ],
+    [
+      "2019-12-18T21:00:00+00:00",
+      796721.25
+    ],
+    [
+      "2019-12-18T21:00:00+00:00",
+      781711.25
+    ],
+    [
+      "2019-12-19T17:00:00+00:00",
+      789236.25
+    ],
+    [
+      "2019-12-20T15:00:00+00:00",
+      814498.75
+    ],
+    [
+      "2019-12-20T16:00:00+00:00",
+      842048.75
+    ],
+    [
+      "2019-12-20T21:00:00+00:00",
+      829578.75
+    ],
+    [
+      "2019-12-20T21:00:00+00:00",
+      822978.75
+    ],
+    [
+      "2019-12-24T15:00:00+00:00",
+      810041.25
+    ],
+    [
+      "2019-12-24T15:00:00+00:00",
+      800291.25
+    ],
+    [
+      "2019-12-26T21:00:00+00:00",
+      815691.25
+    ],
+    [
+      "2019-12-26T21:00:00+00:00",
+      829716.25
+    ],
+    [
+      "2019-12-27T20:00:00+00:00",
+      839116.25
+    ],
+    [
+      "2019-12-27T21:00:00+00:00",
+      835126.25
+    ],
+    [
+      "2019-12-31T16:00:00+00:00",
+      854101.25
+    ],
+    [
+      "2019-12-31T16:00:00+00:00",
+      874501.25
+    ],
+    [
+      "2019-12-31T21:00:00+00:00",
+      851701.25
+    ],
+    [
+      "2019-12-31T21:00:00+00:00",
+      835321.25
+    ],
+    [
+      "2020-01-02T18:00:00+00:00",
+      847121.25
+    ],
+    [
+      "2020-01-02T20:00:00+00:00",
+      860921.25
+    ],
+    [
+      "2020-01-02T20:00:00+00:00",
+      876291.25
+    ],
+    [
+      "2020-01-03T17:00:00+00:00",
+      890691.25
+    ],
+    [
+      "2020-01-03T17:00:00+00:00",
+      903081.25
+    ],
+    [
+      "2020-01-03T19:00:00+00:00",
+      888821.25
+    ],
+    [
+      "2020-01-20T15:00:00+00:00",
+      886521.25
+    ],
+    [
+      "2020-01-21T15:00:00+00:00",
+      877841.25
+    ],
+    [
+      "2020-01-21T17:00:00+00:00",
+      896441.25
+    ],
+    [
+      "2020-01-22T19:00:00+00:00",
+      886601.25
+    ],
+    [
+      "2020-02-03T21:00:00+00:00",
+      896401.25
+    ],
+    [
+      "2020-02-07T15:00:00+00:00",
+      855863.75
+    ],
+    [
+      "2020-02-07T15:00:00+00:00",
+      800423.75
+    ],
+    [
+      "2020-02-13T15:00:00+00:00",
+      776336.25
+    ],
+    [
+      "2020-02-27T16:00:00+00:00",
+      898336.25
+    ],
+    [
+      "2020-03-02T19:00:00+00:00",
+      921448.75
+    ],
+    [
+      "2020-03-02T19:00:00+00:00",
+      955828.75
+    ],
+    [
+      "2020-05-12T18:00:00+00:00",
+      941316.25
+    ],
+    [
+      "2020-05-19T19:00:00+00:00",
+      919686.25
+    ],
+    [
+      "2020-06-04T15:00:00+00:00",
+      928136.25
+    ],
+    [
+      "2020-06-08T18:00:00+00:00",
+      939836.25
+    ],
+    [
+      "2020-07-02T15:00:00+00:00",
+      971561.25
+    ],
+    [
+      "2020-07-02T15:00:00+00:00",
+      1007856.25
+    ],
+    [
+      "2020-07-02T19:00:00+00:00",
+      1013976.25
+    ],
+    [
+      "2020-08-04T17:00:00+00:00",
+      1005926.25
+    ],
+    [
+      "2020-08-06T14:00:00+00:00",
+      1012088.75
+    ],
+    [
+      "2020-08-06T14:00:00+00:00",
+      1019218.75
+    ],
+    [
+      "2020-08-07T16:00:00+00:00",
+      986768.75
+    ],
+    [
+      "2020-08-13T15:00:00+00:00",
+      982088.75
+    ],
+    [
+      "2020-08-13T19:00:00+00:00",
+      963363.75
+    ],
+    [
+      "2020-10-13T18:00:00+00:00",
+      954263.75
+    ],
+    [
+      "2020-11-09T16:00:00+00:00",
+      1146873.75
+    ],
+    [
+      "2020-11-25T15:00:00+00:00",
+      1130211.25
+    ],
+    [
+      "2020-11-27T15:00:00+00:00",
+      1142211.25
+    ],
+    [
+      "2020-12-10T17:00:00+00:00",
+      1159536.25
+    ],
+    [
+      "2020-12-17T19:00:00+00:00",
+      1167186.25
+    ],
+    [
+      "2020-12-17T21:00:00+00:00",
+      1175436.25
+    ],
+    [
+      "2021-01-21T16:00:00+00:00",
+      1188486.25
+    ],
+    [
+      "2021-01-21T16:00:00+00:00",
+      1192086.25
+    ],
+    [
+      "2021-01-22T16:00:00+00:00",
+      1175186.25
+    ],
+    [
+      "2021-02-08T21:00:00+00:00",
+      1197561.25
+    ],
+    [
+      "2021-02-10T20:00:00+00:00",
+      1215961.25
+    ],
+    [
+      "2021-03-12T19:00:00+00:00",
+      1224656.25
+    ],
+    [
+      "2021-03-15T16:00:00+00:00",
+      1207106.25
+    ],
+    [
+      "2021-03-16T18:00:00+00:00",
+      1195706.25
+    ],
+    [
+      "2021-03-22T19:00:00+00:00",
+      1179116.25
+    ],
+    [
+      "2021-03-22T19:00:00+00:00",
+      1177956.25
+    ],
+    [
+      "2021-04-06T20:00:00+00:00",
+      1164543.75
+    ],
+    [
+      "2021-04-06T20:00:00+00:00",
+      1152843.75
+    ],
+    [
+      "2021-04-07T16:00:00+00:00",
+      1136123.75
+    ],
+    [
+      "2021-04-07T16:00:00+00:00",
+      1124423.75
+    ],
+    [
+      "2021-04-09T14:00:00+00:00",
+      1142798.75
+    ],
+    [
+      "2021-04-09T14:00:00+00:00",
+      1137878.75
+    ],
+    [
+      "2021-04-13T17:00:00+00:00",
+      1133828.75
+    ],
+    [
+      "2021-04-14T15:00:00+00:00",
+      1105508.75
+    ],
+    [
+      "2021-04-16T14:00:00+00:00",
+      1080308.75
+    ],
+    [
+      "2021-04-30T18:00:00+00:00",
+      1098758.75
+    ],
+    [
+      "2021-05-07T19:00:00+00:00",
+      1104358.75
+    ],
+    [
+      "2021-05-26T15:00:00+00:00",
+      1121278.75
+    ],
+    [
+      "2021-06-03T14:00:00+00:00",
+      1078493.75
+    ],
+    [
+      "2021-06-09T20:00:00+00:00",
+      1093793.75
+    ],
+    [
+      "2021-06-11T20:00:00+00:00",
+      1109548.75
+    ],
+    [
+      "2021-06-16T14:00:00+00:00",
+      1133908.75
+    ],
+    [
+      "2021-06-25T14:00:00+00:00",
+      1146596.25
+    ],
+    [
+      "2021-06-25T14:00:00+00:00",
+      1140356.25
+    ],
+    [
+      "2021-06-28T19:00:00+00:00",
+      1151606.25
+    ],
+    [
+      "2021-06-28T19:00:00+00:00",
+      1166006.25
+    ],
+    [
+      "2021-06-29T17:00:00+00:00",
+      1184256.25
+    ],
+    [
+      "2021-06-30T14:00:00+00:00",
+      1169506.25
+    ],
+    [
+      "2021-06-30T15:00:00+00:00",
+      1172743.75
+    ],
+    [
+      "2021-07-01T14:00:00+00:00",
+      1198643.75
+    ],
+    [
+      "2021-07-01T17:00:00+00:00",
+      1171893.75
+    ],
+    [
+      "2021-07-01T19:00:00+00:00",
+      1188081.25
+    ],
+    [
+      "2021-07-02T14:00:00+00:00",
+      1204731.25
+    ],
+    [
+      "2021-07-06T14:00:00+00:00",
+      1173681.25
+    ],
+    [
+      "2021-07-06T14:00:00+00:00",
+      1200851.25
+    ],
+    [
+      "2021-07-09T16:00:00+00:00",
+      1217181.25
+    ],
+    [
+      "2021-07-23T14:00:00+00:00",
+      1253711.25
+    ],
+    [
+      "2021-07-26T14:00:00+00:00",
+      1254686.25
+    ],
+    [
+      "2021-07-26T16:00:00+00:00",
+      1268726.25
+    ],
+    [
+      "2021-07-27T14:00:00+00:00",
+      1233726.25
+    ],
+    [
+      "2021-07-27T14:00:00+00:00",
+      1193496.25
+    ],
+    [
+      "2021-07-29T20:00:00+00:00",
+      1178233.75
+    ],
+    [
+      "2021-08-02T15:00:00+00:00",
+      1160143.75
+    ],
+    [
+      "2021-08-12T14:00:00+00:00",
+      1150023.75
+    ],
+    [
+      "2021-08-13T19:00:00+00:00",
+      1142103.75
+    ],
+    [
+      "2021-08-13T20:00:00+00:00",
+      1147953.75
+    ],
+    [
+      "2021-08-24T20:00:00+00:00",
+      1146253.75
+    ],
+    [
+      "2021-08-25T15:00:00+00:00",
+      1145103.75
+    ],
+    [
+      "2021-08-25T16:00:00+00:00",
+      1156153.75
+    ],
+    [
+      "2021-08-26T14:00:00+00:00",
+      1148333.75
+    ],
+    [
+      "2021-08-26T14:00:00+00:00",
+      1131708.75
+    ],
+    [
+      "2021-08-27T20:00:00+00:00",
+      1128308.75
+    ],
+    [
+      "2021-08-27T20:00:00+00:00",
+      1123708.75
+    ],
+    [
+      "2021-08-30T20:00:00+00:00",
+      1111746.25
+    ],
+    [
+      "2021-08-31T19:00:00+00:00",
+      1111333.75
+    ],
+    [
+      "2021-09-01T14:00:00+00:00",
+      1142133.75
+    ],
+    [
+      "2021-09-01T19:00:00+00:00",
+      1125803.75
+    ],
+    [
+      "2021-09-02T18:00:00+00:00",
+      1107653.75
+    ],
+    [
+      "2021-09-09T14:00:00+00:00",
+      1093628.75
+    ],
+    [
+      "2021-09-15T15:00:00+00:00",
+      1100768.75
+    ],
+    [
+      "2021-10-19T14:00:00+00:00",
+      1128406.25
+    ],
+    [
+      "2021-10-19T14:00:00+00:00",
+      1143316.25
+    ],
+    [
+      "2021-10-19T19:00:00+00:00",
+      1134806.25
+    ],
+    [
+      "2021-10-19T20:00:00+00:00",
+      1139906.25
+    ],
+    [
+      "2021-10-20T17:00:00+00:00",
+      1134386.25
+    ],
+    [
+      "2021-10-21T19:00:00+00:00",
+      1142461.25
+    ],
+    [
+      "2021-10-21T19:00:00+00:00",
+      1152136.25
+    ],
+    [
+      "2021-10-26T14:00:00+00:00",
+      1183586.25
+    ],
+    [
+      "2021-11-03T16:00:00+00:00",
+      1188761.25
+    ],
+    [
+      "2021-11-03T17:00:00+00:00",
+      1177823.75
+    ],
+    [
+      "2021-11-04T19:00:00+00:00",
+      1174323.75
+    ],
+    [
+      "2021-11-08T21:00:00+00:00",
+      1170183.75
+    ],
+    [
+      "2021-11-08T21:00:00+00:00",
+      1175871.25
+    ],
+    [
+      "2021-11-11T19:00:00+00:00",
+      1182871.25
+    ],
+    [
+      "2021-11-12T16:00:00+00:00",
+      1165371.25
+    ],
+    [
+      "2021-11-12T16:00:00+00:00",
+      1123971.25
+    ],
+    [
+      "2021-11-18T15:00:00+00:00",
+      1145371.25
+    ],
+    [
+      "2021-11-22T15:00:00+00:00",
+      1209081.25
+    ],
+    [
+      "2021-12-28T16:00:00+00:00",
+      1211151.25
+    ],
+    [
+      "2021-12-29T15:00:00+00:00",
+      1221501.25
+    ],
+    [
+      "2021-12-29T16:00:00+00:00",
+      1206501.25
+    ],
+    [
+      "2021-12-30T15:00:00+00:00",
+      1228796.25
+    ],
+    [
+      "2021-12-30T15:00:00+00:00",
+      1239146.25
+    ],
+    [
+      "2021-12-30T16:00:00+00:00",
+      1253021.25
+    ],
+    [
+      "2021-12-30T20:00:00+00:00",
+      1247521.25
+    ],
+    [
+      "2021-12-30T21:00:00+00:00",
+      1208671.25
+    ],
+    [
+      "2021-12-31T21:00:00+00:00",
+      1234711.25
+    ],
+    [
+      "2021-12-31T21:00:00+00:00",
+      1236241.25
+    ],
+    [
+      "2022-01-06T21:00:00+00:00",
+      1265991.25
+    ],
+    [
+      "2022-01-07T19:00:00+00:00",
+      1283136.25
+    ],
+    [
+      "2022-07-27T20:00:00+00:00",
+      1385796.25
+    ],
+    [
+      "2022-08-01T15:00:00+00:00",
+      1440396.25
+    ],
+    [
+      "2022-08-16T14:00:00+00:00",
+      1427896.25
+    ],
+    [
+      "2022-08-23T20:00:00+00:00",
+      1445956.25
+    ],
+    [
+      "2022-08-25T14:00:00+00:00",
+      1393306.25
+    ],
+    [
+      "2022-11-14T16:00:00+00:00",
+      1403546.25
+    ],
+    [
+      "2022-11-28T15:00:00+00:00",
+      1346046.25
+    ],
+    [
+      "2022-11-29T21:00:00+00:00",
+      1333396.25
+    ],
+    [
+      "2022-12-21T15:00:00+00:00",
+      1303671.25
+    ],
+    [
+      "2022-12-22T16:00:00+00:00",
+      1488191.25
+    ],
+    [
+      "2023-02-06T21:00:00+00:00",
+      1476671.25
+    ],
+    [
+      "2023-02-22T18:00:00+00:00",
+      1457291.25
+    ],
+    [
+      "2023-03-13T15:00:00+00:00",
+      1419101.25
+    ],
+    [
+      "2023-03-31T20:00:00+00:00",
+      1458151.25
+    ],
+    [
+      "2023-04-03T19:00:00+00:00",
+      1487851.25
+    ],
+    [
+      "2023-04-04T15:00:00+00:00",
+      1444971.25
+    ],
+    [
+      "2023-05-01T16:00:00+00:00",
+      1429166.25
+    ],
+    [
+      "2023-05-02T16:00:00+00:00",
+      1333031.25
+    ],
+    [
+      "2023-05-16T20:00:00+00:00",
+      1303871.25
+    ],
+    [
+      "2023-05-22T14:00:00+00:00",
+      1344951.25
+    ],
+    [
+      "2023-05-22T19:00:00+00:00",
+      1354671.25
+    ],
+    [
+      "2023-05-30T14:00:00+00:00",
+      1389096.25
+    ],
+    [
+      "2023-05-30T15:00:00+00:00",
+      1375971.25
+    ],
+    [
+      "2023-05-30T18:00:00+00:00",
+      1322491.25
+    ],
+    [
+      "2023-06-05T15:00:00+00:00",
+      1364611.25
+    ],
+    [
+      "2023-06-05T17:00:00+00:00",
+      1394536.25
+    ],
+    [
+      "2023-06-05T17:00:00+00:00",
+      1396448.75
+    ],
+    [
+      "2023-06-08T14:00:00+00:00",
+      1381936.25
+    ],
+    [
+      "2023-06-08T15:00:00+00:00",
+      1375936.25
+    ],
+    [
+      "2023-06-14T18:00:00+00:00",
+      1361936.25
+    ],
+    [
+      "2023-06-16T17:00:00+00:00",
+      1377756.25
+    ],
+    [
+      "2023-06-21T18:00:00+00:00",
+      1368268.75
+    ],
+    [
+      "2023-06-21T20:00:00+00:00",
+      1400423.75
+    ],
+    [
+      "2023-06-22T16:00:00+00:00",
+      1379523.75
+    ],
+    [
+      "2023-07-05T14:00:00+00:00",
+      1362198.75
+    ],
+    [
+      "2023-07-05T14:00:00+00:00",
+      1314998.75
+    ],
+    [
+      "2023-07-07T16:00:00+00:00",
+      1315083.75
+    ],
+    [
+      "2023-07-07T17:00:00+00:00",
+      1289733.75
+    ],
+    [
+      "2023-07-13T14:00:00+00:00",
+      1306508.75
+    ],
+    [
+      "2023-07-13T19:00:00+00:00",
+      1319008.75
+    ],
+    [
+      "2023-07-14T14:00:00+00:00",
+      1366328.75
+    ],
+    [
+      "2023-07-17T14:00:00+00:00",
+      1357773.75
+    ],
+    [
+      "2023-07-18T14:00:00+00:00",
+      1368798.75
+    ],
+    [
+      "2023-07-18T14:00:00+00:00",
+      1425928.75
+    ],
+    [
+      "2023-07-20T15:00:00+00:00",
+      1389078.75
+    ],
+    [
+      "2023-07-21T16:00:00+00:00",
+      1407353.75
+    ],
+    [
+      "2023-07-25T14:00:00+00:00",
+      1386003.75
+    ],
+    [
+      "2023-07-26T14:00:00+00:00",
+      1363503.75
+    ],
+    [
+      "2023-07-26T14:00:00+00:00",
+      1348803.75
+    ],
+    [
+      "2023-08-22T15:00:00+00:00",
+      1369973.75
+    ],
+    [
+      "2023-09-05T17:00:00+00:00",
+      1378483.75
+    ],
+    [
+      "2023-09-07T18:00:00+00:00",
+      1356653.75
+    ],
+    [
+      "2023-09-08T19:00:00+00:00",
+      1380741.25
+    ],
+    [
+      "2023-09-20T19:00:00+00:00",
+      1417491.25
+    ],
+    [
+      "2023-09-20T19:00:00+00:00",
+      1454591.25
+    ],
+    [
+      "2023-09-21T18:00:00+00:00",
+      1437941.25
+    ],
+    [
+      "2023-10-27T17:00:00+00:00",
+      1475891.25
+    ],
+    [
+      "2023-11-08T15:00:00+00:00",
+      1497331.25
+    ],
+    [
+      "2023-11-08T16:00:00+00:00",
+      1469431.25
+    ],
+    [
+      "2023-11-13T21:00:00+00:00",
+      1455481.25
+    ],
+    [
+      "2023-11-14T16:00:00+00:00",
+      1652356.25
+    ],
+    [
+      "2023-11-14T16:00:00+00:00",
+      1819621.25
+    ],
+    [
+      "2023-11-15T21:00:00+00:00",
+      1804636.25
+    ],
+    [
+      "2023-11-17T19:00:00+00:00",
+      1820736.25
+    ],
+    [
+      "2023-11-20T15:00:00+00:00",
+      1897141.25
+    ],
+    [
+      "2023-11-20T19:00:00+00:00",
+      1936228.75
+    ],
+    [
+      "2023-11-20T19:00:00+00:00",
+      1982443.75
+    ],
+    [
+      "2023-11-22T15:00:00+00:00",
+      2018993.75
+    ],
+    [
+      "2023-11-22T15:00:00+00:00",
+      2063218.75
+    ],
+    [
+      "2023-11-24T15:00:00+00:00",
+      2100118.75
+    ],
+    [
+      "2023-11-24T18:00:00+00:00",
+      2110518.75
+    ],
+    [
+      "2023-11-28T15:00:00+00:00",
+      2113278.75
+    ],
+    [
+      "2023-12-05T15:00:00+00:00",
+      2035538.75
+    ],
+    [
+      "2023-12-12T16:00:00+00:00",
+      2060948.75
+    ],
+    [
+      "2023-12-13T15:00:00+00:00",
+      2056898.75
+    ],
+    [
+      "2023-12-13T21:00:00+00:00",
+      2281448.75
+    ],
+    [
+      "2023-12-18T21:00:00+00:00",
+      2261923.75
+    ],
+    [
+      "2023-12-19T15:00:00+00:00",
+      2317423.75
+    ],
+    [
+      "2023-12-19T21:00:00+00:00",
+      2342863.75
+    ],
+    [
+      "2023-12-19T21:00:00+00:00",
+      2366263.75
+    ],
+    [
+      "2024-01-04T21:00:00+00:00",
+      2423603.75
+    ],
+    [
+      "2024-01-10T16:00:00+00:00",
+      2475923.75
+    ],
+    [
+      "2024-01-22T21:00:00+00:00",
+      2493948.75
+    ],
+    [
+      "2024-01-23T16:00:00+00:00",
+      2477523.75
+    ],
+    [
+      "2024-01-23T21:00:00+00:00",
+      2512198.75
+    ],
+    [
+      "2024-01-31T18:00:00+00:00",
+      2518498.75
+    ],
+    [
+      "2024-02-06T19:00:00+00:00",
+      2544748.75
+    ],
+    [
+      "2024-02-08T16:00:00+00:00",
+      2582498.75
+    ],
+    [
+      "2024-02-08T19:00:00+00:00",
+      2586298.75
+    ],
+    [
+      "2024-02-09T15:00:00+00:00",
+      2662543.75
+    ],
+    [
+      "2024-02-12T16:00:00+00:00",
+      2705208.75
+    ],
+    [
+      "2024-02-12T16:00:00+00:00",
+      2730883.75
+    ],
+    [
+      "2024-02-15T19:00:00+00:00",
+      2784546.25
+    ],
+    [
+      "2024-02-23T20:00:00+00:00",
+      2759796.25
+    ],
+    [
+      "2024-02-23T21:00:00+00:00",
+      2728671.25
+    ],
+    [
+      "2024-02-23T21:00:00+00:00",
+      2720046.25
+    ],
+    [
+      "2024-02-26T21:00:00+00:00",
+      2682583.75
+    ],
+    [
+      "2024-02-28T15:00:00+00:00",
+      2771063.75
+    ],
+    [
+      "2024-03-04T20:00:00+00:00",
+      2815138.75
+    ],
+    [
+      "2024-03-25T18:00:00+00:00",
+      2804518.75
+    ],
+    [
+      "2024-03-26T14:00:00+00:00",
+      2803918.75
+    ],
+    [
+      "2024-03-26T15:00:00+00:00",
+      2797278.75
+    ],
+    [
+      "2024-03-26T15:00:00+00:00",
+      2758228.75
+    ],
+    [
+      "2024-03-28T16:00:00+00:00",
+      2776628.75
+    ],
+    [
+      "2024-04-09T20:00:00+00:00",
+      2678608.75
+    ],
+    [
+      "2024-05-02T18:00:00+00:00",
+      2614421.25
+    ],
+    [
+      "2024-05-08T15:00:00+00:00",
+      2652026.25
+    ],
+    [
+      "2024-05-09T14:00:00+00:00",
+      2635906.25
+    ],
+    [
+      "2024-05-09T15:00:00+00:00",
+      2709968.75
+    ],
+    [
+      "2024-05-13T14:00:00+00:00",
+      2740968.75
+    ],
+    [
+      "2024-05-13T14:00:00+00:00",
+      2804248.75
+    ],
+    [
+      "2024-05-13T18:00:00+00:00",
+      2792698.75
+    ],
+    [
+      "2024-05-14T14:00:00+00:00",
+      2799961.25
+    ],
+    [
+      "2024-05-16T15:00:00+00:00",
+      2842861.25
+    ],
+    [
+      "2024-05-17T20:00:00+00:00",
+      2858611.25
+    ],
+    [
+      "2024-05-20T18:00:00+00:00",
+      2816111.25
+    ],
+    [
+      "2024-05-21T15:00:00+00:00",
+      2849711.25
+    ],
+    [
+      "2024-05-21T18:00:00+00:00",
+      2857971.25
+    ],
+    [
+      "2024-05-22T18:00:00+00:00",
+      2821851.25
+    ],
+    [
+      "2024-05-29T19:00:00+00:00",
+      2851351.25
+    ],
+    [
+      "2024-06-06T17:00:00+00:00",
+      2820538.75
+    ],
+    [
+      "2024-06-07T14:00:00+00:00",
+      2775458.75
+    ],
+    [
+      "2024-06-12T20:00:00+00:00",
+      2722158.75
+    ],
+    [
+      "2024-06-12T20:00:00+00:00",
+      2693283.75
+    ],
+    [
+      "2024-06-14T18:00:00+00:00",
+      2719518.75
+    ],
+    [
+      "2024-06-17T16:00:00+00:00",
+      2782323.75
+    ],
+    [
+      "2024-06-18T16:00:00+00:00",
+      2809998.75
+    ],
+    [
+      "2024-06-18T16:00:00+00:00",
+      2836673.75
+    ],
+    [
+      "2024-06-20T18:00:00+00:00",
+      2789423.75
+    ],
+    [
+      "2024-06-20T18:00:00+00:00",
+      2613023.75
+    ],
+    [
+      "2024-06-25T16:00:00+00:00",
+      2585111.25
+    ],
+    [
+      "2024-06-27T14:00:00+00:00",
+      2585566.25
+    ],
+    [
+      "2024-07-04T14:00:00+00:00",
+      2545486.25
+    ],
+    [
+      "2024-07-09T14:00:00+00:00",
+      2592523.75
+    ],
+    [
+      "2024-07-09T14:00:00+00:00",
+      2669838.75
+    ],
+    [
+      "2024-07-09T18:00:00+00:00",
+      2645463.75
+    ],
+    [
+      "2024-07-10T14:00:00+00:00",
+      2728273.75
+    ],
+    [
+      "2024-07-10T16:00:00+00:00",
+      2690023.75
+    ],
+    [
+      "2024-07-18T14:00:00+00:00",
+      2762248.75
+    ],
+    [
+      "2024-08-19T15:00:00+00:00",
+      2840123.75
+    ],
+    [
+      "2024-08-21T14:00:00+00:00",
+      2856788.75
+    ],
+    [
+      "2024-08-22T14:00:00+00:00",
+      2913488.75
+    ],
+    [
+      "2024-08-22T14:00:00+00:00",
+      2979523.75
+    ],
+    [
+      "2024-08-22T15:00:00+00:00",
+      2942423.75
+    ],
+    [
+      "2024-09-09T15:00:00+00:00",
+      2850423.75
+    ],
+    [
+      "2024-09-09T15:00:00+00:00",
+      2836173.75
+    ],
+    [
+      "2024-09-24T16:00:00+00:00",
+      2878673.75
+    ],
+    [
+      "2024-09-24T20:00:00+00:00",
+      2930568.75
+    ],
+    [
+      "2024-10-14T14:00:00+00:00",
+      3066193.75
+    ],
+    [
+      "2024-10-14T19:00:00+00:00",
+      3080793.75
+    ],
+    [
+      "2024-10-15T16:00:00+00:00",
+      2815593.75
+    ],
+    [
+      "2024-10-16T15:00:00+00:00",
+      2847418.75
+    ],
+    [
+      "2024-10-18T14:00:00+00:00",
+      2749498.75
+    ],
+    [
+      "2024-11-04T17:00:00+00:00",
+      2841311.25
+    ],
+    [
+      "2024-11-08T19:00:00+00:00",
+      2868591.25
+    ],
+    [
+      "2024-11-12T16:00:00+00:00",
+      2811641.25
+    ],
+    [
+      "2024-11-12T16:00:00+00:00",
+      2752601.25
+    ],
+    [
+      "2024-11-13T17:00:00+00:00",
+      2782301.25
+    ],
+    [
+      "2024-11-14T19:00:00+00:00",
+      2824481.25
+    ],
+    [
+      "2024-11-18T21:00:00+00:00",
+      2823981.25
+    ],
+    [
+      "2024-11-19T15:00:00+00:00",
+      2908768.75
+    ],
+    [
+      "2024-11-25T15:00:00+00:00",
+      3038143.75
+    ],
+    [
+      "2024-11-25T16:00:00+00:00",
+      3237573.75
+    ],
+    [
+      "2024-11-26T21:00:00+00:00",
+      3260973.75
+    ],
+    [
+      "2024-11-29T15:00:00+00:00",
+      3308273.75
+    ],
+    [
+      "2024-12-02T15:00:00+00:00",
+      3205793.75
+    ],
+    [
+      "2024-12-04T20:00:00+00:00",
+      3245543.75
+    ],
+    [
+      "2024-12-05T17:00:00+00:00",
+      3265433.75
+    ],
+    [
+      "2024-12-06T19:00:00+00:00",
+      3305468.75
+    ],
+    [
+      "2024-12-09T16:00:00+00:00",
+      3184308.75
+    ],
+    [
+      "2024-12-10T16:00:00+00:00",
+      3184558.75
+    ],
+    [
+      "2024-12-10T18:00:00+00:00",
+      3187933.75
+    ],
+    [
+      "2024-12-10T21:00:00+00:00",
+      3235658.75
+    ],
+    [
+      "2024-12-10T21:00:00+00:00",
+      3251658.75
+    ],
+    [
+      "2024-12-10T21:00:00+00:00",
+      3257708.75
+    ],
+    [
+      "2024-12-12T15:00:00+00:00",
+      3137348.75
+    ],
+    [
+      "2024-12-16T15:00:00+00:00",
+      3126323.75
+    ],
+    [
+      "2024-12-19T19:00:00+00:00",
+      3038648.75
+    ],
+    [
+      "2024-12-20T21:00:00+00:00",
+      3091573.75
+    ],
+    [
+      "2024-12-23T16:00:00+00:00",
+      3101548.75
+    ]
+  ],
+  "flat_periods": [
+    {
+      "start": "2018-02-07T20:00:00+00:00",
+      "end": "2018-03-12T18:00:00+00:00",
+      "days": 32.916666666666664,
+      "prev": "NQ16H18",
+      "next": "ES16H18"
+    },
+    {
+      "start": "2018-03-13T14:00:00+00:00",
+      "end": "2018-03-26T16:00:00+00:00",
+      "days": 13.083333333333334,
+      "prev": "NQ16H18",
+      "next": "ES15M18"
+    },
+    {
+      "start": "2018-03-26T17:00:00+00:00",
+      "end": "2018-04-18T17:00:00+00:00",
+      "days": 23.0,
+      "prev": "NQ15M18",
+      "next": "ES15M18"
+    },
+    {
+      "start": "2018-04-23T15:00:00+00:00",
+      "end": "2018-05-11T19:00:00+00:00",
+      "days": 18.166666666666668,
+      "prev": "YM15M18",
+      "next": "YM15M18"
+    },
+    {
+      "start": "2018-05-15T14:00:00+00:00",
+      "end": "2018-05-22T14:00:00+00:00",
+      "days": 7.0,
+      "prev": "YM15M18",
+      "next": "YM15M18"
+    },
+    {
+      "start": "2018-05-28T16:00:00+00:00",
+      "end": "2018-06-04T18:00:00+00:00",
+      "days": 7.083333333333333,
+      "prev": "ES15M18",
+      "next": "ES15M18"
+    },
+    {
+      "start": "2018-06-26T16:00:00+00:00",
+      "end": "2018-07-09T17:00:00+00:00",
+      "days": 13.041666666666666,
+      "prev": "ES21U18",
+      "next": "NQ21U18"
+    },
+    {
+      "start": "2018-07-27T17:00:00+00:00",
+      "end": "2018-08-07T17:00:00+00:00",
+      "days": 11.0,
+      "prev": "YM21U18",
+      "next": "ES21U18"
+    },
+    {
+      "start": "2018-09-26T16:00:00+00:00",
+      "end": "2018-10-08T20:00:00+00:00",
+      "days": 12.166666666666666,
+      "prev": "ES21Z18",
+      "next": "NQ21Z18"
+    },
+    {
+      "start": "2018-10-12T16:00:00+00:00",
+      "end": "2019-01-31T21:00:00+00:00",
+      "days": 111.20833333333333,
+      "prev": "NQ21Z18",
+      "next": "ES15H19"
+    },
+    {
+      "start": "2019-02-07T15:00:00+00:00",
+      "end": "2019-02-14T16:00:00+00:00",
+      "days": 7.041666666666667,
+      "prev": "NQ15H19",
+      "next": "NQ15H19"
+    },
+    {
+      "start": "2019-02-19T15:00:00+00:00",
+      "end": "2019-03-12T19:00:00+00:00",
+      "days": 21.166666666666668,
+      "prev": "NQ15H19",
+      "next": "NQ15H19"
+    },
+    {
+      "start": "2019-03-19T14:00:00+00:00",
+      "end": "2019-04-01T20:00:00+00:00",
+      "days": 13.25,
+      "prev": "ES21M19",
+      "next": "NQ21M19"
+    },
+    {
+      "start": "2019-04-08T14:00:00+00:00",
+      "end": "2019-04-17T20:00:00+00:00",
+      "days": 9.25,
+      "prev": "YM21M19",
+      "next": "YM21M19"
+    },
+    {
+      "start": "2019-04-26T20:00:00+00:00",
+      "end": "2019-06-12T14:00:00+00:00",
+      "days": 46.75,
+      "prev": "YM21M19",
+      "next": "ES21M19"
+    },
+    {
+      "start": "2019-06-26T18:00:00+00:00",
+      "end": "2019-07-04T15:00:00+00:00",
+      "days": 7.875,
+      "prev": "YM20U19",
+      "next": "ES20U19"
+    },
+    {
+      "start": "2019-07-23T14:00:00+00:00",
+      "end": "2019-07-31T15:00:00+00:00",
+      "days": 8.041666666666666,
+      "prev": "YM20U19",
+      "next": "ES20U19"
+    },
+    {
+      "start": "2019-08-06T17:00:00+00:00",
+      "end": "2019-09-05T19:00:00+00:00",
+      "days": 30.083333333333332,
+      "prev": "YM20U19",
+      "next": "ES20U19"
+    },
+    {
+      "start": "2019-09-23T20:00:00+00:00",
+      "end": "2019-10-15T19:00:00+00:00",
+      "days": 21.958333333333332,
+      "prev": "NQ20Z19",
+      "next": "ES20Z19"
+    },
+    {
+      "start": "2019-11-08T19:00:00+00:00",
+      "end": "2019-11-18T17:00:00+00:00",
+      "days": 9.916666666666666,
+      "prev": "YM20Z19",
+      "next": "YM20Z19"
+    },
+    {
+      "start": "2019-11-29T18:00:00+00:00",
+      "end": "2019-12-06T19:00:00+00:00",
+      "days": 7.041666666666667,
+      "prev": "NQ20Z19",
+      "next": "ES20Z19"
+    },
+    {
+      "start": "2020-01-03T19:00:00+00:00",
+      "end": "2020-01-17T18:00:00+00:00",
+      "days": 13.958333333333334,
+      "prev": "YM20H20",
+      "next": "ES20H20"
+    },
+    {
+      "start": "2020-01-22T19:00:00+00:00",
+      "end": "2020-02-03T20:00:00+00:00",
+      "days": 12.041666666666666,
+      "prev": "NQ20H20",
+      "next": "YM20H20"
+    },
+    {
+      "start": "2020-02-13T15:00:00+00:00",
+      "end": "2020-02-26T21:00:00+00:00",
+      "days": 13.25,
+      "prev": "ES20H20",
+      "next": "ES20H20"
+    },
+    {
+      "start": "2020-03-02T19:00:00+00:00",
+      "end": "2020-05-12T16:00:00+00:00",
+      "days": 70.875,
+      "prev": "NQ20H20",
+      "next": "ES19M20"
+    },
+    {
+      "start": "2020-05-12T18:00:00+00:00",
+      "end": "2020-05-19T18:00:00+00:00",
+      "days": 7.0,
+      "prev": "ES19M20",
+      "next": "NQ19M20"
+    },
+    {
+      "start": "2020-05-19T19:00:00+00:00",
+      "end": "2020-06-04T14:00:00+00:00",
+      "days": 15.791666666666666,
+      "prev": "NQ19M20",
+      "next": "ES19M20"
+    },
+    {
+      "start": "2020-06-08T18:00:00+00:00",
+      "end": "2020-07-01T20:00:00+00:00",
+      "days": 23.083333333333332,
+      "prev": "ES19M20",
+      "next": "ES18U20"
+    },
+    {
+      "start": "2020-07-02T19:00:00+00:00",
+      "end": "2020-08-04T16:00:00+00:00",
+      "days": 32.875,
+      "prev": "NQ18U20",
+      "next": "NQ18U20"
+    },
+    {
+      "start": "2020-08-13T19:00:00+00:00",
+      "end": "2020-10-13T17:00:00+00:00",
+      "days": 60.916666666666664,
+      "prev": "YM18U20",
+      "next": "YM18Z20"
+    },
+    {
+      "start": "2020-10-13T18:00:00+00:00",
+      "end": "2020-11-06T21:00:00+00:00",
+      "days": 24.125,
+      "prev": "YM18Z20",
+      "next": "YM18Z20"
+    },
+    {
+      "start": "2020-11-09T16:00:00+00:00",
+      "end": "2020-11-24T21:00:00+00:00",
+      "days": 15.208333333333334,
+      "prev": "YM18Z20",
+      "next": "ES18Z20"
+    },
+    {
+      "start": "2020-11-27T15:00:00+00:00",
+      "end": "2020-12-10T16:00:00+00:00",
+      "days": 13.041666666666666,
+      "prev": "ES18Z20",
+      "next": "ES18Z20"
+    },
+    {
+      "start": "2020-12-10T17:00:00+00:00",
+      "end": "2020-12-17T18:00:00+00:00",
+      "days": 7.041666666666667,
+      "prev": "ES18Z20",
+      "next": "ES19H21"
+    },
+    {
+      "start": "2020-12-17T21:00:00+00:00",
+      "end": "2021-01-20T21:00:00+00:00",
+      "days": 34.0,
+      "prev": "NQ19H21",
+      "next": "ES19H21"
+    },
+    {
+      "start": "2021-01-22T16:00:00+00:00",
+      "end": "2021-02-08T20:00:00+00:00",
+      "days": 17.166666666666668,
+      "prev": "NQ19H21",
+      "next": "NQ19H21"
+    },
+    {
+      "start": "2021-02-10T20:00:00+00:00",
+      "end": "2021-03-12T18:00:00+00:00",
+      "days": 29.916666666666668,
+      "prev": "YM19H21",
+      "next": "YM19H21"
+    },
+    {
+      "start": "2021-03-22T19:00:00+00:00",
+      "end": "2021-04-06T14:00:00+00:00",
+      "days": 14.791666666666666,
+      "prev": "YM18M21",
+      "next": "ES18M21"
+    },
+    {
+      "start": "2021-04-16T14:00:00+00:00",
+      "end": "2021-04-30T17:00:00+00:00",
+      "days": 14.125,
+      "prev": "NQ18M21",
+      "next": "NQ18M21"
+    },
+    {
+      "start": "2021-04-30T18:00:00+00:00",
+      "end": "2021-05-07T18:00:00+00:00",
+      "days": 7.0,
+      "prev": "NQ18M21",
+      "next": "YM18M21"
+    },
+    {
+      "start": "2021-05-07T19:00:00+00:00",
+      "end": "2021-05-26T14:00:00+00:00",
+      "days": 18.791666666666668,
+      "prev": "YM18M21",
+      "next": "NQ18M21"
+    },
+    {
+      "start": "2021-05-26T15:00:00+00:00",
+      "end": "2021-06-02T20:00:00+00:00",
+      "days": 7.208333333333333,
+      "prev": "NQ18M21",
+      "next": "YM18M21"
+    },
+    {
+      "start": "2021-06-16T14:00:00+00:00",
+      "end": "2021-06-24T20:00:00+00:00",
+      "days": 8.25,
+      "prev": "NQ18M21",
+      "next": "ES17U21"
+    },
+    {
+      "start": "2021-07-09T16:00:00+00:00",
+      "end": "2021-07-22T18:00:00+00:00",
+      "days": 13.083333333333334,
+      "prev": "YM17U21",
+      "next": "NQ17U21"
+    },
+    {
+      "start": "2021-08-02T15:00:00+00:00",
+      "end": "2021-08-11T20:00:00+00:00",
+      "days": 9.208333333333334,
+      "prev": "NQ17U21",
+      "next": "YM17U21"
+    },
+    {
+      "start": "2021-08-13T20:00:00+00:00",
+      "end": "2021-08-24T16:00:00+00:00",
+      "days": 10.833333333333334,
+      "prev": "ES17U21",
+      "next": "ES17U21"
+    },
+    {
+      "start": "2021-09-15T15:00:00+00:00",
+      "end": "2021-10-18T19:00:00+00:00",
+      "days": 33.166666666666664,
+      "prev": "YM17Z21",
+      "next": "ES17Z21"
+    },
+    {
+      "start": "2021-10-26T14:00:00+00:00",
+      "end": "2021-11-02T20:00:00+00:00",
+      "days": 7.25,
+      "prev": "ES17Z21",
+      "next": "ES17Z21"
+    },
+    {
+      "start": "2021-11-22T15:00:00+00:00",
+      "end": "2021-12-27T20:00:00+00:00",
+      "days": 35.208333333333336,
+      "prev": "NQ17Z21",
+      "next": "NQ18H22"
+    },
+    {
+      "start": "2022-01-07T19:00:00+00:00",
+      "end": "2022-07-27T18:00:00+00:00",
+      "days": 200.95833333333334,
+      "prev": "NQ18H22",
+      "next": "NQ16U22"
+    },
+    {
+      "start": "2022-08-01T15:00:00+00:00",
+      "end": "2022-08-15T20:00:00+00:00",
+      "days": 14.208333333333334,
+      "prev": "NQ16U22",
+      "next": "ES16U22"
+    },
+    {
+      "start": "2022-08-16T14:00:00+00:00",
+      "end": "2022-08-23T19:00:00+00:00",
+      "days": 7.208333333333333,
+      "prev": "ES16U22",
+      "next": "NQ16U22"
+    },
+    {
+      "start": "2022-08-25T14:00:00+00:00",
+      "end": "2022-11-14T15:00:00+00:00",
+      "days": 81.04166666666667,
+      "prev": "ES16U22",
+      "next": "YM16Z22"
+    },
+    {
+      "start": "2022-11-14T16:00:00+00:00",
+      "end": "2022-11-25T18:00:00+00:00",
+      "days": 11.083333333333334,
+      "prev": "YM16Z22",
+      "next": "ES16Z22"
+    },
+    {
+      "start": "2022-11-29T21:00:00+00:00",
+      "end": "2022-12-20T21:00:00+00:00",
+      "days": 21.0,
+      "prev": "ES16Z22",
+      "next": "NQ17H23"
+    },
+    {
+      "start": "2022-12-22T16:00:00+00:00",
+      "end": "2023-02-06T20:00:00+00:00",
+      "days": 46.166666666666664,
+      "prev": "NQ17H23",
+      "next": "NQ17H23"
+    },
+    {
+      "start": "2023-02-06T21:00:00+00:00",
+      "end": "2023-02-22T16:00:00+00:00",
+      "days": 15.791666666666666,
+      "prev": "NQ17H23",
+      "next": "YM17H23"
+    },
+    {
+      "start": "2023-02-22T18:00:00+00:00",
+      "end": "2023-03-13T14:00:00+00:00",
+      "days": 18.833333333333332,
+      "prev": "YM17H23",
+      "next": "YM17H23"
+    },
+    {
+      "start": "2023-03-13T15:00:00+00:00",
+      "end": "2023-03-31T19:00:00+00:00",
+      "days": 18.166666666666668,
+      "prev": "YM17H23",
+      "next": "ES16M23"
+    },
+    {
+      "start": "2023-04-04T15:00:00+00:00",
+      "end": "2023-05-01T15:00:00+00:00",
+      "days": 27.0,
+      "prev": "YM16M23",
+      "next": "NQ16M23"
+    },
+    {
+      "start": "2023-05-02T16:00:00+00:00",
+      "end": "2023-05-16T19:00:00+00:00",
+      "days": 14.125,
+      "prev": "NQ16M23",
+      "next": "NQ16M23"
+    },
+    {
+      "start": "2023-06-22T16:00:00+00:00",
+      "end": "2023-07-03T17:00:00+00:00",
+      "days": 11.041666666666666,
+      "prev": "ES15U23",
+      "next": "ES15U23"
+    },
+    {
+      "start": "2023-07-26T14:00:00+00:00",
+      "end": "2023-08-22T14:00:00+00:00",
+      "days": 27.0,
+      "prev": "ES15U23",
+      "next": "YM15U23"
+    },
+    {
+      "start": "2023-08-22T15:00:00+00:00",
+      "end": "2023-09-05T16:00:00+00:00",
+      "days": 14.041666666666666,
+      "prev": "YM15U23",
+      "next": "YM15U23"
+    },
+    {
+      "start": "2023-09-08T19:00:00+00:00",
+      "end": "2023-09-20T18:00:00+00:00",
+      "days": 11.958333333333334,
+      "prev": "ES15U23",
+      "next": "ES15Z23"
+    },
+    {
+      "start": "2023-09-21T18:00:00+00:00",
+      "end": "2023-10-27T15:00:00+00:00",
+      "days": 35.875,
+      "prev": "ES15Z23",
+      "next": "ES15Z23"
+    },
+    {
+      "start": "2023-10-27T17:00:00+00:00",
+      "end": "2023-11-07T19:00:00+00:00",
+      "days": 11.083333333333334,
+      "prev": "ES15Z23",
+      "next": "YM15Z23"
+    },
+    {
+      "start": "2023-12-05T15:00:00+00:00",
+      "end": "2023-12-12T15:00:00+00:00",
+      "days": 7.0,
+      "prev": "YM15Z23",
+      "next": "NQ15Z23"
+    },
+    {
+      "start": "2023-12-19T21:00:00+00:00",
+      "end": "2024-01-04T19:00:00+00:00",
+      "days": 15.916666666666666,
+      "prev": "ES15H24",
+      "next": "NQ15H24"
+    },
+    {
+      "start": "2024-01-10T16:00:00+00:00",
+      "end": "2024-01-22T20:00:00+00:00",
+      "days": 12.166666666666666,
+      "prev": "NQ15H24",
+      "next": "YM15H24"
+    },
+    {
+      "start": "2024-01-23T21:00:00+00:00",
+      "end": "2024-01-31T15:00:00+00:00",
+      "days": 7.75,
+      "prev": "ES15H24",
+      "next": "YM15H24"
+    },
+    {
+      "start": "2024-02-15T19:00:00+00:00",
+      "end": "2024-02-23T19:00:00+00:00",
+      "days": 8.0,
+      "prev": "ES15H24",
+      "next": "NQ15H24"
+    },
+    {
+      "start": "2024-03-04T20:00:00+00:00",
+      "end": "2024-03-25T17:00:00+00:00",
+      "days": 20.875,
+      "prev": "ES15H24",
+      "next": "YM21M24"
+    },
+    {
+      "start": "2024-03-28T16:00:00+00:00",
+      "end": "2024-04-09T19:00:00+00:00",
+      "days": 12.125,
+      "prev": "YM21M24",
+      "next": "YM21M24"
+    },
+    {
+      "start": "2024-04-09T20:00:00+00:00",
+      "end": "2024-05-02T17:00:00+00:00",
+      "days": 22.875,
+      "prev": "YM21M24",
+      "next": "ES21M24"
+    },
+    {
+      "start": "2024-05-22T18:00:00+00:00",
+      "end": "2024-05-29T18:00:00+00:00",
+      "days": 7.0,
+      "prev": "NQ21M24",
+      "next": "YM21M24"
+    },
+    {
+      "start": "2024-05-29T19:00:00+00:00",
+      "end": "2024-06-06T16:00:00+00:00",
+      "days": 7.875,
+      "prev": "YM21M24",
+      "next": "ES21M24"
+    },
+    {
+      "start": "2024-07-10T16:00:00+00:00",
+      "end": "2024-07-17T19:00:00+00:00",
+      "days": 7.125,
+      "prev": "YM20U24",
+      "next": "YM20U24"
+    },
+    {
+      "start": "2024-07-18T14:00:00+00:00",
+      "end": "2024-08-16T20:00:00+00:00",
+      "days": 29.25,
+      "prev": "YM20U24",
+      "next": "ES20U24"
+    },
+    {
+      "start": "2024-08-22T15:00:00+00:00",
+      "end": "2024-09-06T19:00:00+00:00",
+      "days": 15.166666666666666,
+      "prev": "YM20U24",
+      "next": "ES20U24"
+    },
+    {
+      "start": "2024-09-09T15:00:00+00:00",
+      "end": "2024-09-24T14:00:00+00:00",
+      "days": 14.958333333333334,
+      "prev": "ES20U24",
+      "next": "ES20Z24"
+    },
+    {
+      "start": "2024-09-24T20:00:00+00:00",
+      "end": "2024-10-11T20:00:00+00:00",
+      "days": 17.0,
+      "prev": "YM20Z24",
+      "next": "ES20Z24"
+    },
+    {
+      "start": "2024-10-18T14:00:00+00:00",
+      "end": "2024-11-04T16:00:00+00:00",
+      "days": 17.083333333333332,
+      "prev": "YM20Z24",
+      "next": "ES20Z24"
+    }
+  ]
+}

@@ -108,6 +108,21 @@ viz-build:
 	cd viz && cargo build --release
 	@echo "srfm-viz built -> viz/target/release/srfm-viz"
 
+# ── Build srfm-tools (pulse, drift, snap, srfm) ───────────────────────────────
+.PHONY: tools-build
+tools-build:
+	CARGO_HOME=C:/Users/Matthew/.cargo CARGO_TARGET_DIR=C:/Users/Matthew/srfm-lab/crates/srfm-tools/target \
+		C:/Users/Matthew/.cargo/bin/cargo.exe build --release --manifest-path crates/srfm-tools/Cargo.toml
+	@echo "Binaries -> crates/srfm-tools/target/release/"
+
+.PHONY: pulse
+pulse:
+	cat data/NDX_hourly_poly.csv | cut -d, -f5 | tail -50 | ./crates/srfm-tools/target/release/pulse --cf 0.005
+
+.PHONY: drift
+drift:
+	./crates/srfm-tools/target/release/drift data/ES_hourly_real.csv data/NQ_hourly_real.csv --window 60 --summary
+
 # ── Generate SRFM primitives (Python) ────────────────────────────────────────
 .PHONY: primitives
 primitives:
@@ -188,28 +203,144 @@ stats:
 	@echo "Statistical validation -> results/graphics/stat_*.png"
 	@echo "Report -> results/statistical_report.md"
 
+.PHONY: html-report
+html-report:
+	python tools/generate_report.py
+	@echo "Report -> results/strategy_report.html"
+
+.PHONY: dashboard
+dashboard:
+	streamlit run tools/dashboard.py --server.port 8501
+
+# ── Quick context tools ───────────────────────────────────────────────────────
+.PHONY: what
+what:
+ifndef d
+	@echo "Usage: make what d=2024-10-14"
+else
+	python tools/what.py $(d)
+endif
+
+.PHONY: blame
+blame:
+ifndef from
+	@echo "Usage: make blame from=2024-01-01 to=2024-12-31"
+else
+	python tools/blame.py --from $(from) --to $(to) --csv "C:/Users/Matthew/Downloads/Measured Red Anguilline_trades.csv"
+endif
+
+.PHONY: mirror
+mirror:
+ifndef d
+	@echo "Usage: make mirror d=2023-11-01"
+else
+	python tools/mirror.py --well $(d)
+endif
+
+.PHONY: cost
+cost:
+ifndef start
+	@echo "Usage: make cost start=2022-01-15 end=2022-07-15"
+else
+	python tools/cost.py --start $(start) --end $(end)
+endif
+
+.PHONY: anatomy
+anatomy:
+	python tools/anatomy.py --top 5
+	@echo "Written to ANATOMY.md"
+
+.PHONY: heat
+heat:
+	cat results/v2_experiments.json | python tools/heat.py
+
+.PHONY: well
+well:
+	cat data/NDX_hourly_poly.csv | python tools/well.py --cf 0.005
+
+.PHONY: edge
+edge:
+	python tools/edge.py "C:/Users/Matthew/Downloads/Calm Orange Mule_trades.csv" "C:/Users/Matthew/Downloads/Measured Red Anguilline_trades.csv"
+
+.PHONY: when
+when:
+ifndef p
+	@echo "Usage: make when p=-265000"
+else
+	python tools/when.py $(p)
+endif
+
+.PHONY: regime-line
+regime-line:
+	cat data/NDX_hourly_poly.csv | python tools/regime.py
+
+.PHONY: odds
+odds:
+	python tools/odds.py --regime BULL --bh_active true --convergence 2
+
+.PHONY: journal
+journal:
+	python tools/journal.py log --n 10
+
+.PHONY: why
+why:
+ifndef date
+	@echo "Usage: make why date=2024-10-14 instrument=NQ"
+else
+	python tools/why.py --date $(date) --instrument $(instrument)
+endif
+
+.PHONY: config-check
+config-check:
+	python tools/srfm_config.py strategies/larsa-v4/strategy.srfm
+
 .PHONY: help
 help:
 	@echo ""
 	@echo "SRFM Lab — Makefile commands:"
 	@echo ""
-	@echo "  make backtest s=larsa-v1                      Run a backtest"
-	@echo "  make sweep s=larsa-v1 param=BH_FORM min=0.5 max=3.0 step=0.25"
-	@echo "  make compare s=larsa-v1                       Compare all results for a strategy"
-	@echo "  make compare2 s1=larsa-v1 s2=larsa-v2         Compare two strategies with chart"
-	@echo "  make new name=experiment-1                    Scaffold new experiment from template"
-	@echo "  make research s=larsa-v1                      Open Jupyter notebook"
-	@echo "  make wells ticker=ES csv=data/ES_hourly.csv   Run well detector"
-	@echo "  make regimes csv=data/ES_hourly.csv ticker=ES Run regime analyzer"
-	@echo "  make batch s=larsa-v1 variants=variants.json  Batch run variants"
-	@echo "  make data-init                                 Download LEAN security master"
-	@echo "  make install                                   Install Python dependencies"
-	@echo "  make viz-build                                Build Rust viz tool"
-	@echo "  make primitives                               Compute SRFM physics primitives"
-	@echo "  make report                                   Generate lab report markdown"
-	@echo "  make graphics                                 Generate all SVG graphics"
-	@echo "  make pipeline                                 Run full analysis pipeline"
-	@echo "  make experiments                              Run experiment suite (quick)"
-	@echo "  make experiments-full                         Run experiment suite (full, 10 synth worlds)"
-	@echo "  make stats                                    R statistical validation (requires R + packages)"
+	@echo "── Strategy ──────────────────────────────────────────────"
+	@echo "  make backtest s=larsa-v4          Run QC backtest"
+	@echo "  make config-check                 Validate .srfm config"
+	@echo ""
+	@echo "── Analysis Pipeline ─────────────────────────────────────"
+	@echo "  make pipeline                     Full: primitives+report+graphics"
+	@echo "  make primitives                   SRFM physics metrics"
+	@echo "  make report                       Lab report markdown"
+	@echo "  make html-report                  Interactive HTML report"
+	@echo "  make dashboard                    Streamlit dashboard (port 8501)"
+	@echo "  make graphics                     All SVG graphics (Rust)"
+	@echo ""
+	@echo "── Forensics Tools ───────────────────────────────────────"
+	@echo "  make what d=2024-10-14            What was happening on a date"
+	@echo "  make blame from=2024-01-01 to=2024-12-31  P&L attribution"
+	@echo "  make when p=-265000               Find trade by dollar amount"
+	@echo "  make why date=2024-10-14 instrument=NQ    Why a trade happened"
+	@echo "  make odds                         Historical win probability"
+	@echo "  make edge                         v1 vs v3 P&L comparison"
+	@echo "  make mirror d=2023-11-01          Bull well -> bear setup"
+	@echo "  make cost start=X end=Y           Quantify flat period patience"
+	@echo "  make anatomy                      Dissect top 5 trades"
+	@echo ""
+	@echo "── Data Streams ──────────────────────────────────────────"
+	@echo "  make well                         Pipe prices -> print wells"
+	@echo "  make regime-line                  7-year regime in one colored line"
+	@echo "  make heat                         Experiment heatmap (terminal)"
+	@echo "  make pulse                        BH mass progress bar (Rust)"
+	@echo "  make drift                        Rolling ES/NQ correlation (Rust)"
+	@echo ""
+	@echo "── Experiment Tools ──────────────────────────────────────"
+	@echo "  make experiments                  Quick experiment suite"
+	@echo "  make experiments-full             Full 10-world suite"
+	@echo "  make arena-multi                  Multi-instrument arena"
+	@echo "  make profile                      DuckDB analytics profile"
+	@echo "  make query q=\"...\"              Natural language query"
+	@echo ""
+	@echo "── Build ──────────────────────────────────────────────────"
+	@echo "  make viz-build                    Build Rust srfm-viz"
+	@echo "  make tools-build                  Build Rust srfm-tools"
+	@echo "  make install                      Install Python deps"
+	@echo "  make stats                        Run R statistical tests"
+	@echo "  make journal                      Show experiment journal"
+	@echo "  make regime-graph                 Graphviz state machine"
 	@echo ""

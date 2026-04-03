@@ -11,3 +11,6 @@ polars
 duckdb
 click
 pyarrow
+streamlit
+plotly
+kaleido

@@ -36,3 +36,5 @@ config.json
 
 # Docker
 *.log
+viz/target/
+crates/srfm-tools/target/
