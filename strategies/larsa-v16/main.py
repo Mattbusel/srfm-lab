@@ -1,4 +1,4 @@
-# LARSA v16: v14 core (unchanged) + $22M tail cap
+# LARSA v16: v12 (unchanged) + Harvest Mode
 #
 # TWO-GEAR ARCHITECTURE:
 #
@@ -57,7 +57,7 @@ _CORR_FACTOR = math.sqrt(N_INSTRUMENTS + N_INSTRUMENTS * (N_INSTRUMENTS - 1) * I
 PER_INST_RISK = PORTFOLIO_DAILY_RISK / _CORR_FACTOR   # ≈ 0.003450
 
 # v14: Two-gear split
-TAIL_FIXED_CAPITAL = 3_000_000.0   # Gear 1 fixed at $3M (proven Geeky Orange Sheep level)
+TAIL_FIXED_CAPITAL = 3_000_000.0   # Gear 1 always gets exactly this much
 HARVEST_RISK_PER_INST = 0.02       # 2% of harvest allocation per instrument
 HARVEST_Z_ENTRY = 1.5              # enter fade when |z-score| exceeds this
 HARVEST_Z_EXIT  = 0.3              # exit when z-score returns near zero
@@ -369,19 +369,6 @@ class LarsaV16(QCAlgorithm):
                         tail_tgt = 0.0
                     if i1h.regime == MarketRegime.BULL and tail_tgt < 0 and i1h.rhb > 5:
                         tail_tgt = 0.0
-
-                    # Macro trend filter: don't fight the dominant trend.
-                    # Suppress shorts when price > 200h EMA (bull macro).
-                    # Suppress longs when price < 200h EMA (bear macro).
-                    # HIGH_VOL overrides — catch the vol spike regardless of trend.
-                    if (i1h.regime != MarketRegime.HIGH_VOLATILITY
-                            and i1h.e200.is_ready):
-                        price = self.securities[mapped].price
-                        above_200 = price > i1h.e200.current.value
-                        if tail_tgt < 0 and above_200:   # shorting in bull macro
-                            tail_tgt = 0.0
-                        if tail_tgt > 0 and not above_200:  # longing in bear macro
-                            tail_tgt = 0.0
 
                     if sym == "NQ" and i1h.regime != MarketRegime.BULL:
                         nq_cap = 400000.0 / (pv + 1e-9)
