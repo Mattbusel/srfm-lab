@@ -102,6 +102,7 @@ class FutureInstrument:
         self.bc = 0
         self.last_target = 0.0
         self.bars_held = 0
+        self.max_hold_exit = False  # True for one bar after MAX_HOLD forced flat
 
         # v14: harvest state
         self.harv_pos = 0.0        # current harvest position fraction (+ long, - short)
@@ -342,10 +343,17 @@ class LarsaV16(QCAlgorithm):
 
             ceiling = TF_CAP[tf_score]
 
+            # Restore v14 gate: don't enter fresh on weak signal only
+            if tf_score == 1 and np.isclose(i1h.last_target, 0.0) and not i1h.max_hold_exit:
+                ceiling = 0.0
+
+            i1h.max_hold_exit = False  # consume the flag
+
             # Max hold: after 48 hours force flat — take the profit, reset, wait for next setup
             if i1h.bars_held >= MAX_HOLD_BARS:
                 ceiling = 0.0
                 i1h.pos_floor = 0.0   # pos_floor would otherwise override the forced exit
+                i1h.max_hold_exit = True  # bypass tf_score==1 gate on the very next bar
 
             if ceiling == 0.0:
                 tail_tgt = 0.0
