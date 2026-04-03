@@ -171,6 +171,18 @@ experiments-full:
 	python tools/experiment_runner.py
 	@echo "Full experiments -> results/v2_experiments.md"
 
+# ── Deathloop detective (QC forensics) ───────────────────────────────────────
+.PHONY: deathloop
+deathloop:
+ifndef trades
+	$(error Usage: make deathloop trades=path/to/trades.csv)
+endif
+	python tools/deathloop_detective.py --trades "$(trades)"
+
+.PHONY: autopsy
+autopsy:
+	python tools/srfm_autopsy.py
+
 # ── v8 multi-resolution arena ────────────────────────────────────────────────
 .PHONY: arena-v8
 arena-v8:
