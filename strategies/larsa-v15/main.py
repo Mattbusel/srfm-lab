@@ -60,9 +60,9 @@ _CORR_FACTOR = math.sqrt(N_INSTRUMENTS + N_INSTRUMENTS * (N_INSTRUMENTS - 1) * I
 PER_INST_RISK = PORTFOLIO_DAILY_RISK / _CORR_FACTOR
 
 # Capital buckets
-TAIL_CAP  = 1_000_000   # Gear 1: optimal from 80-combo Monte Carlo sweep
-TREND_CAP = 1_000_000   # Gear 3: activates at $2M total equity
-ARB_CAP   = 0           # Gear 4: disabled — sweep showed no edge over harvest
+TAIL_CAP  = 22_000_000  # Gear 1 gets full equity up to $22M
+TREND_CAP =  2_000_000  # Gear 3 activates above $22M
+ARB_CAP   =  1_000_000  # Gear 4 activates above $24M
 
 # Gear 2: Harvest
 HARVEST_Z_ENTRY  = 1.5
