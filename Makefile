@@ -524,3 +524,68 @@ help:
 	@echo "  make features                     Feature mining"
 	@echo "  make kelly                        Kelly optimal sizing"
 	@echo ""
+
+# ── v11 full test suite ──────────────────────────────────────────────────────
+.PHONY: suite-v11
+suite-v11:
+	python tools/suite_v11.py
+
+.PHONY: suite-v11-quick
+suite-v11-quick:
+	python tools/suite_v11.py --quick
+
+# ── 10 specialized analysis tools ────────────────────────────────────────────
+.PHONY: stress
+stress:
+	python tools/stress_test.py
+
+.PHONY: margin
+margin:
+	python tools/margin_sim.py
+
+.PHONY: corrmon
+corrmon:
+	python tools/corr_monitor.py
+
+.PHONY: paths
+paths:
+	python tools/equity_paths.py --paths 1000
+
+.PHONY: paths-full
+paths-full:
+	python tools/equity_paths.py --paths 10000
+
+.PHONY: replay
+replay:
+	python tools/size_replay.py
+
+.PHONY: regime-stress
+regime-stress:
+	python tools/regime_stress.py
+
+.PHONY: sensitivity
+sensitivity:
+	python tools/risk_sensitivity.py
+
+.PHONY: dddecomp
+dddecomp:
+	python tools/dd_decomp.py
+
+.PHONY: fees
+fees:
+	python tools/fee_impact.py
+
+.PHONY: livecheck
+livecheck:
+	python tools/live_check.py
+
+# ── Run everything (full test suite) ─────────────────────────────────────────
+.PHONY: test-all
+test-all: suite-v11 stress margin corrmon replay regime-stress sensitivity dddecomp fees livecheck
+	python tools/dashboard_v11.py
+	@echo "All analysis complete. Dashboard open."
+
+# ── v11 Streamlit dashboard ───────────────────────────────────────────────────
+.PHONY: dashboard-v11
+dashboard-v11:
+	streamlit run tools/dashboard_v11.py --server.port 8502
