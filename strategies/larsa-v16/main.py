@@ -1,4 +1,4 @@
-# LARSA v16: v12 (unchanged) + Harvest Mode
+# LARSA v16: v14 OG code (1:1 copy, class renamed)
 #
 # TWO-GEAR ARCHITECTURE:
 #
@@ -49,7 +49,6 @@ CF = {
 TF_CAP = {7: 0.65, 6: 0.55, 5: 0.45, 4: 0.35, 3: 0.30, 2: 0.25, 1: 0.15, 0: 0.0}
 
 MIN_HOLD_BARS = 4
-MAX_HOLD_BARS = 48   # force exit after 48 hours — take profit, go flat, reset
 
 N_INSTRUMENTS    = 3
 INST_CORRELATION = 0.90
@@ -64,9 +63,6 @@ HARVEST_Z_ENTRY = 1.5              # enter fade when |z-score| exceeds this
 HARVEST_Z_EXIT  = 0.3              # exit when z-score returns near zero
 HARVEST_Z_STOP  = 2.8              # hard stop — regime break, get out
 HARVEST_LOOKBACK = 20              # bars for mean/std calculation
-
-# Gear 3 — Treasury carry: park idle capital (above $3M) in ZF when not in a vol event
-TREASURY_ALLOC = 0.85              # fraction of harvest equity to hold long ZF
 
 
 class FutureInstrument:
@@ -105,7 +101,6 @@ class FutureInstrument:
         self.bc = 0
         self.last_target = 0.0
         self.bars_held = 0
-        self.max_hold_exit = False  # True for one bar after MAX_HOLD forced flat
 
         # v14: harvest state
         self.harv_pos = 0.0        # current harvest position fraction (+ long, - short)
@@ -264,14 +259,6 @@ class LarsaV16(QCAlgorithm):
         for k, v in self.instr_1d.items():
             self.non_15m_instruments[f"{k}_1d"] = v
 
-        # Gear 3: Treasury carry
-        zf = self.add_future(Futures.Financials.Y_5_TREASURY_NOTE, Resolution.HOUR,
-                             data_normalization_mode=DataNormalizationMode.BACKWARDS_RATIO,
-                             contract_depth_offset=0)
-        zf.set_filter(timedelta(0), timedelta(182))
-        self._zf_future = zf
-        self._zf_target = 0.0
-
         self.peak = 1_000_000.0
         self._last_exec_hour = None
         self._last_harvest_day = None   # throttle harvest to once per day
@@ -354,17 +341,8 @@ class LarsaV16(QCAlgorithm):
 
             ceiling = TF_CAP[tf_score]
 
-            # Restore v14 gate: don't enter fresh on weak signal only
-            if tf_score == 1 and np.isclose(i1h.last_target, 0.0) and not i1h.max_hold_exit:
+            if tf_score == 1 and np.isclose(i1h.last_target, 0.0):
                 ceiling = 0.0
-
-            i1h.max_hold_exit = False  # consume the flag
-
-            # Max hold: after 48 hours force flat — take the profit, reset, wait for next setup
-            if i1h.bars_held >= MAX_HOLD_BARS:
-                ceiling = 0.0
-                i1h.pos_floor = 0.0   # pos_floor would otherwise override the forced exit
-                i1h.max_hold_exit = True  # bypass tf_score==1 gate on the very next bar
 
             if ceiling == 0.0:
                 tail_tgt = 0.0
@@ -429,9 +407,6 @@ class LarsaV16(QCAlgorithm):
             mapped, tail_tgt = raw_targets[sym]
             if mapped is None:
                 continue
-            # Scale: tail_tgt is a fraction of TOTAL equity, but Gear 1 only
-            # controls tail_frac of equity. Multiply by tail_frac to get
-            # the right number of contracts relative to total portfolio.
             final_tail = float(tail_tgt * tail_scale * tail_frac)
 
             if abs(final_tail - i1h.last_target) > 0.02:
@@ -448,9 +423,6 @@ class LarsaV16(QCAlgorithm):
             self._last_harvest_day = today
             self._run_harvest(data, harvest_frac)
 
-        # ── Gear 3: TREASURY CARRY ────────────────────────────────────────────
-        self._run_treasury(harvest_frac)
-
         # ── Diagnostics ───────────────────────────────────────────────────────
         if any(i.bc % 24 == 0 for i in self.instr_1h.values()):
             pv2 = self.portfolio.total_portfolio_value
@@ -459,27 +431,6 @@ class LarsaV16(QCAlgorithm):
                 self.plot("Regime", key, int(inst.regime))
             self.plot("Allocation", "TailFrac%",    tail_frac * 100)
             self.plot("Allocation", "HarvestFrac%", harvest_frac * 100)
-
-    def _run_treasury(self, harvest_frac):
-        """
-        Gear 3: Park idle capital (harvest bucket) long ZF during non-vol regimes.
-        Exit entirely when HIGH_VOLATILITY detected — gear 1 takes over, free the capital.
-        """
-        zf_mapped = self._zf_future.mapped
-        if zf_mapped is None: return
-        if zf_mapped not in self.securities: return
-        if not self.securities[zf_mapped].exchange.exchange_open: return
-
-        # Exit treasury when vol event is starting or equity dropped back below $3M
-        es_regime = self.instr_1h["ES"].regime
-        if harvest_frac < 0.01 or es_regime == MarketRegime.HIGH_VOLATILITY:
-            target = 0.0
-        else:
-            target = TREASURY_ALLOC * harvest_frac
-
-        if abs(target - self._zf_target) > 0.02:
-            self._zf_target = target
-            self.set_holdings(zf_mapped, target)
 
     def _run_harvest(self, data, harvest_frac):
         """
@@ -509,12 +460,10 @@ class LarsaV16(QCAlgorithm):
             if np.isclose(i1h.harv_pos, 0.0):
                 # No harvest position — look for entry
                 if z > HARVEST_Z_ENTRY:
-                    # Price stretched high → fade short
                     i1h.harv_pos = -harv_size
                     i1h.harv_entry_z = z
                     self.set_holdings(mapped, i1h.last_target + i1h.harv_pos)
                 elif z < -HARVEST_Z_ENTRY:
-                    # Price stretched low → fade long
                     i1h.harv_pos = harv_size
                     i1h.harv_entry_z = z
                     self.set_holdings(mapped, i1h.last_target + i1h.harv_pos)
@@ -523,13 +472,11 @@ class LarsaV16(QCAlgorithm):
                 in_short = i1h.harv_pos < 0
                 exit_trade = False
 
-                # Take profit: z returned to near zero
                 if in_short and z < HARVEST_Z_EXIT:
                     exit_trade = True
                 elif not in_short and z > -HARVEST_Z_EXIT:
                     exit_trade = True
 
-                # Hard stop: z blew through — trend is starting, not reverting
                 if in_short and z > HARVEST_Z_STOP:
                     exit_trade = True
                 elif not in_short and z < -HARVEST_Z_STOP:
