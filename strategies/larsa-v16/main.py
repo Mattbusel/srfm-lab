@@ -348,6 +348,7 @@ class LarsaV16(QCAlgorithm):
             # Max hold: after 48 hours force flat — take the profit, reset, wait for next setup
             if i1h.bars_held >= MAX_HOLD_BARS:
                 ceiling = 0.0
+                i1h.pos_floor = 0.0   # pos_floor would otherwise override the forced exit
 
             if ceiling == 0.0:
                 tail_tgt = 0.0
