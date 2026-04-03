@@ -34,9 +34,9 @@ INST_CORR     = 0.90
 _CORR_FACTOR  = math.sqrt(N_INST + N_INST * (N_INST - 1) * INST_CORR)
 
 EQUITY_TIERS = [
-    (2_000_000,  0.010),
-    (5_000_000,  0.007),
-    (10_000_000, 0.005),
+    (5_000_000,  0.010),
+    (10_000_000, 0.007),
+    (20_000_000, 0.005),
     (float("inf"), 0.003),
 ]
 
@@ -46,7 +46,7 @@ EMA_K      = 2.0 / (EMA_PERIOD + 1)
 CB_DD        = 0.15
 CB_FLAT      = 48
 CB_HALF      = 48
-REGIME_COOL  = 8
+REGIME_COOL  = 2
 
 TF_CAP = {7: 0.65, 6: 0.55, 5: 0.45, 4: 0.35, 3: 0.30, 2: 0.25, 1: 0.15, 0: 0.0}
 
@@ -96,17 +96,19 @@ r_15m  = get_port_risk(15_000_000)
 
 check("$1M uses full 1% risk (same as v10 aggression)",
       r_1m == 0.010, f"{r_1m:.3f}")
-check("$2M is still 1% (boundary is exclusive below $2M)",
-      get_port_risk(1_999_999) == 0.010, f"{get_port_risk(1_999_999):.3f}")
-check("$2M+ drops to 0.7%",
-      r_2m == 0.007 or r_3m == 0.007, f"$2M={r_2m:.3f} $3M={r_3m:.3f}")
-check("$5M+ drops to 0.5%",
-      r_5m == 0.005 or r_7m == 0.005, f"$5M={r_5m:.3f} $7M={r_7m:.3f}")
-check("$10M+ drops to 0.3%",
-      r_10m == 0.003 and r_15m == 0.003, f"$10M={r_10m:.3f} $15M={r_15m:.3f}")
-check("Risk is strictly decreasing across tiers",
-      r_1m > r_3m > r_7m > r_15m,
-      f"{r_1m:.3f} > {r_3m:.3f} > {r_7m:.3f} > {r_15m:.3f}")
+check("$2M still uses full 1% (tier now extends to $5M)",
+      r_2m == 0.010, f"{r_2m:.3f}")
+check("$3M still uses full 1%",
+      r_3m == 0.010, f"{r_3m:.3f}")
+check("$5M+ drops to 0.7%",
+      r_5m == 0.007 or r_7m == 0.007, f"$5M={r_5m:.3f} $7M={r_7m:.3f}")
+check("$10M+ drops to 0.5%",
+      r_10m == 0.005, f"$10M={r_10m:.3f}")
+check("$15M+ drops to 0.5% (tier extends to $20M)",
+      r_15m == 0.005, f"$15M={r_15m:.3f}")
+check("Risk decreases at higher equity tiers",
+      r_1m == r_3m and r_3m > r_7m > r_15m,
+      f"$1M={r_1m:.3f} $3M={r_3m:.3f} $7M={r_7m:.3f} $15M={r_15m:.3f}")
 
 # Per-instrument risk at each tier
 pi_1m  = get_per_inst_risk(1_000_000)
@@ -115,11 +117,11 @@ pi_22m = get_per_inst_risk(22_000_000)
 
 check("per_inst_risk at $1M = 1%/corr_factor ≈ 0.00345",
       abs(pi_1m - 0.01 / _CORR_FACTOR) < 1e-6, f"{pi_1m:.5f}")
-check("per_inst_risk at $10M = 0.3%/corr_factor ≈ 0.00103",
-      abs(pi_10m - 0.003 / _CORR_FACTOR) < 1e-6, f"{pi_10m:.5f}")
+check("per_inst_risk at $10M = 0.5%/corr_factor ≈ 0.00172",
+      abs(pi_10m - 0.005 / _CORR_FACTOR) < 1e-6, f"{pi_10m:.5f}")
 check("At $22M: per_inst_risk is 3.3× smaller than at $1M",
       pi_1m / pi_22m > 3.0,
-      f"ratio={pi_1m/pi_22m:.2f}×")
+      f"ratio={pi_1m/pi_22m:.2f}× (v13 uses 0.3% at $22M vs 1% at $1M)")
 
 # Contract count comparison v12 vs v13 at $22M
 # ES at 5000, multiplier 50, daily_vol=0.008

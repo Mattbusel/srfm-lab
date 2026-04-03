@@ -75,10 +75,10 @@ _CORR_FACTOR = math.sqrt(N_INSTRUMENTS + N_INSTRUMENTS * (N_INSTRUMENTS - 1) * I
 # Below $2M: full aggression (same as original v10) — this is where the big runs come from
 # Above $10M: conservative — ATR lag cost at this scale is structurally lethal
 _EQUITY_TIERS = [
-    (2_000_000,  0.010),   # < $2M  → 1.0% portfolio daily risk
-    (5_000_000,  0.007),   # < $5M  → 0.7%
-    (10_000_000, 0.005),   # < $10M → 0.5%
-    (float("inf"), 0.003), # $10M+  → 0.3%
+    (5_000_000,  0.010),   # < $5M  → 1.0% (full v10 aggression — this is where the $22M run happens)
+    (10_000_000, 0.007),   # < $10M → 0.7%
+    (20_000_000, 0.005),   # < $20M → 0.5%
+    (float("inf"), 0.003), # $20M+  → 0.3%
 ]
 
 def _get_portfolio_risk(equity_anchor: float) -> float:
@@ -95,8 +95,10 @@ _EQUITY_EMA_K      = 2.0 / (_EQUITY_EMA_PERIOD + 1)
 CIRCUIT_BREAKER_DD   = 0.15   # go flat if equity < peak × (1 - 0.15)
 CIRCUIT_BREAKER_BARS = 48     # cooldown bars before resuming
 CIRCUIT_BREAKER_HALF = 48     # bars at half-size before returning to full
-REGIME_COOLDOWN_BARS = 8      # bars to sit flat after any regime transition
-                               # prevents entering new direction at V-bottom
+REGIME_COOLDOWN_BARS = 2      # bars to sit flat after any regime transition
+                               # was 8 — that caused permanent flatness in volatile regimes
+                               # 2 bars = 2 hours: prevents the first V-bottom bar entry
+                               # without blocking re-entry indefinitely
 
 
 class FutureInstrument:
@@ -441,7 +443,7 @@ class LarsaV13(QCAlgorithm):
                     # any regime change. Prevents entering the new direction at the
                     # V-bottom of a crash (the diagnosed death spiral trigger).
                     # rhb resets to 0 on every regime change, increments each bar.
-                    if i1h.rhb < 8:
+                    if i1h.rhb < REGIME_COOLDOWN_BARS:
                         tgt = 0.0
 
                     if i1h.regime == MarketRegime.BEAR and tgt > 0 and i1h.rhb > (3 if sym == "YM" else 5):
