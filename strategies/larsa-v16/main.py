@@ -341,11 +341,7 @@ class LarsaV16(QCAlgorithm):
 
             ceiling = TF_CAP[tf_score]
 
-            # Entry gate: require daily BH (tf_score >= 4) to open a new position.
-            # If no existing position and conviction is low, stay flat.
-            # Existing positions can be maintained/scaled at any tf_score.
-            in_position = not np.isclose(i1h.last_target, 0.0)
-            if tf_score < 4 and not in_position:
+            if tf_score == 1 and np.isclose(i1h.last_target, 0.0):
                 ceiling = 0.0
 
             if ceiling == 0.0:
@@ -373,6 +369,19 @@ class LarsaV16(QCAlgorithm):
                         tail_tgt = 0.0
                     if i1h.regime == MarketRegime.BULL and tail_tgt < 0 and i1h.rhb > 5:
                         tail_tgt = 0.0
+
+                    # Macro trend filter: don't fight the dominant trend.
+                    # Suppress shorts when price > 200h EMA (bull macro).
+                    # Suppress longs when price < 200h EMA (bear macro).
+                    # HIGH_VOL overrides — catch the vol spike regardless of trend.
+                    if (i1h.regime != MarketRegime.HIGH_VOLATILITY
+                            and i1h.e200.is_ready):
+                        price = self.securities[mapped].price
+                        above_200 = price > i1h.e200.current.value
+                        if tail_tgt < 0 and above_200:   # shorting in bull macro
+                            tail_tgt = 0.0
+                        if tail_tgt > 0 and not above_200:  # longing in bear macro
+                            tail_tgt = 0.0
 
                     if sym == "NQ" and i1h.regime != MarketRegime.BULL:
                         nq_cap = 400000.0 / (pv + 1e-9)
