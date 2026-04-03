@@ -1,109 +1,222 @@
 """
-regime_analyzer.py — Analyze market regimes across historical data.
+regime_analyzer.py — Analyze LARSA market regimes across historical price data.
 
-Runs RegimeDetector on a price CSV and outputs a timeline of which regime
-the market was in at each bar.  Useful for understanding:
-  - What fraction of time is trending vs ranging vs crisis
-  - When regime transitions occur relative to major market events
-  - Whether SRFM regime labels align with intuition
+Computes EMA12/26/50/200, ATR, and ADX from raw OHLCV data, then runs
+RegimeDetector (exact LARSA detect_regime() logic).
 
 Usage:
-    python tools/regime_analyzer.py --csv data/ES_hourly.csv --ticker ES
-    python tools/regime_analyzer.py --csv data/ES_hourly.csv --plot --save-csv
+    python tools/regime_analyzer.py --csv data/synthetic_ES_hourly.csv --ticker ES
+    python tools/regime_analyzer.py --csv data/ES.csv --ticker ES --plot --save-csv
 """
 
 import argparse
 import csv
+import math
 import os
 import sys
-from collections import Counter
-from typing import List, Tuple
+from collections import Counter, deque
+from typing import List, Optional, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
-from srfm_core import MinkowskiClassifier, MarketRegime
+from srfm_core import MarketRegime
 from regime import RegimeDetector
 
 
-# --- Data loading -------------------------------------------------------------
+# --- Data loading ------------------------------------------------------------
 
-def load_csv(path: str) -> List[Tuple[str, float]]:
+def load_ohlcv(path: str) -> List[dict]:
     bars = []
     with open(path) as f:
         reader = csv.DictReader(f)
-        prev = None
         for row in reader:
-            close = float(row.get("close") or row.get("Close") or row.get("CLOSE") or 0)
-            date  = row.get("date") or row.get("Date") or row.get("DATE") or row.get("time") or ""
-            if prev and prev > 0:
-                ret = (close - prev) / prev
-                bars.append((date, ret))
-            prev = close
+            def g(keys):
+                for k in keys:
+                    v = row.get(k) or row.get(k.lower()) or row.get(k.upper())
+                    if v:
+                        return float(v)
+                return None
+            close  = g(["close", "Close", "CLOSE"])
+            high   = g(["high",  "High",  "HIGH"])  or close
+            low    = g(["low",   "Low",   "LOW"])   or close
+            date   = (row.get("date") or row.get("Date") or
+                      row.get("DATE") or row.get("time") or "")
+            if close and close > 0:
+                bars.append({"date": date, "high": high, "low": low, "close": close})
     return bars
 
 
-# --- Analysis -----------------------------------------------------------------
+# --- Indicator helpers -------------------------------------------------------
 
-REGIME_COLORS = {
-    MarketRegime.TRENDING:  "blue",
-    MarketRegime.RANGING:   "gray",
-    MarketRegime.CRISIS:    "red",
-    MarketRegime.RECOVERY:  "green",
-}
+class EMA:
+    def __init__(self, period: int):
+        self.k    = 2.0 / (period + 1)
+        self.val: Optional[float] = None
+
+    def update(self, x: float) -> float:
+        if self.val is None:
+            self.val = x
+        else:
+            self.val = x * self.k + self.val * (1.0 - self.k)
+        return self.val
 
 
-def analyze(bars: List[Tuple[str, float]], window: int) -> List[Tuple[str, float, MarketRegime]]:
-    mink     = MinkowskiClassifier()
-    detector = RegimeDetector(window=window)
-    records  = []
-    for date, ret in bars:
-        causal = mink.update(ret)
-        regime = detector.update(ret, causal)
-        records.append((date, ret, regime))
+class ATR:
+    """Average True Range (Wilder smoothing, period=14)."""
+    def __init__(self, period: int = 14):
+        self.period    = period
+        self.prev_close: Optional[float] = None
+        self.val: Optional[float] = None
+        self._buf: List[float] = []
+
+    def update(self, high: float, low: float, close: float) -> float:
+        if self.prev_close is None:
+            tr = high - low
+        else:
+            tr = max(high - low,
+                     abs(high - self.prev_close),
+                     abs(low  - self.prev_close))
+        self.prev_close = close
+
+        if self.val is None:
+            self._buf.append(tr)
+            if len(self._buf) >= self.period:
+                self.val = sum(self._buf) / len(self._buf)
+        else:
+            self.val = (self.val * (self.period - 1) + tr) / self.period
+        return self.val or tr
+
+
+class ADX:
+    """ADX (Wilder, period=14)."""
+    def __init__(self, period: int = 14):
+        self.period = period
+        self.atr_   = ATR(period)
+        self.prev_high: Optional[float] = None
+        self.prev_low:  Optional[float] = None
+        self._pos_dm_smooth = 0.0
+        self._neg_dm_smooth = 0.0
+        self._dx_buf: List[float] = []
+        self.val: float = 0.0
+        self._ready = False
+
+    def update(self, high: float, low: float, close: float) -> float:
+        atr = self.atr_.update(high, low, close)
+
+        if self.prev_high is None:
+            self.prev_high = high
+            self.prev_low  = low
+            return 0.0
+
+        pos_dm = high - self.prev_high
+        neg_dm = self.prev_low - low
+        if pos_dm < 0: pos_dm = 0.0
+        if neg_dm < 0: neg_dm = 0.0
+        if pos_dm > neg_dm: neg_dm = 0.0
+        elif neg_dm > pos_dm: pos_dm = 0.0
+        else: pos_dm = neg_dm = 0.0
+
+        k = 2.0 / (self.period + 1)
+        self._pos_dm_smooth = pos_dm * k + self._pos_dm_smooth * (1.0 - k)
+        self._neg_dm_smooth = neg_dm * k + self._neg_dm_smooth * (1.0 - k)
+
+        if atr > 0:
+            pdi = 100 * self._pos_dm_smooth / atr
+            ndi = 100 * self._neg_dm_smooth / atr
+            denom = pdi + ndi
+            dx = 100 * abs(pdi - ndi) / denom if denom > 0 else 0.0
+        else:
+            dx = 0.0
+
+        self._dx_buf.append(dx)
+        if len(self._dx_buf) >= self.period:
+            self.val = sum(self._dx_buf[-self.period:]) / self.period
+
+        self.prev_high = high
+        self.prev_low  = low
+        return self.val
+
+
+# --- Analysis ----------------------------------------------------------------
+
+def analyze(bars: List[dict]) -> List[Tuple[str, MarketRegime, float]]:
+    ema12  = EMA(12)
+    ema26  = EMA(26)
+    ema50  = EMA(50)
+    ema200 = EMA(200)
+    atr_   = ATR(14)
+    adx_   = ADX(14)
+    det    = RegimeDetector(atr_window=50)
+
+    records = []
+    for bar in bars:
+        close = bar["close"]
+        high  = bar["high"]
+        low   = bar["low"]
+        date  = bar["date"]
+
+        e12  = ema12.update(close)
+        e26  = ema26.update(close)
+        e50  = ema50.update(close)
+        e200 = ema200.update(close)
+        atr  = atr_.update(high, low, close)
+        adx  = adx_.update(high, low, close)
+
+        regime, conf = det.update(close, e12, e26, e50, e200, adx, atr)
+        records.append((date, regime, conf))
+
     return records
 
 
-def print_summary(records: List[Tuple[str, float, MarketRegime]], ticker: str):
-    regimes = [r for _, _, r in records]
+def print_summary(records: List[Tuple[str, MarketRegime, float]], ticker: str):
+    regimes = [r for _, r, _ in records]
     counts  = Counter(regimes)
     total   = len(regimes)
 
-    print(f"\n{'-'*50}")
-    print(f"  Regime Summary — {ticker}  ({total} bars)")
-    print(f"{'-'*50}")
+    print(f"\n{'-'*52}")
+    print(f"  Regime Summary -- {ticker}  ({total} bars)")
+    print(f"{'-'*52}")
     for regime in MarketRegime:
         n   = counts.get(regime, 0)
         pct = 100.0 * n / total if total else 0.0
-        bar = "█" * int(pct / 2)
-        print(f"  {regime.value:<10} {n:>6} bars  {pct:>5.1f}%  {bar}")
-    print(f"{'-'*50}\n")
+        bar = "#" * int(pct / 2)
+        print(f"  {regime.name:<16} {n:>6} bars  {pct:>5.1f}%  {bar}")
+    print(f"{'-'*52}\n")
 
-    # Transition points
+    # Transitions
     transitions = []
-    prev = None
-    for date, _, regime in records:
-        if regime != prev:
+    prev_r = None
+    for date, regime, _ in records:
+        if regime != prev_r:
             transitions.append((date, regime))
-            prev = regime
+            prev_r = regime
 
     print(f"  Regime transitions ({len(transitions)} total):")
     for date, regime in transitions[:20]:
-        print(f"    {date:<20}  -> {regime.value}")
+        print(f"    {date:<22} -> {regime.name}")
     if len(transitions) > 20:
         print(f"    ... and {len(transitions) - 20} more")
     print()
 
 
-def save_csv(records: List[Tuple[str, float, MarketRegime]], path: str):
+def save_csv(records: List[Tuple[str, MarketRegime, float]], path: str):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["date", "return", "regime"])
-        for date, ret, regime in records:
-            writer.writerow([date, f"{ret:.6f}", regime.value])
+        writer.writerow(["date", "regime", "confidence"])
+        for date, regime, conf in records:
+            writer.writerow([date, regime.name, f"{conf:.4f}"])
     print(f"CSV saved -> {path}")
 
 
-def plot_regimes(records: List[Tuple[str, float, MarketRegime]], ticker: str):
+REGIME_COLORS = {
+    MarketRegime.BULL:            "green",
+    MarketRegime.BEAR:            "red",
+    MarketRegime.SIDEWAYS:        "gray",
+    MarketRegime.HIGH_VOLATILITY: "orange",
+}
+
+
+def plot_regimes(bars: List[dict], records: List[Tuple[str, MarketRegime, float]], ticker: str):
     try:
         import matplotlib.pyplot as plt
         import matplotlib.patches as mpatches
@@ -111,43 +224,39 @@ def plot_regimes(records: List[Tuple[str, float, MarketRegime]], ticker: str):
         print("[ERROR] matplotlib not installed.")
         return
 
-    n      = len(records)
+    closes = [b["close"] for b in bars]
+    n      = len(closes)
     xs     = list(range(n))
-    rets   = [r for _, r, _ in records]
-    prices = []
-    p = 100.0
-    for ret in rets:
-        p *= (1 + ret)
-        prices.append(p)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 8), sharex=True)
 
-    # Price with regime shading
-    ax1.plot(xs, prices, color="black", linewidth=0.8)
-    prev_regime = None
-    seg_start   = 0
-    for i, (_, _, regime) in enumerate(records):
-        if regime != prev_regime or i == n - 1:
-            if prev_regime is not None:
-                ax1.axvspan(seg_start, i, alpha=0.2, color=REGIME_COLORS.get(prev_regime, "white"))
-            seg_start  = i
-            prev_regime = regime
+    ax1.plot(xs, closes, color="black", linewidth=0.7, label="Close")
 
-    patches = [
-        mpatches.Patch(color=REGIME_COLORS[r], alpha=0.4, label=r.value)
-        for r in MarketRegime
-    ]
+    # Shade by regime
+    prev_r, seg_start = None, 0
+    for i, (_, regime, _) in enumerate(records):
+        if regime != prev_r or i == n - 1:
+            if prev_r is not None:
+                ax1.axvspan(seg_start, i, alpha=0.15,
+                            color=REGIME_COLORS.get(prev_r, "white"))
+            seg_start = i
+            prev_r = regime
+
+    patches = [mpatches.Patch(color=REGIME_COLORS[r], alpha=0.4, label=r.name)
+               for r in MarketRegime]
     ax1.legend(handles=patches, loc="upper left")
-    ax1.set_title(f"Regime Analysis — {ticker}", fontweight="bold")
-    ax1.set_ylabel("Normalised Price (100 = start)")
+    ax1.set_title(f"Regime Analysis -- {ticker}", fontweight="bold")
+    ax1.set_ylabel("Price")
     ax1.grid(alpha=0.2)
 
-    # Regime numeric (for seeing transitions)
-    regime_map = {MarketRegime.TRENDING: 3, MarketRegime.RECOVERY: 2, MarketRegime.RANGING: 1, MarketRegime.CRISIS: 0}
-    regime_vals = [regime_map[r] for _, _, r in records]
-    ax2.fill_between(xs, regime_vals, alpha=0.5, color="steelblue")
+    regime_map = {
+        MarketRegime.BULL: 3, MarketRegime.BEAR: 1,
+        MarketRegime.SIDEWAYS: 2, MarketRegime.HIGH_VOLATILITY: 0,
+    }
+    rv = [regime_map.get(r, 2) for _, r, _ in records]
+    ax2.fill_between(xs, rv, alpha=0.5, color="steelblue")
     ax2.set_yticks([0, 1, 2, 3])
-    ax2.set_yticklabels(["CRISIS", "RANGING", "RECOVERY", "TRENDING"])
+    ax2.set_yticklabels(["HI_VOL", "BEAR", "SIDEWAYS", "BULL"])
     ax2.set_xlabel("Bar index")
     ax2.grid(alpha=0.2)
 
@@ -159,29 +268,28 @@ def plot_regimes(records: List[Tuple[str, float, MarketRegime]], ticker: str):
     plt.show()
 
 
-# --- Main ---------------------------------------------------------------------
+# --- Main --------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="SRFM regime analyzer")
-    parser.add_argument("--csv",      required=True, help="Price CSV path")
+    parser.add_argument("--csv",      required=True)
     parser.add_argument("--ticker",   default="UNKNOWN")
-    parser.add_argument("--window",   type=int, default=30, help="Detector lookback window")
     parser.add_argument("--plot",     action="store_true")
     parser.add_argument("--save-csv", action="store_true")
     args = parser.parse_args()
 
     print(f"Loading {args.csv}...", end=" ")
-    bars = load_csv(args.csv)
+    bars = load_ohlcv(args.csv)
     print(f"{len(bars)} bars")
 
-    records = analyze(bars, args.window)
+    records = analyze(bars)
     print_summary(records, args.ticker)
 
     if args.save_csv:
         save_csv(records, f"results/regimes_{args.ticker}.csv")
 
     if args.plot:
-        plot_regimes(records, args.ticker)
+        plot_regimes(bars, records, args.ticker)
 
 
 if __name__ == "__main__":
