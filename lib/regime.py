@@ -1,102 +1,110 @@
 """
-regime.py — Market regime detection for SRFM strategies.
+regime.py — Market regime detection extracted from LARSA detect_regime().
 
-Detects four regimes: TRENDING, RANGING, CRISIS, RECOVERY.
-Uses a combination of SRFM geodesic deviation, causal fraction, and
-classical volatility/momentum signals.
+Inputs: price, EMA12/26/50/200, ADX, ATR (current + rolling history).
+Output: MarketRegime enum + confidence float.
+
+Decision tree (exact LARSA logic):
+  1. atr_ratio >= 1.5      → HIGH_VOLATILITY
+  2. price > e200, e12>e26 → BULL if ADX threshold else SIDEWAYS
+  3. price < e200, e12<e26 → BEAR if ADX threshold else SIDEWAYS
+  4. else                  → SIDEWAYS
+
+ADX threshold:
+  - Full EMA stack aligned: 14
+  - Partial alignment:      18
 """
 
 from __future__ import annotations
-import math
+import numpy as np
 from collections import deque
-from typing import Optional
-
-from srfm_core import Causal, GeodesicAnalyzer, MarketRegime
+from typing import Tuple
+from srfm_core import MarketRegime
 
 
 class RegimeDetector:
     """
-    Combine SRFM and classical signals to classify the current market regime.
+    Stateful regime detector.  Feed one bar at a time via update().
 
-    Regime definitions:
-    - TRENDING  : high causal fraction + directional momentum
-    - RANGING   : low deviation + no momentum
-    - CRISIS    : high geodesic deviation + spacelike dominance
-    - RECOVERY  : transitioning from CRISIS with increasing causal fraction
+    Parameters
+    ----------
+    atr_window : int
+        Rolling window of ATR values used to compute atr_ratio.
+        LARSA uses 50 (same as aw RollingWindow size).
     """
 
-    def __init__(
+    def __init__(self, atr_window: int = 50):
+        self._atr_hist: deque = deque(maxlen=atr_window)
+        self.regime:    MarketRegime = MarketRegime.SIDEWAYS
+        self.confidence: float = 0.5
+        self.bars_in_regime: int = 0  # rhb counter
+
+    # ------------------------------------------------------------------
+    def update(
         self,
-        window: int = 30,
-        crisis_deviation_threshold: float = 0.015,
-        crisis_causal_threshold: float = 0.35,
-        trending_causal_threshold: float = 0.65,
-        trending_momentum_threshold: float = 0.005,
-        recovery_causal_min: float = 0.45,
-    ):
-        self.crisis_dev_thresh = crisis_deviation_threshold
-        self.crisis_causal_thresh = crisis_causal_threshold
-        self.trending_causal_thresh = trending_causal_threshold
-        self.trending_mom_thresh = trending_momentum_threshold
-        self.recovery_causal_min = recovery_causal_min
+        price: float,
+        ema12: float,
+        ema26: float,
+        ema50: float,
+        ema200: float,
+        adx:   float,
+        atr:   float,
+    ) -> Tuple[MarketRegime, float]:
+        """
+        Returns (regime, confidence).
+        Exact reproduction of LARSA detect_regime().
+        """
+        self._atr_hist.append(atr)
+        self.bars_in_regime += 1
 
-        self._geodesic = GeodesicAnalyzer(window=window)
-        self._returns: deque = deque(maxlen=window)
-        self._regimes: deque = deque(maxlen=window)
+        # ATR ratio vs rolling mean
+        atr_ratio = 1.0
+        if len(self._atr_hist) >= 2:
+            arr      = np.array(list(self._atr_hist))
+            mean_atr = arr.mean()
+            atr_ratio = atr / mean_atr if mean_atr > 0 else 1.0
 
-        self.current: MarketRegime = MarketRegime.RANGING
-        self._prior_crisis: bool = False
+        prev_regime = self.regime
 
-    def update(self, price_return: float, causal: Causal) -> MarketRegime:
-        self._geodesic.update(price_return, causal)
-        self._returns.append(price_return)
+        if atr_ratio >= 1.5:
+            nr = MarketRegime.HIGH_VOLATILITY
+            nc = min(0.9, 0.5 + (atr_ratio - 1.5) * 0.4)
 
-        dev = self._geodesic.geodesic_deviation
-        cf = self._geodesic.causal_fraction
-        mom = self._momentum()
+        elif price > ema200 and ema12 > ema26:
+            full_stack = ema12 > ema26 > ema50 > ema200
+            adx_thresh = 14 if full_stack else 18
+            if adx > adx_thresh:
+                nr = MarketRegime.BULL
+                nc = min(0.95, 0.5 + (adx - 14) / 60)
+            else:
+                nr = MarketRegime.SIDEWAYS
+                nc = max(0.3, 0.7 - adx / 80)
 
-        # Crisis: high curvature + spacelike dominance
-        if dev > self.crisis_dev_thresh and cf < self.crisis_causal_thresh:
-            regime = MarketRegime.CRISIS
-            self._prior_crisis = True
+        elif price < ema200 and ema12 < ema26:
+            full_stack = ema200 > ema50 > ema26 > ema12
+            adx_thresh = 14 if full_stack else 18
+            if adx > adx_thresh:
+                nr = MarketRegime.BEAR
+                nc = min(0.95, 0.5 + (adx - 14) / 60)
+            else:
+                nr = MarketRegime.SIDEWAYS
+                nc = max(0.3, 0.7 - adx / 80)
 
-        # Recovery: coming out of crisis
-        elif self._prior_crisis and cf >= self.recovery_causal_min:
-            regime = MarketRegime.RECOVERY
-            if cf >= self.trending_causal_thresh:
-                self._prior_crisis = False
-
-        # Trending: high causal fraction + clear momentum
-        elif cf >= self.trending_causal_thresh and abs(mom) > self.trending_mom_thresh:
-            regime = MarketRegime.TRENDING
-            self._prior_crisis = False
-
-        # Ranging: everything else
         else:
-            regime = MarketRegime.RANGING
-            self._prior_crisis = False
+            nr = MarketRegime.SIDEWAYS
+            nc = max(0.3, 0.7 - adx / 80)
 
-        self.current = regime
-        self._regimes.append(regime)
-        return regime
+        if nr != self.regime:
+            self.bars_in_regime = 0
+            self.regime         = nr
 
-    def _momentum(self) -> float:
-        if len(self._returns) < 5:
-            return 0.0
-        recent = list(self._returns)[-5:]
-        return sum(recent) / len(recent)
-
-    @property
-    def is_crisis(self) -> bool:
-        return self.current == MarketRegime.CRISIS
+        self.confidence = nc
+        return self.regime, self.confidence
 
     @property
     def is_trending(self) -> bool:
-        return self.current == MarketRegime.TRENDING
+        return self.regime in (MarketRegime.BULL, MarketRegime.BEAR)
 
     @property
-    def regime_stability(self) -> float:
-        """Fraction of recent bars in the same regime as current."""
-        if not self._regimes:
-            return 0.0
-        return sum(1 for r in self._regimes if r == self.current) / len(self._regimes)
+    def is_crisis(self) -> bool:
+        return self.regime == MarketRegime.HIGH_VOLATILITY

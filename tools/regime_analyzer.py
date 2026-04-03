@@ -24,7 +24,7 @@ from srfm_core import MinkowskiClassifier, MarketRegime
 from regime import RegimeDetector
 
 
-# ─── Data loading ─────────────────────────────────────────────────────────────
+# --- Data loading -------------------------------------------------------------
 
 def load_csv(path: str) -> List[Tuple[str, float]]:
     bars = []
@@ -41,7 +41,7 @@ def load_csv(path: str) -> List[Tuple[str, float]]:
     return bars
 
 
-# ─── Analysis ─────────────────────────────────────────────────────────────────
+# --- Analysis -----------------------------------------------------------------
 
 REGIME_COLORS = {
     MarketRegime.TRENDING:  "blue",
@@ -67,15 +67,15 @@ def print_summary(records: List[Tuple[str, float, MarketRegime]], ticker: str):
     counts  = Counter(regimes)
     total   = len(regimes)
 
-    print(f"\n{'─'*50}")
+    print(f"\n{'-'*50}")
     print(f"  Regime Summary — {ticker}  ({total} bars)")
-    print(f"{'─'*50}")
+    print(f"{'-'*50}")
     for regime in MarketRegime:
         n   = counts.get(regime, 0)
         pct = 100.0 * n / total if total else 0.0
         bar = "█" * int(pct / 2)
         print(f"  {regime.value:<10} {n:>6} bars  {pct:>5.1f}%  {bar}")
-    print(f"{'─'*50}\n")
+    print(f"{'-'*50}\n")
 
     # Transition points
     transitions = []
@@ -87,7 +87,7 @@ def print_summary(records: List[Tuple[str, float, MarketRegime]], ticker: str):
 
     print(f"  Regime transitions ({len(transitions)} total):")
     for date, regime in transitions[:20]:
-        print(f"    {date:<20}  → {regime.value}")
+        print(f"    {date:<20}  -> {regime.value}")
     if len(transitions) > 20:
         print(f"    ... and {len(transitions) - 20} more")
     print()
@@ -100,7 +100,7 @@ def save_csv(records: List[Tuple[str, float, MarketRegime]], path: str):
         writer.writerow(["date", "return", "regime"])
         for date, ret, regime in records:
             writer.writerow([date, f"{ret:.6f}", regime.value])
-    print(f"CSV saved → {path}")
+    print(f"CSV saved -> {path}")
 
 
 def plot_regimes(records: List[Tuple[str, float, MarketRegime]], ticker: str):
@@ -155,11 +155,11 @@ def plot_regimes(records: List[Tuple[str, float, MarketRegime]], ticker: str):
     out = f"results/regimes_{ticker}.png"
     os.makedirs("results", exist_ok=True)
     plt.savefig(out, dpi=150)
-    print(f"Plot saved → {out}")
+    print(f"Plot saved -> {out}")
     plt.show()
 
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+# --- Main ---------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="SRFM regime analyzer")

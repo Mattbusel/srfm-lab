@@ -25,13 +25,13 @@ from pathlib import Path
 from typing import List, Tuple
 
 
-# ─── Config ───────────────────────────────────────────────────────────────────
+# --- Config -------------------------------------------------------------------
 
 DEFAULT_METRIC = "SharpeRatio"
 RESULTS_DIR    = "results"
 
 
-# ─── Parameter patching ───────────────────────────────────────────────────────
+# --- Parameter patching -------------------------------------------------------
 
 def patch_main(src_path: str, param: str, value: float, dst_path: str):
     """Copy src_path/main.py to dst_path, replacing PARAM = <value>."""
@@ -51,7 +51,7 @@ def patch_main(src_path: str, param: str, value: float, dst_path: str):
         f.write(new_code)
 
 
-# ─── LEAN runner ──────────────────────────────────────────────────────────────
+# --- LEAN runner --------------------------------------------------------------
 
 def run_lean_backtest(strategy_dir: str, output_dir: str) -> str:
     """Run lean backtest and return the path to the result JSON."""
@@ -100,7 +100,7 @@ def extract_metric(result_json: str, metric: str) -> float:
         return float("nan")
 
 
-# ─── Sweep ────────────────────────────────────────────────────────────────────
+# --- Sweep --------------------------------------------------------------------
 
 def sweep(
     strategy_dir: str,
@@ -136,7 +136,7 @@ def sweep(
     return results
 
 
-# ─── Plot ─────────────────────────────────────────────────────────────────────
+# --- Plot ---------------------------------------------------------------------
 
 def plot_sensitivity(
     param: str,
@@ -161,18 +161,18 @@ def plot_sensitivity(
     xs, ys = zip(*clean)
     ax.plot(xs, ys, "o-", linewidth=2, markersize=6)
     ax.axhline(y=max(ys), color="green", linestyle="--", alpha=0.5, label=f"Best: {max(ys):.4f}")
-    ax.set_title(f"Sensitivity: {strategy_name} / {param} → {metric}", fontweight="bold")
+    ax.set_title(f"Sensitivity: {strategy_name} / {param} -> {metric}", fontweight="bold")
     ax.set_xlabel(param)
     ax.set_ylabel(metric)
     ax.legend()
     ax.grid(alpha=0.3)
     plt.tight_layout()
     plt.savefig(save_path, dpi=150)
-    print(f"Plot saved → {save_path}")
+    print(f"Plot saved -> {save_path}")
     plt.show()
 
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+# --- Main ---------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="SRFM parameter sweep")
@@ -207,13 +207,13 @@ def main():
         f.write(f"{args.param},{args.metric}\n")
         for val, score in results:
             f.write(f"{val},{score}\n")
-    print(f"CSV saved → {csv_path}")
+    print(f"CSV saved -> {csv_path}")
 
     # Best
     valid = [(v, s) for v, s in results if not math.isnan(s)]
     if valid:
         best_val, best_score = max(valid, key=lambda x: x[1])
-        print(f"\nBest: {args.param}={best_val} → {args.metric}={best_score:.4f}")
+        print(f"\nBest: {args.param}={best_val} -> {args.metric}={best_score:.4f}")
 
     if not args.no_plot:
         plot_path = os.path.join(RESULTS_DIR, strategy_name, f"sweep_{args.param}.png")

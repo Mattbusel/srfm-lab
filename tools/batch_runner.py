@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 
-# ─── Variant execution ────────────────────────────────────────────────────────
+# --- Variant execution --------------------------------------------------------
 
 def patch_constants(src: str, params: Dict[str, float], dst: str):
     with open(src) as f:
@@ -86,7 +86,7 @@ def run_variant(
         return variant_name, str(jsons[0]) if jsons else None
 
 
-# ─── Result loading (mirrors compare.py) ─────────────────────────────────────
+# --- Result loading (mirrors compare.py) -------------------------------------
 
 METRIC_KEYS = {
     "Total Return":  ("TotalPerformance", "PortfolioStatistics", "TotalNetProfit"),
@@ -154,7 +154,7 @@ def print_results(rows: List[Dict]):
     print()
 
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+# --- Main ---------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="Parallel SRFM batch runner")
@@ -214,7 +214,7 @@ def main():
     os.makedirs(output_base, exist_ok=True)
     with open(summary_path, "w") as f:
         json.dump(rows, f, indent=2, default=str)
-    print(f"Summary saved → {summary_path}")
+    print(f"Summary saved -> {summary_path}")
 
 
 if __name__ == "__main__":

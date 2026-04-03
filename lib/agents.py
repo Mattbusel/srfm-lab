@@ -1,294 +1,209 @@
 """
-agents.py — Reinforcement learning agent ensemble for SRFM strategies.
+agents.py — LARSA agent signal functions, extracted verbatim.
 
-Contains D3QN, DDQN, and TD3QN agents.  Each agent is self-contained so it
-can be unit-tested independently of LEAN.  The ensemble combines their signals
-via a configurable voting / weighting scheme.
+These are NOT neural networks — they are fixed linear/nonlinear signal
+combiners with hand-tuned weights, wrapped in tanh.  The "D3QN/DDQN/TD3QN"
+names reflect the design intent (each captures different market dynamics)
+rather than actual deep-learning implementations.
 
-Note: LEAN QCAlgorithm imports are intentionally avoided here so this module
-is importable outside of LEAN (e.g., in notebooks or unit tests).
+All functions are pure (no state, no LEAN dependency).
+mu is the gravitational lensing amplification from GravitationalLens.
 """
 
 from __future__ import annotations
-import math
-import random
-from collections import deque
-from typing import List, Optional, Tuple
+import numpy as np
+from typing import Tuple
+from srfm_core import MarketRegime
+
+# ─── Feature index shorthands ─────────────────────────────────────────────────
+# Match features.py F_* constants for readability
+_RSI  = 0; _MACD = 1; _MSIG = 2; _MHST = 3; _MOM = 4; _ROC = 5
+_ATPCT= 6; _BBW  = 7; _BBP  = 8; _BBD  = 9; _STD = 10
+_D12  = 11;_D26  = 12;_D50  = 13;_D200 = 14;_EX  = 15;_EX2 = 16;_ADX = 17
+_VOLR = 18;_OBS  = 19;_LR   = 21;_R3   = 22;_R10 = 23
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Replay Buffer (shared by all agents)
+# Individual agents
 # ─────────────────────────────────────────────────────────────────────────────
 
-class ReplayBuffer:
-    def __init__(self, capacity: int = 2000):
-        self.buffer: deque = deque(maxlen=capacity)
-
-    def push(self, state, action: int, reward: float, next_state, done: bool):
-        self.buffer.append((state, action, reward, next_state, done))
-
-    def sample(self, batch_size: int):
-        return random.sample(self.buffer, min(batch_size, len(self.buffer)))
-
-    def __len__(self):
-        return len(self.buffer)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Base Agent
-# ─────────────────────────────────────────────────────────────────────────────
-
-class BaseAgent:
+def agent_d3qn(f: np.ndarray, mu: float, rc: float) -> Tuple[float, float]:
     """
-    Lightweight tabular / linear approximation agent that works without
-    PyTorch or TensorFlow (LEAN's Docker image may not have them).
+    D3QN agent — trend + momentum focus.
+    Primary inputs: EX (EMA spread), D12, D200, MACD, momentum.
+    RSI used as contrarian modifier.
+    ATR used as volatility damper.
 
-    State: tuple of discretised feature values.
-    Actions: 0 = flat, 1 = long, 2 = short.
+    Returns (signal, confidence) both in [-1, 1].
     """
-
-    NUM_ACTIONS = 3
-
-    def __init__(
-        self,
-        state_bins: int = 5,
-        learning_rate: float = 0.01,
-        gamma: float = 0.95,
-        epsilon_start: float = 1.0,
-        epsilon_min: float = 0.05,
-        epsilon_decay: float = 0.995,
-        buffer_capacity: int = 2000,
-        batch_size: int = 32,
-    ):
-        self.lr = learning_rate
-        self.gamma = gamma
-        self.epsilon = epsilon_start
-        self.epsilon_min = epsilon_min
-        self.epsilon_decay = epsilon_decay
-        self.batch_size = batch_size
-        self.state_bins = state_bins
-
-        # Q-table: dict mapping state → [Q(s,0), Q(s,1), Q(s,2)]
-        self._q: dict = {}
-        self.replay = ReplayBuffer(buffer_capacity)
-        self.steps = 0
-
-    # ------------------------------------------------------------------
-    def _q_values(self, state) -> List[float]:
-        key = tuple(state)
-        if key not in self._q:
-            self._q[key] = [0.0] * self.NUM_ACTIONS
-        return self._q[key]
-
-    def act(self, state, deterministic: bool = False) -> int:
-        if not deterministic and random.random() < self.epsilon:
-            return random.randrange(self.NUM_ACTIONS)
-        q = self._q_values(state)
-        return int(q.index(max(q)))
-
-    def remember(self, state, action: int, reward: float, next_state, done: bool):
-        self.replay.push(state, action, reward, next_state, done)
-
-    def learn(self):
-        if len(self.replay) < self.batch_size:
-            return
-        batch = self.replay.sample(self.batch_size)
-        for state, action, reward, next_state, done in batch:
-            q = self._q_values(state)
-            q_next = self._q_values(next_state)
-            target = reward if done else reward + self.gamma * max(q_next)
-            q[action] += self.lr * (target - q[action])
-        # Decay epsilon
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-        self.steps += 1
-
-    def q_signal(self, state) -> float:
-        """Return a [-1, +1] signal: argmax_q mapped to {short, flat, long}."""
-        action = self.act(state, deterministic=True)
-        return {0: 0.0, 1: 1.0, 2: -1.0}[action]
+    s = f[_EX]*0.25 + f[_D12]*0.15 + f[_D200]*0.20 + f[_MACD]*0.15 + f[_MOM]*0.10
+    if f[_RSI] < 0.30:
+        s += 0.10
+    elif f[_RSI] > 0.70:
+        s -= 0.10
+    s *= max(0.3, 1.0 - f[_ATPCT] * 2)
+    s  = float(np.tanh(s * mu))
+    return s, float(np.clip(abs(s) * rc, 0, 1))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Specific Agent Variants
-# ─────────────────────────────────────────────────────────────────────────────
-
-class D3QNAgent(BaseAgent):
+def agent_ddqn(f: np.ndarray, mu: float, rc: float) -> Tuple[float, float]:
     """
-    Dueling Double DQN (tabular approximation).
+    DDQN agent — alignment + momentum composite.
+    Primary inputs: sign-alignment of MACD/histogram/mom/roc,
+    D26, EX, volume, open-price momentum, log returns.
+    RSI contrarian.
 
-    Dueling: Q(s,a) = V(s) + A(s,a) − mean(A)
-    Here approximated by maintaining separate value and advantage tables.
+    Returns (signal, confidence).
     """
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._v: dict = {}   # State-value table
-        self._a: dict = {}   # Advantage table
-
-    def _q_values(self, state) -> List[float]:
-        key = tuple(state)
-        if key not in self._v:
-            self._v[key] = 0.0
-            self._a[key] = [0.0] * self.NUM_ACTIONS
-        v = self._v[key]
-        a = self._a[key]
-        mean_a = sum(a) / len(a)
-        return [v + ai - mean_a for ai in a]
-
-    def learn(self):
-        if len(self.replay) < self.batch_size:
-            return
-        batch = self.replay.sample(self.batch_size)
-        for state, action, reward, next_state, done in batch:
-            key = tuple(state)
-            next_key = tuple(next_state)
-            if key not in self._v:
-                self._v[key] = 0.0
-                self._a[key] = [0.0] * self.NUM_ACTIONS
-            if next_key not in self._v:
-                self._v[next_key] = 0.0
-                self._a[next_key] = [0.0] * self.NUM_ACTIONS
-
-            q_next = max(self._q_values(next_state))
-            td_target = reward if done else reward + self.gamma * q_next
-            td_error = td_target - self._q_values(state)[action]
-
-            self._v[key] += self.lr * td_error
-            self._a[key][action] += self.lr * td_error
-
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-        self.steps += 1
+    aln = float(sum([np.sign(f[_MACD]), np.sign(f[_MHST]),
+                     np.sign(f[_MOM]),  np.sign(f[_ROC])]))
+    s = aln*0.12 + f[_D26]*0.12 + f[_EX]*0.10
+    s *= 1.0 + float(np.clip(f[_VOLR], -0.5, 0.5))
+    # f[20] = 0.0 (reserved), so f[20]*0.10 = 0; kept for formula fidelity
+    s += 0.0*0.10 + f[_LR]*0.10 + f[_R3]*0.08 + f[_R10]*0.08
+    if f[_RSI] < 0.25:
+        s += 0.08
+    elif f[_RSI] > 0.75:
+        s -= 0.08
+    s = float(np.tanh(s * mu))
+    return s, float(np.clip(abs(s) * rc, 0, 1))
 
 
-class DDQNAgent(BaseAgent):
+def agent_td3qn(f: np.ndarray, mu: float, rc: float, ht: float) -> Tuple[float, float]:
     """
-    Double DQN — uses online network to select action, target network to evaluate.
-    Approximated here with two Q-tables and periodic target sync.
+    TD3QN agent — mean-reversion + volatility-aware.
+    Primary inputs: BBP (contrarian), BBW (regime filter), BBD,
+    RSI contrarian, ATR damper, Hawking temperature.
+    Std deviation used as confidence suppressor.
+
+    Returns (signal, confidence).
     """
-
-    def __init__(self, target_update_freq: int = 50, **kwargs):
-        super().__init__(**kwargs)
-        self.target_update_freq = target_update_freq
-        self._q_target: dict = {}
-
-    def _q_target_values(self, state) -> List[float]:
-        key = tuple(state)
-        if key not in self._q_target:
-            self._q_target[key] = [0.0] * self.NUM_ACTIONS
-        return self._q_target[key]
-
-    def learn(self):
-        if len(self.replay) < self.batch_size:
-            return
-        batch = self.replay.sample(self.batch_size)
-        for state, action, reward, next_state, done in batch:
-            # Online selects action; target evaluates
-            online_next = self._q_values(next_state)
-            best_next_action = online_next.index(max(online_next))
-            q_target_next = self._q_target_values(next_state)[best_next_action]
-
-            target = reward if done else reward + self.gamma * q_target_next
-            q = self._q_values(state)
-            q[action] += self.lr * (target - q[action])
-
-        # Periodically sync online → target
-        if self.steps % self.target_update_freq == 0:
-            import copy
-            self._q_target = copy.deepcopy(self._q)
-
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-        self.steps += 1
-
-
-class TD3QNAgent(BaseAgent):
-    """
-    Triple-network DQN: maintains three Q-tables and uses the minimum to
-    reduce overestimation (analogous to TD3's twin critics).
-    """
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._q2: dict = {}
-        self._q3: dict = {}
-
-    def _all_q_values(self, state) -> Tuple[List[float], List[float], List[float]]:
-        key = tuple(state)
-        if key not in self._q:
-            self._q[key] = [0.0] * self.NUM_ACTIONS
-        if key not in self._q2:
-            self._q2[key] = [0.0] * self.NUM_ACTIONS
-        if key not in self._q3:
-            self._q3[key] = [0.0] * self.NUM_ACTIONS
-        return self._q[key], self._q2[key], self._q3[key]
-
-    def _q_values(self, state) -> List[float]:
-        q1, q2, q3 = self._all_q_values(state)
-        return [min(a, b, c) for a, b, c in zip(q1, q2, q3)]
-
-    def learn(self):
-        if len(self.replay) < self.batch_size:
-            return
-        batch = self.replay.sample(self.batch_size)
-        for state, action, reward, next_state, done in batch:
-            q_next = max(self._q_values(next_state))
-            target = reward if done else reward + self.gamma * q_next
-            for q_table in self._all_q_values(state):
-                q_table[action] += self.lr * (target - q_table[action])
-
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-        self.steps += 1
+    s = -(f[_BBP] - 0.5) * 0.40
+    if f[_BBW] < 0.02:
+        s += f[_EX] * 0.20
+    elif f[_BBW] > 0.08:
+        s -= f[_BBD] * 0.15
+    s += (0.5 - f[_RSI]) * 0.25
+    if f[_ATPCT] > 0.03:
+        s *= 0.60
+    s += f[_D200] * 0.08
+    if ht > 1.5:
+        s -= 0.15
+    elif ht < -1.5:
+        s += 0.10
+    sc = 1.0 - float(np.clip(f[_STD], 0, 0.8))
+    s  = float(np.tanh(s * mu))
+    return s, float(np.clip(abs(s) * rc * sc, 0, 1))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Ensemble
 # ─────────────────────────────────────────────────────────────────────────────
 
-class AgentEnsemble:
+REGIME_WEIGHTS = {
+    MarketRegime.BULL:           np.array([0.40, 0.35, 0.25]),
+    MarketRegime.BEAR:           np.array([0.25, 0.40, 0.35]),
+    MarketRegime.SIDEWAYS:       np.array([0.30, 0.30, 0.40]),
+    MarketRegime.HIGH_VOLATILITY: np.array([0.25, 0.35, 0.40]),
+}
+
+
+def ensemble(
+    f:       np.ndarray,
+    mu:      float,
+    rc:      float,
+    ht:      float,
+    beta:    float,
+    regime:  MarketRegime,
+    geo_slope: float,
+    geo_dev:   float,
+    rapidity:  float,
+) -> Tuple[float, float, Tuple[float, float, float]]:
     """
-    Combines D3QN, DDQN, and TD3QN signals via weighted voting.
+    Combine D3QN + DDQN + TD3QN with regime-weighted confidence blending.
 
-    Signal: +1 (long), 0 (flat), -1 (short).
-    Consensus threshold: majority of weighted votes must agree.
+    From LARSA FutureInstrument.ensemble():
+    1. Compute raw signals from each agent.
+    2. Apply Lorentz boost / damping based on beta:
+       - beta < 1 (TIMELIKE): γ = 1/√(1−β²), boost up to 2×
+       - beta >= 1 (SPACELIKE): damp by 1/β
+    3. Apply geodesic corrections:
+       - D3QN boosted if slope > 0 and dev < 0
+       - TD3QN adjusted by geo_dev * -0.3
+       - DDQN halved if geo_slope sign disagrees
+       - D3QN adjusted by rapidity * 0.10
+    4. Weighted combine using regime weights × (confidence + 0.1)
+
+    Returns (action, confidence, (s1,s2,s3)).
     """
+    s1, c1 = agent_d3qn(f, mu, rc)
+    s2, c2 = agent_ddqn(f, mu, rc)
+    s3, c3 = agent_td3qn(f, mu, rc, ht)
 
-    def __init__(
-        self,
-        weights: Optional[List[float]] = None,
-        consensus_threshold: float = 0.6,
-        **agent_kwargs,
-    ):
-        self.agents = [
-            D3QNAgent(**agent_kwargs),
-            DDQNAgent(**agent_kwargs),
-            TD3QNAgent(**agent_kwargs),
-        ]
-        self.weights = weights or [1.0, 1.0, 1.0]
-        self.consensus_threshold = consensus_threshold
+    # Lorentz boost / damping
+    if beta < 1.0:
+        g = min(1.0 / np.sqrt(max(1e-9, 1.0 - beta * beta)), 2.0)
+        s1 *= g; s2 *= g; s3 *= g
+    else:
+        d = 1.0 / (beta + 1e-9)
+        s1 *= d; s2 *= d; s3 *= d
 
-    def act(self, state, deterministic: bool = False) -> int:
-        """Return the consensus action (0/1/2)."""
-        votes = [0.0, 0.0, 0.0]
-        total_weight = sum(self.weights)
-        for agent, w in zip(self.agents, self.weights):
-            a = agent.act(state, deterministic)
-            votes[a] += w / total_weight
-        best = votes.index(max(votes))
-        if votes[best] >= self.consensus_threshold:
-            return best
-        return 0  # No consensus → flat
+    # Geodesic corrections
+    if geo_slope > 0 and geo_dev < 0:
+        s1 += 0.10
+    s3  += geo_dev * -0.3
+    if np.sign(geo_slope) != np.sign(s2):
+        s2 *= 0.5
+    s1 += rapidity * 0.10
 
-    def signal(self, state) -> float:
-        """[-1, 0, +1] signal from consensus action."""
-        return {0: 0.0, 1: 1.0, 2: -1.0}[self.act(state, deterministic=True)]
+    sigs = np.array([s1, s2, s3])
+    cons = np.array([c1, c2, c3])
 
-    def remember(self, state, action: int, reward: float, next_state, done: bool):
-        for agent in self.agents:
-            agent.remember(state, action, reward, next_state, done)
+    w  = REGIME_WEIGHTS[regime].copy() * (cons + 0.1)
+    w /= w.sum()
 
-    def learn(self):
-        for agent in self.agents:
-            agent.learn()
+    action     = float(np.dot(w, sigs))
+    confidence = float(np.dot(w, cons))
+    return action, confidence, (float(s1), float(s2), float(s3))
 
-    @property
-    def epsilon(self) -> float:
-        return self.agents[0].epsilon
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sizer
+# ─────────────────────────────────────────────────────────────────────────────
+
+def size_position(
+    f:       np.ndarray,
+    action:  float,
+    conf:    float,
+    rm:      float,        # risk multiplier 0.0 or 0.5 or 1.0
+    regime:  MarketRegime,
+    mu:      float,
+    rc:      float,
+    ht:      float,
+    tl_window: list,
+) -> float:
+    """
+    Compute position target from LARSA FutureInstrument.size().
+    Returns signed position fraction (pre-kill-condition clipping).
+    """
+    if rm == 0.0:
+        return 0.0
+
+    sign = float(np.sign(action)) if action != 0 else 0.0
+    mag  = abs(action)
+
+    if regime in (MarketRegime.BULL, MarketRegime.BEAR):
+        rw = mag * conf * rm * 1.5
+        if tl_window:
+            tlf = sum(tl_window) / len(tl_window)
+            rw *= max(0.3, min(1.5, tlf / 0.7))
+        return sign * rw
+
+    if regime == MarketRegime.SIDEWAYS:
+        s3, c3 = agent_td3qn(f, mu, rc, ht)
+        return sign * max(abs(s3) * c3 * rm * 1.25, mag * conf * rm * 1.0)
+
+    if regime == MarketRegime.HIGH_VOLATILITY:
+        return sign * mag * conf * rm * 1.25
+
+    return 0.0

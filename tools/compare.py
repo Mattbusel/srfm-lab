@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-# ─── Metric extraction ────────────────────────────────────────────────────────
+# --- Metric extraction --------------------------------------------------------
 
 METRIC_KEYS = {
     "Total Return":      ("TotalPerformance", "PortfolioStatistics", "TotalNetProfit"),
@@ -65,7 +65,7 @@ def load_result(path: str) -> Optional[Dict]:
         return None
 
 
-# ─── Table rendering ──────────────────────────────────────────────────────────
+# --- Table rendering ----------------------------------------------------------
 
 ANSI_GREEN  = "\033[92m"
 ANSI_RESET  = "\033[0m"
@@ -123,7 +123,7 @@ def print_table(rows: List[Dict]):
     print()
 
 
-# ─── Equity curve chart ───────────────────────────────────────────────────────
+# --- Equity curve chart -------------------------------------------------------
 
 def plot_equity_curves(result_paths: List[str]):
     try:
@@ -165,11 +165,11 @@ def plot_equity_curves(result_paths: List[str]):
     out = "results/equity_comparison.png"
     os.makedirs("results", exist_ok=True)
     plt.savefig(out, dpi=150)
-    print(f"Chart saved → {out}")
+    print(f"Chart saved -> {out}")
     plt.show()
 
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+# --- Main ---------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="Compare LEAN backtest results")
