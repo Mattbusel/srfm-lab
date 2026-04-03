@@ -1,31 +1,18 @@
-# LARSA v16: v14 OG code (1:1 copy, class renamed)
+# LARSA v16: v14 OG + expanded instrument universe
 #
-# TWO-GEAR ARCHITECTURE:
+# GEAR 1 — TAIL CAPTURE (fixed $3M bucket):
+#   BH physics across 8 instruments: ES, NQ, YM, CL, GC, ZB, NG, VX
+#   Same engine, uncorrelated events. More BH convergence points per year.
+#   Less bleed-to-event ratio because something is always near a regime break.
 #
-# Gear 1 — TAIL CAPTURE (fixed $3M bucket):
-#   Exactly v12. BH physics, regime-scaled CF, BULL/BEAR gates, vol-targeting.
-#   This is the $1M → $22M engine. Always allocated exactly $3M (or 100% if < $3M).
-#   Nothing changed. Nothing kneecapped.
+# GEAR 2 — HARVEST MODE (everything above $3M):
+#   Z-score mean reversion on all 8 instruments during SIDEWAYS regime.
 #
-# Gear 2 — HARVEST MODE (everything above $3M):
-#   Mean reversion on ES/NQ/YM hourly bars.
-#   ES oscillates in a ~20-point range 80% of the time. Clip 2-5 points, 3-4x/week.
-#   Signal: Z-score of price vs 20-bar mean. Enter fade at |z| > 1.5, exit at z = 0.
-#   Hard stop at |z| > 2.8 (regime break starting — Gear 1 handles that).
-#   Only active when regime == SIDEWAYS (exactly when Gear 1 bleeds).
-#   Position size: 2% of harvest allocation per instrument.
-#
-# CAPITAL SPLIT (computed each hour):
-#   total_equity < $3M  → tail_frac = 1.0,  harvest_frac = 0.0  (all-in on tail)
-#   total_equity >= $3M → tail_frac = $3M / equity, harvest_frac = remainder
-#
-# WHY THIS WORKS:
-#   Tail and harvest are anti-correlated by regime:
-#     TRENDING → Gear 1 prints, Gear 2 flat (gate: SIDEWAYS only)
-#     SIDEWAYS → Gear 2 clips, Gear 1 flat (no BH forms in sideways)
-#   $19M sitting in harvest at 20-30% annualized = $4-6M/year on capital
-#   that was otherwise bleeding in quiet markets.
-#   $3M tail bucket stays fully loaded for the next vol regime break.
+# INSTRUMENT GROUPS (structural correlation):
+#   Equity (ES/NQ/YM): corr ~0.90 — fire together
+#   Energy (CL/NG):    corr ~0.50 — semi-independent
+#   Safe haven (GC/ZB): corr ~0.30 — often counter-equity
+#   Vol (VX):          corr ~0.0  — structurally uncorrelated
 
 # region imports
 from AlgorithmImports import *
@@ -41,28 +28,43 @@ class MarketRegime(IntEnum):
     HIGH_VOLATILITY = 3
 
 CF = {
-    "15m":  {"ES": 0.0003, "NQ": 0.0004,  "YM": 0.00025},
-    "1h":   {"ES": 0.001,  "NQ": 0.0012,  "YM": 0.0008},
-    "1d":   {"ES": 0.005,  "NQ": 0.006,   "YM": 0.004},
+    "15m": {"ES": 0.0003, "NQ": 0.0004,  "YM": 0.00025,
+            "CL": 0.0015, "GC": 0.0008,  "ZB": 0.0005,
+            "NG": 0.0020, "VX": 0.0030},
+    "1h":  {"ES": 0.001,  "NQ": 0.0012,  "YM": 0.0008,
+            "CL": 0.004,  "GC": 0.0025,  "ZB": 0.0015,
+            "NG": 0.006,  "VX": 0.008},
+    "1d":  {"ES": 0.005,  "NQ": 0.006,   "YM": 0.004,
+            "CL": 0.015,  "GC": 0.008,   "ZB": 0.005,
+            "NG": 0.020,  "VX": 0.025},
 }
 
 TF_CAP = {7: 0.65, 6: 0.55, 5: 0.45, 4: 0.35, 3: 0.30, 2: 0.25, 1: 0.15, 0: 0.0}
 
 MIN_HOLD_BARS = 4
 
-N_INSTRUMENTS    = 3
-INST_CORRELATION = 0.90
+# 8 instruments across uncorrelated asset classes — blended correlation ~0.35
+N_INSTRUMENTS    = 8
+INST_CORRELATION = 0.35
 PORTFOLIO_DAILY_RISK = 0.01
 _CORR_FACTOR = math.sqrt(N_INSTRUMENTS + N_INSTRUMENTS * (N_INSTRUMENTS - 1) * INST_CORRELATION)
-PER_INST_RISK = PORTFOLIO_DAILY_RISK / _CORR_FACTOR   # ≈ 0.003450
+PER_INST_RISK = PORTFOLIO_DAILY_RISK / _CORR_FACTOR   # ≈ 0.00181
 
-# v14: Two-gear split
-TAIL_FIXED_CAPITAL = 3_000_000.0   # Gear 1 always gets exactly this much
-HARVEST_RISK_PER_INST = 0.02       # 2% of harvest allocation per instrument
-HARVEST_Z_ENTRY = 1.5              # enter fade when |z-score| exceeds this
-HARVEST_Z_EXIT  = 0.3              # exit when z-score returns near zero
-HARVEST_Z_STOP  = 2.8              # hard stop — regime break, get out
-HARVEST_LOOKBACK = 20              # bars for mean/std calculation
+TAIL_FIXED_CAPITAL    = 3_000_000.0
+HARVEST_RISK_PER_INST = 0.02
+HARVEST_Z_ENTRY       = 1.5
+HARVEST_Z_EXIT        = 0.3
+HARVEST_Z_STOP        = 2.8
+HARVEST_LOOKBACK      = 20
+
+# Thin-instrument position caps (notional / portfolio value)
+INST_CAPS = {
+    "NQ": 400_000,
+    "NG": 200_000,
+    "VX": 150_000,
+}
+
+ALL_SYMS = ["ES", "NQ", "YM", "CL", "GC", "ZB", "NG", "VX"]
 
 
 class FutureInstrument:
@@ -102,9 +104,8 @@ class FutureInstrument:
         self.last_target = 0.0
         self.bars_held = 0
 
-        # v14: harvest state
-        self.harv_pos = 0.0        # current harvest position fraction (+ long, - short)
-        self.harv_entry_z = 0.0    # z-score at harvest entry
+        self.harv_pos = 0.0
+        self.harv_entry_z = 0.0
 
         if self._is_hourly:
             h = Resolution.HOUR
@@ -136,7 +137,6 @@ class FutureInstrument:
         ])
 
     def z_score(self):
-        """Z-score of current price vs 20-bar mean. Returns 0.0 if not enough data."""
         if self.cw.count < HARVEST_LOOKBACK:
             return 0.0
         prices = np.array([self.cw[i] for i in range(HARVEST_LOOKBACK)])
@@ -233,20 +233,28 @@ class LarsaV16(QCAlgorithm):
         self.set_brokerage_model(BrokerageName.INTERACTIVE_BROKERS_BROKERAGE, AccountType.MARGIN)
         self.settings.minimum_order_margin_portfolio_percentage = 0
 
+        tickers = {
+            "ES": Futures.Indices.SP_500_E_MINI,
+            "NQ": Futures.Indices.NASDAQ_100_E_MINI,
+            "YM": Futures.Indices.DOW_30_E_MINI,
+            "CL": Futures.Energy.CrudeOilWTI,
+            "GC": Futures.Metals.Gold,
+            "ZB": Futures.Financials.Y_30_TREASURY_BOND,
+            "NG": Futures.Energy.NaturalGas,
+            "VX": Futures.Indices.VIX,
+        }
+
         self.instr_15m = {
-            "ES": FutureInstrument(self, Futures.Indices.SP_500_E_MINI,     "15m", CF["15m"]["ES"], "ES"),
-            "NQ": FutureInstrument(self, Futures.Indices.NASDAQ_100_E_MINI, "15m", CF["15m"]["NQ"], "NQ"),
-            "YM": FutureInstrument(self, Futures.Indices.DOW_30_E_MINI,     "15m", CF["15m"]["YM"], "YM"),
+            sym: FutureInstrument(self, tickers[sym], "15m", CF["15m"][sym], sym)
+            for sym in ALL_SYMS
         }
         self.instr_1h = {
-            "ES": FutureInstrument(self, Futures.Indices.SP_500_E_MINI,     "1h", CF["1h"]["ES"], "ES"),
-            "NQ": FutureInstrument(self, Futures.Indices.NASDAQ_100_E_MINI, "1h", CF["1h"]["NQ"], "NQ"),
-            "YM": FutureInstrument(self, Futures.Indices.DOW_30_E_MINI,     "1h", CF["1h"]["YM"], "YM"),
+            sym: FutureInstrument(self, tickers[sym], "1h", CF["1h"][sym], sym)
+            for sym in ALL_SYMS
         }
         self.instr_1d = {
-            "ES": FutureInstrument(self, Futures.Indices.SP_500_E_MINI,     "1d", CF["1d"]["ES"], "ES"),
-            "NQ": FutureInstrument(self, Futures.Indices.NASDAQ_100_E_MINI, "1d", CF["1d"]["NQ"], "NQ"),
-            "YM": FutureInstrument(self, Futures.Indices.DOW_30_E_MINI,     "1d", CF["1d"]["YM"], "YM"),
+            sym: FutureInstrument(self, tickers[sym], "1d", CF["1d"][sym], sym)
+            for sym in ALL_SYMS
         }
 
         for inst in self.instr_15m.values():
@@ -261,18 +269,18 @@ class LarsaV16(QCAlgorithm):
 
         self.peak = 1_000_000.0
         self._last_exec_hour = None
-        self._last_harvest_day = None   # throttle harvest to once per day
+        self._last_harvest_day = None
 
         self.log(
-            f"[v14 PARAMS] "
+            f"[v16 PARAMS] "
+            f"instruments={ALL_SYMS} "
             f"tail_capital=${TAIL_FIXED_CAPITAL:,.0f} "
             f"per_inst_risk={PER_INST_RISK:.4%} "
-            f"harvest_risk_per_inst={HARVEST_RISK_PER_INST:.1%} "
-            f"harvest_z_entry={HARVEST_Z_ENTRY}"
+            f"harvest_risk_per_inst={HARVEST_RISK_PER_INST:.1%}"
         )
 
         rc = Chart("Regime")
-        for k in ["ES", "NQ", "YM"]:
+        for k in ALL_SYMS:
             rc.add_series(Series(k, SeriesType.LINE, 0))
         self.add_chart(rc)
 
@@ -309,19 +317,18 @@ class LarsaV16(QCAlgorithm):
             return
         self._last_exec_hour = current_hour
 
-        # ── Capital split ─────────────────────────────────────────────────────
-        tail_frac    = min(TAIL_FIXED_CAPITAL, pv) / pv   # fraction for Gear 1
-        harvest_frac = max(0.0, pv - TAIL_FIXED_CAPITAL) / pv  # fraction for Gear 2
+        tail_frac    = min(TAIL_FIXED_CAPITAL, pv) / pv
+        harvest_frac = max(0.0, pv - TAIL_FIXED_CAPITAL) / pv
         harvest_equity = pv * harvest_frac
 
-        # ── Gear 1: TAIL CAPTURE (v12 logic, unchanged) ──────────────────────
+        # ── Gear 1: TAIL CAPTURE ─────────────────────────────────────────────
         for i1h in self.instr_1h.values():
             if abs(i1h.last_target) > 0.02:
                 i1h.bars_held += 1
 
         raw_targets = {}
 
-        for sym in ["ES", "NQ", "YM"]:
+        for sym in ALL_SYMS:
             i15 = self.instr_15m[sym]
             i1h = self.instr_1h[sym]
             i1d = self.instr_1d[sym]
@@ -370,9 +377,10 @@ class LarsaV16(QCAlgorithm):
                     if i1h.regime == MarketRegime.BULL and tail_tgt < 0 and i1h.rhb > 5:
                         tail_tgt = 0.0
 
-                    if sym == "NQ" and i1h.regime != MarketRegime.BULL:
-                        nq_cap = 400000.0 / (pv + 1e-9)
-                        tail_tgt = float(np.sign(tail_tgt) * min(abs(tail_tgt), nq_cap))
+                    # Thin-instrument caps
+                    if sym in INST_CAPS:
+                        inst_cap = INST_CAPS[sym] / (pv + 1e-9)
+                        tail_tgt = float(np.sign(tail_tgt) * min(abs(tail_tgt), inst_cap))
 
             # pos_floor
             if (tf_score >= 6 and not np.isclose(tail_tgt, 0.0)
@@ -398,11 +406,10 @@ class LarsaV16(QCAlgorithm):
 
             raw_targets[sym] = (mapped, tail_tgt)
 
-        # Scale tail targets to tail_frac of portfolio
         total_tail_exposure = sum(abs(tgt) for _, tgt in raw_targets.values())
         tail_scale = 1.0 / total_tail_exposure if total_tail_exposure > 1.0 else 1.0
 
-        for sym in ["ES", "NQ", "YM"]:
+        for sym in ALL_SYMS:
             i1h = self.instr_1h[sym]
             mapped, tail_tgt = raw_targets[sym]
             if mapped is None:
@@ -417,13 +424,13 @@ class LarsaV16(QCAlgorithm):
                 i1h.last_target = final_tail
                 self.set_holdings(mapped, final_tail)
 
-        # ── Gear 2: HARVEST MODE (once per day — keeps order count manageable) ─
+        # ── Gear 2: HARVEST MODE ─────────────────────────────────────────────
         today = self.time.date()
         if harvest_equity > 10_000 and today != self._last_harvest_day:
             self._last_harvest_day = today
             self._run_harvest(data, harvest_frac)
 
-        # ── Diagnostics ───────────────────────────────────────────────────────
+        # ── Diagnostics ──────────────────────────────────────────────────────
         if any(i.bc % 24 == 0 for i in self.instr_1h.values()):
             pv2 = self.portfolio.total_portfolio_value
             self.plot("Risk", "Drawdown%", (self.peak - pv2) / (self.peak + 1e-9) * 100)
@@ -433,24 +440,16 @@ class LarsaV16(QCAlgorithm):
             self.plot("Allocation", "HarvestFrac%", harvest_frac * 100)
 
     def _run_harvest(self, data, harvest_frac):
-        """
-        Gear 2: Z-score mean reversion.
-        Only active in SIDEWAYS regime (exactly when Gear 1 has no signal).
-        Fades price extremes back toward the 20-bar mean.
-        Position size: HARVEST_RISK_PER_INST × harvest_frac of total portfolio.
-        """
-        for sym in ["ES", "NQ", "YM"]:
+        for sym in ALL_SYMS:
             i1h = self.instr_1h[sym]
             mapped = i1h.future.mapped
             if mapped is None: continue
             if mapped not in self.securities: continue
             if not self.securities[mapped].exchange.exchange_open: continue
 
-            # Only run in SIDEWAYS — Gear 1 owns BULL/BEAR/HIGH_VOL
             if i1h.regime != MarketRegime.SIDEWAYS:
-                # Exit any open harvest position if regime changed
                 if not np.isclose(i1h.harv_pos, 0.0):
-                    self.set_holdings(mapped, i1h.last_target)  # tail target only
+                    self.set_holdings(mapped, i1h.last_target)
                     i1h.harv_pos = 0.0
                 continue
 
@@ -458,7 +457,6 @@ class LarsaV16(QCAlgorithm):
             harv_size = HARVEST_RISK_PER_INST * harvest_frac
 
             if np.isclose(i1h.harv_pos, 0.0):
-                # No harvest position — look for entry
                 if z > HARVEST_Z_ENTRY:
                     i1h.harv_pos = -harv_size
                     i1h.harv_entry_z = z
@@ -468,7 +466,6 @@ class LarsaV16(QCAlgorithm):
                     i1h.harv_entry_z = z
                     self.set_holdings(mapped, i1h.last_target + i1h.harv_pos)
             else:
-                # In a harvest position — check exit conditions
                 in_short = i1h.harv_pos < 0
                 exit_trade = False
 
@@ -521,7 +518,7 @@ class LarsaV16(QCAlgorithm):
         dd = (self.peak - pv) / (self.peak + 1e-9)
         tail_frac = min(TAIL_FIXED_CAPITAL, pv) / pv
         harvest_frac = max(0.0, pv - TAIL_FIXED_CAPITAL) / pv
-        for sym in ["ES", "NQ", "YM"]:
+        for sym in ALL_SYMS:
             i15 = self.instr_15m[sym]
             i1h = self.instr_1h[sym]
             i1d = self.instr_1d[sym]
