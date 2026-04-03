@@ -64,6 +64,14 @@ INST_CAPS = {
     "VX": 150_000,
 }
 
+# Higher BH formation threshold for noisy instruments — require stronger signal before entry
+# CL/NG/VX are prone to false formations; GC/ZB trend cleanly once they break
+BH_FORM_OVERRIDE = {
+    "CL": 2.0,
+    "NG": 2.0,
+    "VX": 2.0,
+}
+
 ALL_SYMS = ["ES", "NQ", "YM", "CL", "GC", "ZB", "NG", "VX"]
 
 
@@ -92,7 +100,7 @@ class FutureInstrument:
 
         self.cf_scale = 1.0
         self.bh_mass = 0.0
-        self.bh_form = 1.5
+        self.bh_form = BH_FORM_OVERRIDE.get(label, 1.5)
         self.bh_collapse = 1.0
         self.bh_decay = 0.95
         self.bh_active = False
