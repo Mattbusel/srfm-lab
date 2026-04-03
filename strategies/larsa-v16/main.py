@@ -341,7 +341,11 @@ class LarsaV16(QCAlgorithm):
 
             ceiling = TF_CAP[tf_score]
 
-            if tf_score == 1 and np.isclose(i1h.last_target, 0.0):
+            # Entry gate: require daily BH (tf_score >= 4) to open a new position.
+            # If no existing position and conviction is low, stay flat.
+            # Existing positions can be maintained/scaled at any tf_score.
+            in_position = not np.isclose(i1h.last_target, 0.0)
+            if tf_score < 4 and not in_position:
                 ceiling = 0.0
 
             if ceiling == 0.0:
