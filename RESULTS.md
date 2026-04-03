@@ -196,3 +196,67 @@ results/
   regimes_ES.csv   - Regime timeline
   experiments.md   - Detailed experiment log
 ```
+
+---
+
+## Phase 5: Real Trade Log Analysis (Calm Orange Mule)
+
+**Source:** QC LARSA backtest trade log (2018-2024, ES/NQ/YM hourly)
+**File:** `tools/trade_forensics.py`, `research/trade_analysis.md`, `research/notebooks/08_trade_forensics.py`
+
+### Headline Numbers
+| Metric | Value |
+|--------|-------|
+| Total Trades | 377 |
+| Total Wells (Events) | 263 |
+| Gross P&L | $2,901,988 |
+| Gross Return | 290.2% |
+| Win Rate (trades) | 54.9% |
+| Max Drawdown | 29.9% |
+| Sharpe (annualized) | 4.289 |
+| P&L Ratio W/L | 1.34x |
+
+### Annual Attribution (The Real Story)
+| Year | Trades | Win% | Gross P&L | % of Total |
+|------|--------|------|-----------|-----------|
+| 2018 | 57 | 53% | $93,848 | 3.2% |
+| 2019 | 70 | 49% | $93,202 | 3.2% |
+| 2020 | 32 | 59% | $628,838 | 21.7% |
+| 2021 | 70 | 50% | $108,965 | 3.8% |
+| 2022 | 10 | 60% | $171,055 | 5.9% |
+| 2023 | 56 | 54% | $690,225 | 23.8% |
+| **2024** | **82** | **65%** | **$1,115,855** | **38.5%** |
+
+**Key revision:** Prior hypothesis that "2020 drove 60-80% of returns" is WRONG.
+- 2020+2023+2024 = 83.9% of all P&L
+- 2024 alone = 111.6% of initial capital ($1M)
+- Strategy compounds: larger capital base → larger absolute $ per % move
+
+### The Convergence Finding (CONFIRMED)
+| Metric | Multi-Instrument | Single-Instrument |
+|--------|-----------------|------------------|
+| # Wells | 47 (17.9%) | 216 (82.1%) |
+| Gross P&L | $2,362,805 (81.4%) | $539,182 (18.6%) |
+| Win Rate | **74.5%** | ~49% |
+
+**Multi-instrument convergence wells are 17.9% of events but 81.4% of gross P&L.**
+This definitively answers Open Question #3: the convergence multiplier IS the key.
+
+### Instrument Attribution
+- ES: 55.3% of P&L (183 trades, workhorse/signal)
+- YM: 23.4% of P&L (88 trades, macro direction filter)
+- NQ: 21.3% of P&L (106 trades, momentum alpha)
+
+### Direction Bias
+- Long: 81.6% of P&L ($2.37M, 287 trades, 55% WR)
+- Short: 18.4% of P&L ($534k, 90 trades, 53% WR)
+- Strategy is primarily a bull-trend follower with short capability
+
+### Top Single Wells
+| Date | Duration | Instruments | Gross P&L | Event |
+|------|----------|-------------|-----------|-------|
+| 2023-12-13 | 30h | NQ+YM | $453,285 | Dec Fed rally |
+| 2020-11-06 | 67h | YM | $436,205 | US Election + Vaccine |
+| 2023-11-13 | 20h | NQ+YM | $328,200 | Oct CPI relief rally |
+| 2024-11-22 | 66h | ES | $286,875 | Post-election bull run |
+| 2022-07-27 | 2h | NQ | $261,960 | Fed pivot expectations |
