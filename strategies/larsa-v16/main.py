@@ -92,7 +92,9 @@ class FutureInstrument:
         self.bh_mass = 0.0
         self.bh_form = 1.5
         self.bh_collapse = 1.0
-        self.bh_decay = 0.95
+        # Daily BH decays fast (exits in ~3 days after move ends).
+        # Hourly/15m stay at 0.95 so entries still form normally.
+        self.bh_decay = 0.70 if res_label == "1d" else 0.95
         self.bh_active = False
         self.bh_dir = 0
         self.bh_entry_price = 0.0
@@ -203,8 +205,7 @@ class FutureInstrument:
         else:
             self.bit = "SPACELIKE"
             self.ctl = 0
-            # Faster collapse on adverse moves — exit sooner when trend reverses
-            self.bh_mass *= 0.80
+            self.bh_mass *= self.bh_decay
 
         if not was_active:
             self.bh_active = self.bh_mass > self.bh_form and self.ctl >= 3
