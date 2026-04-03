@@ -394,6 +394,11 @@ class LarsaV15(QCAlgorithm):
             if mapped is None or mapped not in self.securities:
                 raw[sym] = 0.0; continue
 
+            # Gear 1 is flat in SIDEWAYS — Gear 2 (harvest) owns that regime.
+            # MFE analysis showed SIDEWAYS trades drag PF from ~1.4 to 0.99.
+            if i1h.regime == MarketRegime.SIDEWAYS:
+                raw[sym] = 0.0; continue
+
             tf_score = (4 * int(i1d.bh_active) + 2 * int(i1h.bh_active) + int(i15.bh_active))
             ceiling  = TF_CAP[tf_score]
             if tf_score == 1 and np.isclose(i1h.last_target, 0.0):
