@@ -3,6 +3,9 @@
 # Position size = f(tf_score): 0→flat, 1→0.15, 2→0.25, 3→0.30, 4→0.35, 5→0.45, 6→0.55, 7→0.65
 # Direction from highest active TF. Cross-instrument convergence bonus preserved.
 # Expected: 5000+ trades vs v7's ~350. Triple-aligned events = highest conviction.
+#
+# QC NOTE: Resolution.FIFTEEN_MINUTE does not exist in QC.
+#          15min instruments subscribe at Resolution.Minute and consolidate via TradeBarConsolidator.
 
 # region imports
 from AlgorithmImports import *
@@ -16,40 +19,46 @@ class MarketRegime(IntEnum):
     SIDEWAYS = 2
     HIGH_VOLATILITY = 3
 
-# CF calibration per resolution
+# CF calibration per resolution (keyed by string label)
 CF = {
-    Resolution.FIFTEEN_MINUTE: {"ES": 0.0003, "NQ": 0.0004, "YM": 0.00025},
-    Resolution.HOUR:           {"ES": 0.001,  "NQ": 0.0012,  "YM": 0.0008},
-    Resolution.DAILY:          {"ES": 0.005,  "NQ": 0.006,   "YM": 0.004},
+    "15m":  {"ES": 0.0003, "NQ": 0.0004,  "YM": 0.00025},
+    "1h":   {"ES": 0.001,  "NQ": 0.0012,  "YM": 0.0008},
+    "1d":   {"ES": 0.005,  "NQ": 0.006,   "YM": 0.004},
 }
 
 # tf_score → position cap
 TF_CAP = {7: 0.65, 6: 0.55, 5: 0.45, 4: 0.35, 3: 0.30, 2: 0.25, 1: 0.15, 0: 0.0}
 
 class FutureInstrument:
-    def __init__(self, algo, future_ticker, resolution, cf, label):
+    def __init__(self, algo, future_ticker, res_label, cf, label):
+        """
+        res_label: "15m", "1h", or "1d"
+        For "15m", subscribes at Resolution.Minute; consolidation handled in LarsaV8.initialize.
+        """
         self.algo = algo
         self.label = label
         self.cf = cf
-        self.resolution = resolution
+        self.res_label = res_label
 
-        # res_label for keying
-        res_map = {
-            Resolution.FIFTEEN_MINUTE: "15m",
-            Resolution.HOUR: "1h",
-            Resolution.DAILY: "1d",
+        # Map res_label → actual QC resolution for subscription
+        qc_res_map = {
+            "15m": Resolution.MINUTE,   # consolidated to 15-min via TradeBarConsolidator
+            "1h":  Resolution.HOUR,
+            "1d":  Resolution.DAILY,
         }
-        self.res_label = res_map.get(resolution, "??")
+        self._qc_res = qc_res_map[res_label]
+        self._is_15m = (res_label == "15m")
+        self._is_hourly = (res_label == "1h")
 
         self.future = algo.add_future(
-            future_ticker, resolution,
+            future_ticker, self._qc_res,
             data_normalization_mode=DataNormalizationMode.BACKWARDS_RATIO,
             contract_depth_offset=0,
         )
         self.future.set_filter(timedelta(0), timedelta(182))
         self.sym = self.future.symbol
 
-        # Rolling windows — all resolutions need these
+        # Rolling windows — shared across all resolutions
         self.cw = RollingWindow[float](50)   # close prices
         self.bw = RollingWindow[float](20)   # beta values
 
@@ -64,16 +73,15 @@ class FutureInstrument:
         self.ctl = 0              # TIMELIKE bar count
         self.bit = "UNKNOWN"      # TIMELIKE or SPACELIKE
 
-        # bar count (warmup gate)
+        # bar count (warmup gate — in units of the instrument's own bar resolution)
         self.bc = 0
 
         # last target (used only on hourly instruments but kept on all for simplicity)
         self.last_target = 0.0
 
         # Hourly-only state — indicators, regime, pos_floor
-        self._is_hourly = (resolution == Resolution.HOUR)
         if self._is_hourly:
-            h = resolution
+            h = Resolution.HOUR
             self.e12  = algo.ema(self.sym, 12,  h)
             self.e26  = algo.ema(self.sym, 26,  h)
             self.e50  = algo.ema(self.sym, 50,  h)
@@ -90,6 +98,11 @@ class FutureInstrument:
             for ind in [self.e12, self.e26, self.e50, self.e200,
                         self.rsi, self.macd, self.atr, self.adx]:
                 algo.warm_up_indicator(self.sym, ind, h)
+        else:
+            # Non-hourly instruments still need pos_floor placeholder for on_data logic
+            self.pos_floor = 0.0
+            self.regime = MarketRegime.SIDEWAYS
+            self.rhb = 0
 
     # ------------------------------------------------------------------
     # Regime detection — HOURLY instruments only
@@ -142,7 +155,7 @@ class FutureInstrument:
         self.rc = nc
 
     # ------------------------------------------------------------------
-    # BH physics update — all resolutions
+    # BH physics update — called after adding close price to cw
     # ------------------------------------------------------------------
     def update_bh(self):
         if self.cw.count < 2: return
@@ -151,33 +164,37 @@ class FutureInstrument:
         was_active = self.bh_active
 
         if beta < 1.0:
-            # TIMELIKE — accrete
             self.bit = "TIMELIKE"
             self.ctl += 1
             sb = min(2.0, 1.0 + self.ctl * 0.1)
             self.bh_mass = self.bh_mass * 0.97 + 0.03 * 1.0 * sb
         else:
-            # SPACELIKE — decay
             self.bit = "SPACELIKE"
             self.ctl = 0
             self.bh_mass *= self.bh_decay
 
-        # Activation / collapse
         if not was_active:
             self.bh_active = self.bh_mass > self.bh_form and self.ctl >= 3
         else:
             self.bh_active = self.bh_mass > self.bh_collapse and self.ctl >= 3
 
-        # Direction tracking
         bh_now_active = self.bh_active
         if not was_active and bh_now_active:
-            # BH just activated — set direction from recent price move
             lookback = min(20, self.cw.count - 1)
             self.bh_dir = 1 if self.cw[0] > self.cw[lookback] else -1
             self.bh_entry_price = self.cw[0]
         elif was_active and not bh_now_active:
             self.bh_dir = 0
             self.bh_entry_price = 0.0
+
+    # ------------------------------------------------------------------
+    # Warmup suppression — called after update_bh
+    # ------------------------------------------------------------------
+    def apply_warmup_gate(self):
+        bc_thresh = {"15m": 400, "1h": 120, "1d": 30}.get(self.res_label, 120)
+        if self.bc < bc_thresh:
+            self.bh_active = False
+            self.bh_dir = 0
 
 
 class LarsaV8(QCAlgorithm):
@@ -189,26 +206,34 @@ class LarsaV8(QCAlgorithm):
 
         # Three resolution tiers
         self.instr_15m = {
-            "ES": FutureInstrument(self, Futures.Indices.SP_500_E_MINI,    Resolution.FIFTEEN_MINUTE, CF[Resolution.FIFTEEN_MINUTE]["ES"], "ES"),
-            "NQ": FutureInstrument(self, Futures.Indices.NASDAQ_100_E_MINI, Resolution.FIFTEEN_MINUTE, CF[Resolution.FIFTEEN_MINUTE]["NQ"], "NQ"),
-            "YM": FutureInstrument(self, Futures.Indices.DOW_30_E_MINI,    Resolution.FIFTEEN_MINUTE, CF[Resolution.FIFTEEN_MINUTE]["YM"], "YM"),
+            "ES": FutureInstrument(self, Futures.Indices.SP_500_E_MINI,     "15m", CF["15m"]["ES"], "ES"),
+            "NQ": FutureInstrument(self, Futures.Indices.NASDAQ_100_E_MINI, "15m", CF["15m"]["NQ"], "NQ"),
+            "YM": FutureInstrument(self, Futures.Indices.DOW_30_E_MINI,     "15m", CF["15m"]["YM"], "YM"),
         }
         self.instr_1h = {
-            "ES": FutureInstrument(self, Futures.Indices.SP_500_E_MINI,    Resolution.HOUR, CF[Resolution.HOUR]["ES"], "ES"),
-            "NQ": FutureInstrument(self, Futures.Indices.NASDAQ_100_E_MINI, Resolution.HOUR, CF[Resolution.HOUR]["NQ"], "NQ"),
-            "YM": FutureInstrument(self, Futures.Indices.DOW_30_E_MINI,    Resolution.HOUR, CF[Resolution.HOUR]["YM"], "YM"),
+            "ES": FutureInstrument(self, Futures.Indices.SP_500_E_MINI,     "1h", CF["1h"]["ES"], "ES"),
+            "NQ": FutureInstrument(self, Futures.Indices.NASDAQ_100_E_MINI, "1h", CF["1h"]["NQ"], "NQ"),
+            "YM": FutureInstrument(self, Futures.Indices.DOW_30_E_MINI,     "1h", CF["1h"]["YM"], "YM"),
         }
         self.instr_1d = {
-            "ES": FutureInstrument(self, Futures.Indices.SP_500_E_MINI,    Resolution.DAILY, CF[Resolution.DAILY]["ES"], "ES"),
-            "NQ": FutureInstrument(self, Futures.Indices.NASDAQ_100_E_MINI, Resolution.DAILY, CF[Resolution.DAILY]["NQ"], "NQ"),
-            "YM": FutureInstrument(self, Futures.Indices.DOW_30_E_MINI,    Resolution.DAILY, CF[Resolution.DAILY]["YM"], "YM"),
+            "ES": FutureInstrument(self, Futures.Indices.SP_500_E_MINI,     "1d", CF["1d"]["ES"], "ES"),
+            "NQ": FutureInstrument(self, Futures.Indices.NASDAQ_100_E_MINI, "1d", CF["1d"]["NQ"], "NQ"),
+            "YM": FutureInstrument(self, Futures.Indices.DOW_30_E_MINI,     "1d", CF["1d"]["YM"], "YM"),
         }
 
-        # Flat dict for _process_instrument iteration
-        self.all_instruments = {}
-        for d in [self.instr_15m, self.instr_1h, self.instr_1d]:
-            for k, v in d.items():
-                self.all_instruments[f"{k}_{v.res_label}"] = v
+        # Register 15-min consolidators for each 15m instrument.
+        # The consolidator fires every 15 minutes with an aggregated TradeBar.
+        # We capture the instrument in a default-arg closure to avoid late-binding.
+        for inst in self.instr_15m.values():
+            self.consolidate(inst.sym, timedelta(minutes=15),
+                             lambda bar, i=inst: self._on_15m_bar(i, bar))
+
+        # Flat dict for hourly + daily _process_instrument iteration
+        self.non_15m_instruments = {}
+        for k, v in self.instr_1h.items():
+            self.non_15m_instruments[f"{k}_1h"] = v
+        for k, v in self.instr_1d.items():
+            self.non_15m_instruments[f"{k}_1d"] = v
 
         self.peak = 1_000_000.0
         self.ramp_back = 0
@@ -226,7 +251,19 @@ class LarsaV8(QCAlgorithm):
         self.set_warm_up(timedelta(days=400))
 
     # ------------------------------------------------------------------
-    # Data handler
+    # 15-min consolidator callback — fires once per 15-minute bar
+    # ------------------------------------------------------------------
+    def _on_15m_bar(self, inst, bar):
+        """Called by the TradeBarConsolidator with each completed 15-min bar."""
+        if self.is_warming_up:
+            return
+        inst.bc += 1
+        inst.cw.add(float(bar.close))
+        inst.update_bh()
+        inst.apply_warmup_gate()
+
+    # ------------------------------------------------------------------
+    # Data handler — processes hourly/daily and executes trades
     # ------------------------------------------------------------------
     def on_data(self, data):
         if self.is_warming_up: return
@@ -238,10 +275,9 @@ class LarsaV8(QCAlgorithm):
         dd = (self.peak - pv) / (self.peak + 1e-9)
         if dd >= 0.12:
             self.liquidate()
-            for inst in self.all_instruments.values():
+            for inst in self.instr_1h.values():
                 inst.last_target = 0.0
-                if inst._is_hourly:
-                    inst.pos_floor = 0.0
+                inst.pos_floor = 0.0
             self.ramp_back = 5
             self.peak = self.portfolio.total_portfolio_value
             return
@@ -249,18 +285,18 @@ class LarsaV8(QCAlgorithm):
         if self.ramp_back > 0:
             self.ramp_back -= 1
 
-        # Step 1: process all instruments (state update only — no set_holdings here)
-        for key, inst in self.all_instruments.items():
+        # Update hourly and daily instruments (15m is handled by consolidator)
+        for inst in self.non_15m_instruments.values():
             self._process_instrument(data, inst)
 
-        # Step 2: compute tf_score and execute per underlying
+        # Compute tf_score and execute per underlying
         for sym in ["ES", "NQ", "YM"]:
             i15 = self.instr_15m[sym]
             i1h = self.instr_1h[sym]
             i1d = self.instr_1d[sym]
 
-            # Use 15min mapped contract — most current
-            mapped = i15.future.mapped
+            # Use hourly mapped contract as the execution vehicle
+            mapped = i1h.future.mapped
             if mapped is None: continue
             if mapped not in self.securities: continue
             if not self.securities[mapped].exchange.exchange_open: continue
@@ -309,7 +345,6 @@ class LarsaV8(QCAlgorithm):
             if tf_score < 4 or np.isclose(tgt, 0.0):
                 i1h.pos_floor = 0.0
 
-            # Reset pos_floor when both daily and hourly BH are off
             if not i1d.bh_active and not i1h.bh_active:
                 i1h.pos_floor = 0.0
 
@@ -322,9 +357,8 @@ class LarsaV8(QCAlgorithm):
                 i1h.last_target = tgt
                 self.set_holdings(mapped, tgt)
 
-        # Periodic charts
-        any_bc = any(i.bc % 24 == 0 for i in self.instr_1h.values())
-        if any_bc:
+        # Periodic charts (every ~24 hourly bars)
+        if any(i.bc % 24 == 0 for i in self.instr_1h.values()):
             pv2 = self.portfolio.total_portfolio_value
             self.plot("Risk", "Drawdown%", (self.peak - pv2) / (self.peak + 1e-9) * 100)
             for key, inst in self.instr_1h.items():
@@ -351,7 +385,7 @@ class LarsaV8(QCAlgorithm):
         return 0
 
     # ------------------------------------------------------------------
-    # Instrument state update — no set_holdings
+    # Instrument state update for hourly and daily (15m handled separately)
     # ------------------------------------------------------------------
     def _process_instrument(self, data, inst):
         mapped = inst.future.mapped
@@ -368,25 +402,14 @@ class LarsaV8(QCAlgorithm):
 
         inst.bc += 1
         inst.cw.add(float(bar.close))
-
-        # BH physics (also adds to bw internally)
         inst.update_bh()
 
-        # Hourly extras
         if inst._is_hourly:
             if inst.atr.is_ready:
                 inst.aw.add(inst.atr.current.value)
             inst.detect_regime()
 
-        # Warmup gate — suppress BH activity until enough bars seen
-        bc_thresh = {
-            Resolution.FIFTEEN_MINUTE: 400,
-            Resolution.HOUR: 120,
-            Resolution.DAILY: 30,
-        }.get(inst.resolution, 120)
-        if inst.bc < bc_thresh:
-            inst.bh_active = False
-            inst.bh_dir = 0
+        inst.apply_warmup_gate()
 
     # ------------------------------------------------------------------
     # End of algorithm logging
