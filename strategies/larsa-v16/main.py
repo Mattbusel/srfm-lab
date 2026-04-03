@@ -65,6 +65,9 @@ HARVEST_Z_EXIT  = 0.3              # exit when z-score returns near zero
 HARVEST_Z_STOP  = 2.8              # hard stop — regime break, get out
 HARVEST_LOOKBACK = 20              # bars for mean/std calculation
 
+# Gear 3 — Treasury carry: park idle capital (above $3M) in ZF when not in a vol event
+TREASURY_ALLOC = 0.85              # fraction of harvest equity to hold long ZF
+
 
 class FutureInstrument:
     def __init__(self, algo, future_ticker, res_label, cf, label):
@@ -261,6 +264,14 @@ class LarsaV16(QCAlgorithm):
         for k, v in self.instr_1d.items():
             self.non_15m_instruments[f"{k}_1d"] = v
 
+        # Gear 3: Treasury carry
+        zf = self.add_future(Futures.Financials.Y5TreasuryNote, Resolution.HOUR,
+                             data_normalization_mode=DataNormalizationMode.BACKWARDS_RATIO,
+                             contract_depth_offset=0)
+        zf.set_filter(timedelta(0), timedelta(182))
+        self._zf_future = zf
+        self._zf_target = 0.0
+
         self.peak = 1_000_000.0
         self._last_exec_hour = None
         self._last_harvest_day = None   # throttle harvest to once per day
@@ -437,6 +448,9 @@ class LarsaV16(QCAlgorithm):
             self._last_harvest_day = today
             self._run_harvest(data, harvest_frac)
 
+        # ── Gear 3: TREASURY CARRY ────────────────────────────────────────────
+        self._run_treasury(harvest_frac)
+
         # ── Diagnostics ───────────────────────────────────────────────────────
         if any(i.bc % 24 == 0 for i in self.instr_1h.values()):
             pv2 = self.portfolio.total_portfolio_value
@@ -445,6 +459,30 @@ class LarsaV16(QCAlgorithm):
                 self.plot("Regime", key, int(inst.regime))
             self.plot("Allocation", "TailFrac%",    tail_frac * 100)
             self.plot("Allocation", "HarvestFrac%", harvest_frac * 100)
+
+    def _run_treasury(self, harvest_frac):
+        """
+        Gear 3: Park idle capital (harvest bucket) long ZF during non-vol regimes.
+        Exit entirely when HIGH_VOLATILITY detected — gear 1 takes over, free the capital.
+        """
+        if harvest_frac < 0.01:
+            return  # nothing above $3M, nothing to park
+
+        zf_mapped = self._zf_future.mapped
+        if zf_mapped is None: return
+        if zf_mapped not in self.securities: return
+        if not self.securities[zf_mapped].exchange.exchange_open: return
+
+        # Exit treasury when vol event is starting (ES regime drives the call)
+        es_regime = self.instr_1h["ES"].regime
+        if es_regime == MarketRegime.HIGH_VOLATILITY:
+            target = 0.0
+        else:
+            target = TREASURY_ALLOC * harvest_frac
+
+        if abs(target - self._zf_target) > 0.02:
+            self._zf_target = target
+            self.set_holdings(zf_mapped, target)
 
     def _run_harvest(self, data, harvest_frac):
         """
