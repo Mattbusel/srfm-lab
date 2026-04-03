@@ -237,11 +237,11 @@ class LarsaV16(QCAlgorithm):
             "ES": Futures.Indices.SP_500_E_MINI,
             "NQ": Futures.Indices.NASDAQ_100_E_MINI,
             "YM": Futures.Indices.DOW_30_E_MINI,
-            "CL": Futures.Energy.CrudeOilWTI,
-            "GC": Futures.Metals.Gold,
+            "CL": "CL",
+            "GC": "GC",
             "ZB": Futures.Financials.Y_30_TREASURY_BOND,
-            "NG": Futures.Energy.NaturalGas,
-            "VX": Futures.Indices.VIX,
+            "NG": "NG",
+            "VX": "VX",
         }
 
         self.instr_15m = {
