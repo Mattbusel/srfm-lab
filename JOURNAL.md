@@ -2,6 +2,11 @@
 
 ---
 
+## 2026-04-03  v4 QC result — Logical Brown Caribou: 204.4% return, Sharpe 0.537, DD 40.0%, 486 trades. NQ notional cap working (largest NQ loss -$88k vs v3's -$265k). BEAR gate in place but 2018-2019 still -$169k (longs not blocked, only regime-weighted). v4 vs v3: +4pp return, same DD, slightly better Sharpe.  [RESULT]
+**Finding**: (edit in JOURNAL.md)
+**Next**: (edit in JOURNAL.md)
+
+
 ## 2026-04-03  v3 -> QC  [SUBMITTED]
 **Result**: 200.2% return, Sharpe 0.516, DD 38.4%, 485 trades (-73pp vs v1)
 **Changes**: CONV_SIZE (solo 0.40) + pos_floor ctl>=5/70%/decay
