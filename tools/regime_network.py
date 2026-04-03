@@ -1,5 +1,5 @@
 """
-regime_network.py — Interactive regime transition network.
+regime_network.py -- Interactive regime transition network.
 
 Builds a directed graph of regime transitions with:
 - Node size = time spent in regime
@@ -98,7 +98,7 @@ def print_ascii_matrix(norm: dict) -> list:
     lines = []
     lines.append("REGIME TRANSITION NETWORK")
     lines.append("=" * 50)
-    header = "        " + "".join(f"  → {r[:4]}" for r in REGIMES)
+    header = "        " + "".join(f"  --> {r[:4]}" for r in REGIMES)
     lines.append(header)
     for frm in REGIMES:
         row = f"{frm:<10}"
@@ -111,13 +111,13 @@ def print_ascii_matrix(norm: dict) -> list:
     # Find self-transition stats
     self_trans = [(r, norm[r][r]) for r in REGIMES]
     most_stable = max(self_trans, key=lambda x: x[1])
-    lines.append(f"Most stable: {most_stable[0]} ({most_stable[1]:.1f}% self-transition) — once in, stays there")
+    lines.append(f"Most stable: {most_stable[0]} ({most_stable[1]:.1f}% self-transition) -- once in, stays there")
 
     # Find fastest exit to BULL
     exits_to_bull = [(r, norm[r]["BULL"]) for r in REGIMES if r != "BULL"]
     if exits_to_bull:
         fastest = max(exits_to_bull, key=lambda x: x[1])
-        lines.append(f"Fastest entry to BULL: from {fastest[0]} ({fastest[1]:.1f}%) — vol spikes revert to rally")
+        lines.append(f"Fastest entry to BULL: from {fastest[0]} ({fastest[1]:.1f}%) -- vol spikes revert to rally")
 
     return lines
 
@@ -166,7 +166,7 @@ def build_pyvis_html(tm: dict, norm: dict, success_rates: dict, seq: list) -> st
                 r_val = int(255 * (1 - sr))
                 g_val = int(255 * sr)
                 color  = f"rgb({r_val},{g_val},80)"
-                title  = (f"{frm} → {to}<br>"
+                title  = (f"{frm} --> {to}<br>"
                           f"Count: {count} ({norm[frm][to]:.1f}%)<br>"
                           f"Trade success: {sr*100:.1f}%")
                 net.add_edge(frm, to, width=width, color=color,
@@ -204,7 +204,7 @@ def build_static_html(norm: dict, success_rates: dict) -> str:
 </style>
 </head>
 <body>
-<h2>Regime Transition Network — LARSA v1</h2>
+<h2>Regime Transition Network -- LARSA v1</h2>
 <p>Edge color: green = high win-rate, red = low win-rate in destination regime</p>
 <table>
   <tr>{header_cells}</tr>
@@ -224,15 +224,15 @@ def main():
         data = json.load(f)
     wells = data["wells"]
 
-    # ── Infer regime sequence ──────────────────────────────────────────────────
+    # -- Infer regime sequence --------------------------------------------------
     seq = infer_regime_sequence(wells)
 
-    # ── Build transition matrix ────────────────────────────────────────────────
+    # -- Build transition matrix ------------------------------------------------
     tm   = build_transition_matrix(seq)
     norm = row_normalize(tm)
     sr   = transition_success_rate(wells, seq)
 
-    # ── Print ASCII matrix ─────────────────────────────────────────────────────
+    # -- Print ASCII matrix -----------------------------------------------------
     lines = print_ascii_matrix(norm)
 
     # Additional stats
@@ -246,7 +246,7 @@ def main():
         wr = sum(1 for w in regime_wells if w.get("is_win")) / max(1, len(regime_wells)) * 100
         lines.append(f"  {r:<12} {pct:5.1f}% of time   WR={wr:.1f}% ({len(regime_wells)} trades)")
 
-    # ── NetworkX summary ───────────────────────────────────────────────────────
+    # -- NetworkX summary -------------------------------------------------------
     try:
         import networkx as nx
         G = nx.DiGraph()
@@ -270,28 +270,28 @@ def main():
     output = "\n".join(lines)
     print(output)
 
-    # ── Save HTML ──────────────────────────────────────────────────────────────
+    # -- Save HTML --------------------------------------------------------------
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     html = build_pyvis_html(tm, norm, sr, seq)
     pyvis_ok = html is not None
     if html is None:
         html = build_static_html(norm, sr)
-        print("  pyvis not installed — saved static HTML fallback (pip install pyvis)")
+        print("  pyvis not installed -- saved static HTML fallback (pip install pyvis)")
 
     html_path = os.path.join(RESULTS_DIR, "regime_network.html")
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"Saved: {html_path} ({'interactive PyVis' if pyvis_ok else 'static fallback'})")
 
-    # ── Save markdown ──────────────────────────────────────────────────────────
+    # -- Save markdown ----------------------------------------------------------
     md_path = os.path.join(RESULTS_DIR, "regime_transitions.md")
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write("# Regime Transition Network — LARSA v1\n\n")
+        f.write("# Regime Transition Network -- LARSA v1\n\n")
         f.write("```\n")
         f.write(output)
         f.write("\n```\n")
-        f.write("\n## Transition Matrix (row → column, %)\n\n")
+        f.write("\n## Transition Matrix (row --> column, %)\n\n")
         f.write("| From\\To | " + " | ".join(REGIMES) + " |\n")
         f.write("|" + "---------|" * (len(REGIMES) + 1) + "\n")
         for frm in REGIMES:

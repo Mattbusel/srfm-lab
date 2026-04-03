@@ -1,5 +1,5 @@
 """
-kelly.py — Kelly-optimal position sizing for ES/NQ/YM.
+kelly.py -- Kelly-optimal position sizing for ES/NQ/YM.
 
 Uses Riskfolio-Lib for mean-variance / Kelly portfolio optimization.
 Replaces fixed 0.65/0.40 caps with mathematically optimal fractions.
@@ -102,7 +102,7 @@ def main():
     parser.add_argument("--pipe",      action="store_true", help="Read 'WR AVG_WIN_LOSS_RATIO' from stdin")
     args = parser.parse_args()
 
-    # ── Pipe mode ──────────────────────────────────────────────────────────────
+    # -- Pipe mode --------------------------------------------------------------
     if args.pipe:
         raw = sys.stdin.read().strip().split()
         if len(raw) >= 2:
@@ -113,24 +113,24 @@ def main():
             print(f"Half Kelly:  {max(0,fk/2)*100:.2f}%")
         return
 
-    # ── Load data ──────────────────────────────────────────────────────────────
+    # -- Load data --------------------------------------------------------------
     with open(DATA_PATH, encoding="utf-8") as f:
         data = json.load(f)
     wells  = data["wells"]
     summary = data["summary"]
 
-    # ── Overall Kelly ──────────────────────────────────────────────────────────
+    # -- Overall Kelly ----------------------------------------------------------
     overall = compute_stats(wells)
 
     lines = []
-    lines.append("KELLY-OPTIMAL POSITION SIZING — LARSA v1")
+    lines.append("KELLY-OPTIMAL POSITION SIZING -- LARSA v1")
     lines.append("=" * 42)
     lines.append(f"ALL TRADES ({overall['n']} wells):")
     lines.append(f"  Win Rate:   {overall['wr']*100:.1f}%   Avg Win: ${overall['avg_win']:,.0f}   Avg Loss: ${overall['avg_loss']:,.0f}")
     lines.append(f"  Full Kelly: {overall['full_kelly']*100:.1f}%  portfolio per trade")
     lines.append(f"  Half Kelly: {overall['half_kelly']*100:.1f}%  (recommended)")
 
-    # ── Convergence vs Solo ────────────────────────────────────────────────────
+    # -- Convergence vs Solo ----------------------------------------------------
     conv_wells = [w for w in wells if len(w.get("instruments", [])) > 1]
     solo_wells = [w for w in wells if len(w.get("instruments", [])) == 1]
 
@@ -140,7 +140,7 @@ def main():
     lines.append("")
     if conv_stats:
         lines.append(f"CONVERGENCE ({conv_stats['n']} wells, {conv_stats['wr']*100:.1f}% WR):")
-        lines.append(f"  Full Kelly: {conv_stats['full_kelly']*100:.1f}%  ← size up massively")
+        lines.append(f"  Full Kelly: {conv_stats['full_kelly']*100:.1f}%  <-- size up massively")
         lines.append(f"  Half Kelly: {conv_stats['half_kelly']*100:.1f}%")
     else:
         lines.append("CONVERGENCE: 0 multi-instrument wells found in data")
@@ -148,7 +148,7 @@ def main():
     lines.append("")
     if solo_stats:
         lines.append(f"SOLO ({solo_stats['n']} wells, {solo_stats['wr']*100:.1f}% WR):")
-        lines.append(f"  Full Kelly: {solo_stats['full_kelly']*100:.1f}%  ← near zero, don't oversize")
+        lines.append(f"  Full Kelly: {solo_stats['full_kelly']*100:.1f}%  <-- near zero, don't oversize")
         lines.append(f"  Half Kelly: {solo_stats['half_kelly']*100:.1f}%")
 
     # Lever ratio
@@ -161,7 +161,7 @@ def main():
     lines.append("Current v6 ratio (0.65/0.15):      4.3x")
     lines.append("Kelly says: be even MORE aggressive on convergence")
 
-    # ── Per-instrument Kelly ───────────────────────────────────────────────────
+    # -- Per-instrument Kelly ---------------------------------------------------
     lines.append("")
     lines.append("PER-INSTRUMENT KELLY:")
     by_inst = data.get("by_instrument", summary.get("by_instrument", {}))
@@ -182,7 +182,7 @@ def main():
     if nq_st and ym_st and nq_st["full_kelly"] > ym_st["full_kelly"]:
         lines.append("  Optimal: overweight NQ, underweight YM")
 
-    # ── Simulation ─────────────────────────────────────────────────────────────
+    # -- Simulation -------------------------------------------------------------
     lines.append("")
     lines.append("SIMULATION: if we had used Half-Kelly sizing throughout:")
     actual_ret = summary["total_return_pct"]
@@ -190,7 +190,7 @@ def main():
     lines.append(f"  Actual return:      {actual_ret:.1f}%")
     lines.append(f"  Half-Kelly return:  {hk_ret:.1f}%   (simulated with scaled P&L)")
 
-    # ── Per-year Kelly ─────────────────────────────────────────────────────────
+    # -- Per-year Kelly ---------------------------------------------------------
     if args.by_regime:
         lines.append("")
         lines.append("PER-YEAR KELLY (regime proxy via year):")
@@ -203,14 +203,19 @@ def main():
                     f"  ({st['n']} wells)"
                 )
 
-    # ── Riskfolio attempt ──────────────────────────────────────────────────────
+    # -- Riskfolio attempt ------------------------------------------------------
     lines.append("")
     lines.append("RISKFOLIO-LIB STATUS:")
     rp_result = riskfolio_kelly(wells)
     if rp_result and rp_result.get("source") == "riskfolio":
-        lines.append("  riskfolio available — covariance-adjusted weights:")
-        for inst, w in rp_result.get("weights", {}).items():
-            lines.append(f"    {inst}: {w:.3f}")
+        lines.append("  riskfolio available -- covariance-adjusted weights:")
+        weights = rp_result.get("weights", {})
+        for inst, wval in weights.items():
+            if isinstance(wval, dict):
+                for k2, v2 in wval.items():
+                    lines.append(f"    {inst}/{k2}: {float(v2):.3f}")
+            else:
+                lines.append(f"    {inst}: {float(wval):.3f}")
     else:
         err = rp_result.get("error", "not installed") if rp_result else "not installed"
         lines.append(f"  riskfolio not available ({err})")
@@ -219,20 +224,20 @@ def main():
     output = "\n".join(lines)
     print(output)
 
-    # ── Save report ────────────────────────────────────────────────────────────
+    # -- Save report ------------------------------------------------------------
     os.makedirs(RESULTS_DIR, exist_ok=True)
     report_path = os.path.join(RESULTS_DIR, "kelly_analysis.md")
     with open(report_path, "w", encoding="utf-8") as f:
-        f.write("# Kelly Analysis — LARSA v1\n\n")
+        f.write("# Kelly Analysis -- LARSA v1\n\n")
         f.write("```\n")
         f.write(output)
         f.write("\n```\n")
         f.write(f"\n## Key Findings\n\n")
         f.write(f"- Overall half-Kelly: **{overall['half_kelly']*100:.1f}%** (vs fixed 0.65 cap)\n")
         if conv_stats:
-            f.write(f"- Convergence half-Kelly: **{conv_stats['half_kelly']*100:.1f}%** — size up on multi-instrument\n")
+            f.write(f"- Convergence half-Kelly: **{conv_stats['half_kelly']*100:.1f}%** -- size up on multi-instrument\n")
         if solo_stats:
-            f.write(f"- Solo half-Kelly: **{solo_stats['half_kelly']*100:.1f}%** — do not oversize solo wells\n")
+            f.write(f"- Solo half-Kelly: **{solo_stats['half_kelly']*100:.1f}%** -- do not oversize solo wells\n")
         f.write(f"- Simulated half-Kelly return: **{hk_ret:.1f}%** vs actual **{actual_ret:.1f}%**\n")
     print(f"\nSaved: {report_path}")
 

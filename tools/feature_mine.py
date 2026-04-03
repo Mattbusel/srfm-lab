@@ -1,5 +1,5 @@
 """
-feature_mine.py — tsfresh automatic feature extraction for convergence prediction.
+feature_mine.py -- tsfresh automatic feature extraction for convergence prediction.
 
 Extracts 800+ time series features from price windows BEFORE convergence events.
 Finds which features statistically predict well formation.
@@ -20,7 +20,7 @@ DATA_PATH   = os.path.join(os.path.dirname(__file__), "..", "research", "trade_a
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "results")
 
 
-# ── Manual feature computation (fallback) ─────────────────────────────────────
+# -- Manual feature computation (fallback) -------------------------------------
 
 def _safe_mean(xs):
     return sum(xs) / len(xs) if xs else 0.0
@@ -206,12 +206,12 @@ def main():
     parser.add_argument("--quick",        action="store_true", help="fast mode: 50 features")
     args = parser.parse_args()
 
-    # ── Load trade data ────────────────────────────────────────────────────────
+    # -- Load trade data --------------------------------------------------------
     with open(DATA_PATH, encoding="utf-8") as f:
         data = json.load(f)
     wells = data["wells"]
 
-    # ── Load or synthesize price data ──────────────────────────────────────────
+    # -- Load or synthesize price data ------------------------------------------
     prices = None
     conv_events = []
 
@@ -249,13 +249,13 @@ def main():
     step = max(1, (n - args.bars_before) // max(1, len(conv_wells)))
     conv_events = [args.bars_before + i * step for i in range(len(conv_wells)) if args.bars_before + i * step < n]
 
-    # ── Extract windows ────────────────────────────────────────────────────────
+    # -- Extract windows --------------------------------------------------------
     windows, labels, ids = extract_windows(prices, conv_events, args.bars_before)
     n_conv    = sum(labels)
     n_nonevent = len(labels) - n_conv
     print(f"  Windows: {n_conv} convergence + {n_nonevent} non-events")
 
-    # ── Feature extraction ─────────────────────────────────────────────────────
+    # -- Feature extraction -----------------------------------------------------
     tsfresh_available = False
     feature_names = []
     feature_matrix = []
@@ -266,7 +266,7 @@ def main():
             import tsfresh
             from tsfresh import extract_features
             from tsfresh.utilities.dataframe_functions import impute
-            print("  tsfresh available — extracting 800+ features...")
+            print("  tsfresh available -- extracting 800+ features...")
 
             # Build tsfresh dataframe format
             dfs = []
@@ -284,9 +284,9 @@ def main():
             feature_matrix = X_feat.values.tolist()
             print(f"  Features extracted: {len(feature_names)}")
         except ImportError:
-            print("  tsfresh not installed — using manual 15-feature fallback")
+            print("  tsfresh not installed -- using manual 15-feature fallback")
         except Exception as e:
-            print(f"  tsfresh error ({e}) — using manual fallback")
+            print(f"  tsfresh error ({e}) -- using manual fallback")
 
     if not tsfresh_available:
         print("  Computing 15 manual features...")
@@ -296,20 +296,20 @@ def main():
                 feature_names = list(feats.keys())
             feature_matrix.append([feats.get(k, 0.0) for k in feature_names])
 
-    # ── Train classifier ───────────────────────────────────────────────────────
+    # -- Train classifier -------------------------------------------------------
     clf_result = train_classifier(feature_matrix, labels)
 
-    # ── Rank features by importance ────────────────────────────────────────────
+    # -- Rank features by importance --------------------------------------------
     top_features = []
     if clf_result and "coefs" in clf_result:
         coefs = clf_result["coefs"]
         ranked = sorted(zip(feature_names, coefs), key=lambda x: abs(x[1]), reverse=True)
         top_features = ranked[:20]
 
-    # ── Output ─────────────────────────────────────────────────────────────────
+    # -- Output -----------------------------------------------------------------
     mode = "tsfresh" if tsfresh_available else "manual fallback"
     lines = []
-    lines.append("TSFRESH FEATURE MINING — Pre-Convergence Windows")
+    lines.append("TSFRESH FEATURE MINING -- Pre-Convergence Windows")
     lines.append("=" * 50)
     lines.append(f"Windows: {n_conv} convergence + {n_nonevent} non-events ({n_nonevent // max(1, n_conv)}:1 ratio)")
     lines.append(f"Features extracted: {len(feature_names)} ({mode})")
@@ -332,7 +332,7 @@ def main():
         for i, (fname, coef) in enumerate(top_features, 1):
             short = fname[:50]
             note  = annotations.get(fname, "")
-            arrow = " ←" if note else ""
+            arrow = " <--" if note else ""
             lines.append(f"  {i:2d}. {short:<52} {abs(coef):.3f}{arrow} {note}")
 
     lines.append("")
@@ -342,7 +342,7 @@ def main():
         lines.append(f"  Precision: {clf_result['precision']*100:.1f}%  (at 10% threshold)")
         lines.append(f"  Recall:    {clf_result['recall']*100:.1f}%")
     else:
-        lines.append("CLASSIFIER: sklearn not available — install scikit-learn")
+        lines.append("CLASSIFIER: sklearn not available -- install scikit-learn")
 
     lines.append("")
     lines.append("ACTIONABLE: The top features translate to SRFM language as:")
@@ -356,7 +356,7 @@ def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
     report_path = os.path.join(RESULTS_DIR, "feature_importance.md")
     with open(report_path, "w", encoding="utf-8") as f:
-        f.write("# Feature Importance — Pre-Convergence Windows\n\n")
+        f.write("# Feature Importance -- Pre-Convergence Windows\n\n")
         f.write("```\n")
         f.write(output)
         f.write("\n```\n")

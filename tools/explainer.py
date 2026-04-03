@@ -1,5 +1,5 @@
 """
-explainer.py — SHAP feature importance for LARSA signal attribution.
+explainer.py -- SHAP feature importance for LARSA signal attribution.
 
 Trains a gradient boosting model on pre-trade features,
 then uses SHAP to explain which factors drive each trade decision.
@@ -20,7 +20,7 @@ DATA_PATH   = os.path.join(os.path.dirname(__file__), "..", "research", "trade_a
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "results")
 
 
-# ── Feature engineering ────────────────────────────────────────────────────────
+# -- Feature engineering --------------------------------------------------------
 
 INSTRUMENTS = ["ES", "NQ", "YM"]
 DIRECTIONS  = ["Buy", "Sell"]
@@ -45,7 +45,7 @@ def engineer_features(well: dict) -> dict:
 
     is_convergence = 1 if len(instruments) > 1 else 0
 
-    # BH mass approximation: longer duration → more mass accrued
+    # BH mass approximation: longer duration --> more mass accrued
     duration_h = well.get("duration_h", 1.0)
     bh_mass_proxy = min(3.0, math.log1p(duration_h) / math.log1p(24))
 
@@ -73,7 +73,7 @@ def engineer_features(well: dict) -> dict:
     for yr in YEARS_OHE:
         feats[f"year_{yr}"] = 1 if year == yr else 0
 
-    # Month features — mark December specifically (Fed seasonality)
+    # Month features -- mark December specifically (Fed seasonality)
     feats["month_december"] = 1 if month == 12 else 0
     feats["month_q4"]       = 1 if month >= 10 else 0
 
@@ -96,7 +96,7 @@ def build_dataset(wells: list):
 def ascii_bar(value: float, width: int = 20, positive: bool = True) -> str:
     filled = int(abs(value) / 0.35 * width)
     filled = min(filled, width)
-    bar = "█" * filled
+    bar = "#" * filled
     return bar
 
 
@@ -106,7 +106,7 @@ def main():
     parser.add_argument("--trade", default=None, help="Explain specific trade by date prefix")
     args = parser.parse_args()
 
-    # ── Load data ──────────────────────────────────────────────────────────────
+    # -- Load data --------------------------------------------------------------
     with open(DATA_PATH, encoding="utf-8") as f:
         data = json.load(f)
     wells = data["wells"]
@@ -115,7 +115,7 @@ def main():
     n_wins   = sum(y)
     n_losses = len(y) - n_wins
 
-    # ── Try LightGBM → sklearn GBT fallback ───────────────────────────────────
+    # -- Try LightGBM --> sklearn GBT fallback -----------------------------------
     model = None
     model_name = "unknown"
     auc = 0.0
@@ -159,7 +159,7 @@ def main():
         except ImportError:
             pass
 
-    # ── SHAP values ────────────────────────────────────────────────────────────
+    # -- SHAP values ------------------------------------------------------------
     shap_vals = None
     shap_means = {}
 
@@ -206,9 +206,9 @@ def main():
     # Sort features by mean |SHAP|
     ranked = sorted(shap_means.items(), key=lambda x: abs(x[1]), reverse=True)
 
-    # ── Print output ───────────────────────────────────────────────────────────
+    # -- Print output -----------------------------------------------------------
     lines = []
-    lines.append("SHAP FEATURE ATTRIBUTION — LARSA Trade Wins")
+    lines.append("SHAP FEATURE ATTRIBUTION -- LARSA Trade Wins")
     lines.append("=" * 45)
     lines.append(f"Model: {model_name}")
     lines.append(f"Trades: {len(wells)} wells ({n_wins} wins, {n_losses} losses)")
@@ -248,15 +248,15 @@ def main():
         top_pos = positive_feats[0]
         lines.append(f"  - {top_pos[0]} is the strongest win predictor ({top_pos[1]:.3f})")
     if any("NQ" in f for f, _ in ranked[:5]):
-        lines.append("  - NQ instrument has positive SHAP → overweight NQ")
+        lines.append("  - NQ instrument has positive SHAP --> overweight NQ")
     if any("YM" in f for f, _ in negative_feats[:3]):
-        lines.append("  - YM has negative SHAP → consider reducing YM sizing")
+        lines.append("  - YM has negative SHAP --> consider reducing YM sizing")
     if any("convergence" in f for f, _ in ranked[:3]):
         lines.append("  - Convergence is by far the strongest win predictor")
     if any("december" in f or "month" in f for f, _ in ranked[:8]):
         lines.append("  - December is statistically favorable (Fed meeting seasonality)")
 
-    # ── Single-trade explanation ───────────────────────────────────────────────
+    # -- Single-trade explanation -----------------------------------------------
     if args.trade:
         target_wells = [w for w in wells if args.trade in w.get("start", "")]
         if target_wells:
@@ -278,13 +278,13 @@ def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
     report_path = os.path.join(RESULTS_DIR, "shap_analysis.md")
     with open(report_path, "w", encoding="utf-8") as f:
-        f.write("# SHAP Feature Attribution — LARSA Trade Wins\n\n")
+        f.write("# SHAP Feature Attribution -- LARSA Trade Wins\n\n")
         f.write("```\n")
         f.write(output)
         f.write("\n```\n")
         f.write("\n## Top Feature Rankings\n\n")
         for i, (fname, val) in enumerate(ranked[:10], 1):
-            f.write(f"{i}. `{fname}` — importance: {val:.4f}\n")
+            f.write(f"{i}. `{fname}` -- importance: {val:.4f}\n")
     print(f"\nSaved: {report_path}")
 
 
