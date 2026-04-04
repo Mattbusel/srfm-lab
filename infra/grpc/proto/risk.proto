@@ -1,0 +1,237 @@
+syntax = "proto3";
+
+package srfm.risk;
+
+option go_package = "github.com/srfm/infra/grpc/proto/risk";
+
+import "google/protobuf/timestamp.proto";
+
+// ─────────────────────────────────────────────
+// Service
+// ─────────────────────────────────────────────
+
+service RiskService {
+  // Pre-trade risk check: position limits, margin, exposure.
+  rpc CheckPreTrade(PreTradeRequest) returns (PreTradeResponse);
+
+  // Get Value-at-Risk for a portfolio or single position.
+  rpc GetVaR(VaRRequest) returns (VaRResponse);
+
+  // Get detailed risk metrics for a specific position.
+  rpc GetPositionRisk(PositionRiskRequest) returns (PositionRiskResponse);
+
+  // Stream risk breach events in real time.
+  rpc StreamRiskEvents(StreamRiskRequest) returns (stream RiskEvent);
+
+  // Get portfolio-level risk summary.
+  rpc GetPortfolioRisk(PortfolioRiskRequest) returns (PortfolioRiskResponse);
+
+  // Get drawdown metrics for a strategy or portfolio.
+  rpc GetDrawdown(DrawdownRequest) returns (DrawdownResponse);
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum RiskDecision {
+  RISK_DECISION_UNSPECIFIED = 0;
+  RISK_DECISION_APPROVED    = 1;
+  RISK_DECISION_REJECTED    = 2;
+  RISK_DECISION_REDUCED     = 3; // approved with reduced size
+  RISK_DECISION_ESCALATE    = 4; // requires manual review
+}
+
+enum RiskEventType {
+  RISK_EVENT_UNSPECIFIED        = 0;
+  RISK_EVENT_POSITION_LIMIT     = 1;
+  RISK_EVENT_VAR_BREACH         = 2;
+  RISK_EVENT_DRAWDOWN_LIMIT     = 3;
+  RISK_EVENT_MARGIN_CALL        = 4;
+  RISK_EVENT_CONCENTRATION      = 5;
+  RISK_EVENT_VOLATILITY_SPIKE   = 6;
+  RISK_EVENT_CORRELATION_SHIFT  = 7;
+  RISK_EVENT_LIQUIDITY_WARNING  = 8;
+}
+
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_INFO        = 1;
+  SEVERITY_WARNING     = 2;
+  SEVERITY_CRITICAL    = 3;
+  SEVERITY_HALT        = 4; // trading halted
+}
+
+// ─────────────────────────────────────────────
+// Requests
+// ─────────────────────────────────────────────
+
+message PreTradeRequest {
+  string account_id  = 1;
+  string symbol      = 2;
+  string side        = 3; // "buy" | "sell" | "sell_short"
+  double quantity    = 4;
+  double price       = 5; // 0 = market order
+  string order_type  = 6; // "market" | "limit" | "stop"
+  string strategy_id = 7;
+  bool   is_close    = 8; // closing an existing position?
+}
+
+message VaRRequest {
+  string account_id   = 1;
+  string symbol       = 2; // empty = portfolio-level VaR
+  double confidence   = 3; // 0.95, 0.99, 0.999
+  int32  horizon_days = 4; // 1, 5, 10
+  string method       = 5; // "historical", "parametric", "monte_carlo"
+  int32  lookback_days = 6;
+}
+
+message PositionRiskRequest {
+  string account_id = 1;
+  string symbol     = 2;
+}
+
+message StreamRiskRequest {
+  string account_id = 1;
+  repeated RiskEventType event_types = 2;
+  Severity min_severity = 3;
+}
+
+message PortfolioRiskRequest {
+  string account_id = 1;
+  bool   include_greeks   = 2;
+  bool   include_stress   = 3; // include stress test scenarios
+}
+
+message DrawdownRequest {
+  string account_id   = 1;
+  string strategy_id  = 2; // optional filter
+  google.protobuf.Timestamp start = 3;
+  google.protobuf.Timestamp end   = 4;
+}
+
+// ─────────────────────────────────────────────
+// Core types
+// ─────────────────────────────────────────────
+
+message RiskLimits {
+  double max_position_size    = 1;  // dollars
+  double max_position_pct     = 2;  // % of portfolio
+  double max_drawdown_pct     = 3;  // max allowed drawdown
+  double max_daily_loss       = 4;  // hard daily loss limit
+  double max_portfolio_var    = 5;  // max 1d VaR at 99%
+  double max_leverage         = 6;
+  double max_concentration    = 7;  // single position % limit
+  double max_sector_concentration = 8;
+}
+
+message RiskBreach {
+  RiskEventType event_type = 1;
+  string        rule_id    = 2;
+  string        description = 3;
+  double        current_value = 4;
+  double        limit_value   = 5;
+  double        breach_pct    = 6; // how far over the limit
+}
+
+message PositionRisk {
+  string symbol          = 1;
+  double quantity        = 2;
+  double market_value    = 3;
+  double unrealized_pnl  = 4;
+  double realized_pnl    = 5;
+  double cost_basis      = 6;
+  double var_1d_95       = 7;
+  double var_1d_99       = 8;
+  double beta            = 9;
+  double delta           = 10; // for options or hedge ratio
+  double volatility_30d  = 11;
+  double concentration_pct = 12;
+  double days_to_cover   = 13; // based on avg volume
+  google.protobuf.Timestamp entry_time = 14;
+}
+
+message StressScenario {
+  string scenario_name = 1;
+  string description   = 2;
+  double pnl_impact    = 3;
+  double pct_impact    = 4;
+  map<string, double> factor_shocks = 5;
+}
+
+// ─────────────────────────────────────────────
+// Responses
+// ─────────────────────────────────────────────
+
+message PreTradeResponse {
+  RiskDecision decision   = 1;
+  repeated RiskBreach breaches = 2;
+  double approved_quantity = 3; // may be less than requested
+  string reject_reason    = 4;
+  double available_margin = 5;
+  double required_margin  = 6;
+  double portfolio_var_after = 7;
+  int64  check_us         = 8; // microseconds for check
+}
+
+message VaRResponse {
+  string account_id    = 1;
+  string symbol        = 2; // empty = portfolio
+  double var_value     = 3; // dollar VaR
+  double var_pct       = 4; // % of portfolio
+  double confidence    = 5;
+  int32  horizon_days  = 6;
+  string method        = 7;
+  double cvar_value    = 8; // conditional VaR (expected shortfall)
+  double portfolio_value = 9;
+  google.protobuf.Timestamp calculated_at = 10;
+}
+
+message PositionRiskResponse {
+  PositionRisk risk    = 1;
+  RiskLimits   limits  = 2;
+  repeated RiskBreach active_breaches = 3;
+}
+
+message RiskEvent {
+  string        event_id    = 1;
+  string        account_id  = 2;
+  RiskEventType event_type  = 3;
+  Severity      severity    = 4;
+  string        symbol      = 5;
+  string        description = 6;
+  double        value       = 7;
+  double        limit       = 8;
+  google.protobuf.Timestamp occurred_at = 9;
+  map<string, string> metadata = 10;
+}
+
+message PortfolioRiskResponse {
+  string account_id          = 1;
+  double total_value         = 2;
+  double total_exposure      = 3;
+  double net_exposure        = 4;
+  double gross_leverage      = 5;
+  double net_leverage        = 6;
+  double portfolio_var_1d_99 = 7;
+  double portfolio_beta      = 8;
+  double portfolio_volatility = 9;
+  double sharpe_ratio_30d    = 10;
+  repeated PositionRisk positions = 11;
+  repeated StressScenario stress_tests = 12;
+  repeated RiskBreach active_breaches  = 13;
+  google.protobuf.Timestamp calculated_at = 14;
+}
+
+message DrawdownResponse {
+  string account_id       = 1;
+  double current_drawdown = 2; // % from peak
+  double max_drawdown     = 3; // max historical in window
+  double peak_value       = 4;
+  double trough_value     = 5;
+  google.protobuf.Timestamp peak_date   = 6;
+  google.protobuf.Timestamp trough_date = 7;
+  int32  recovery_days    = 8; // days since trough (0 if not recovered)
+  double drawdown_limit   = 9;
+  bool   limit_breached   = 10;
+}

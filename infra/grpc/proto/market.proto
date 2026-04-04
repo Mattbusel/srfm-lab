@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package srfm.market;
+
+option go_package = "github.com/srfm/infra/grpc/proto/market";
+
+import "google/protobuf/timestamp.proto";
+
+// ─────────────────────────────────────────────
+// Service
+// ─────────────────────────────────────────────
+
+service MarketDataService {
+  // Fetch a slice of OHLCV bars for a symbol/timeframe.
+  rpc GetBars(BarRequest) returns (BarResponse);
+
+  // Stream bars in real-time as they close.
+  rpc StreamBars(StreamBarsRequest) returns (stream Bar);
+
+  // Get the latest NBBO quote for a symbol.
+  rpc GetQuote(QuoteRequest) returns (QuoteResponse);
+
+  // Get the current order book snapshot for a symbol.
+  rpc GetOrderBook(OrderBookRequest) returns (OrderBookResponse);
+
+  // Stream live order book updates (depth-of-market).
+  rpc StreamOrderBook(OrderBookRequest) returns (stream OrderBookUpdate);
+}
+
+// ─────────────────────────────────────────────
+// Requests
+// ─────────────────────────────────────────────
+
+message BarRequest {
+  string symbol    = 1;
+  string timeframe = 2; // "1m", "5m", "1h", "1d", etc.
+  google.protobuf.Timestamp start = 3;
+  google.protobuf.Timestamp end   = 4;
+  int32  limit     = 5; // max bars to return; 0 = server default
+  bool   adjusted  = 6; // use split/dividend adjusted prices
+}
+
+message StreamBarsRequest {
+  repeated string symbols   = 1;
+  string          timeframe = 2;
+  bool            include_partial = 3; // emit bar before it closes
+}
+
+message QuoteRequest {
+  string symbol = 1;
+}
+
+message OrderBookRequest {
+  string symbol = 1;
+  int32  depth  = 2; // levels per side; 0 = 10
+}
+
+// ─────────────────────────────────────────────
+// Core types
+// ─────────────────────────────────────────────
+
+message Bar {
+  string symbol    = 1;
+  string timeframe = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  double open      = 4;
+  double high      = 5;
+  double low       = 6;
+  double close     = 7;
+  double volume    = 8;
+  double vwap      = 9;
+  int64  trades    = 10;
+  bool   is_partial = 11;
+}
+
+message OrderBookLevel {
+  double price    = 1;
+  double size     = 2;
+  int32  orders   = 3; // number of orders at this level
+  string exchange = 4; // optional originating exchange
+}
+
+message OrderBookSnapshot {
+  string symbol   = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  repeated OrderBookLevel bids = 3;
+  repeated OrderBookLevel asks = 4;
+  double mid_price   = 5;
+  double spread      = 6;
+  double spread_bps  = 7;
+}
+
+message OrderBookUpdate {
+  string symbol   = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  // Changed levels only (delta update).
+  repeated OrderBookLevel bid_changes = 3;
+  repeated OrderBookLevel ask_changes = 4;
+  // Levels with size=0 have been removed.
+  UpdateType update_type = 5;
+  double mid_price  = 6;
+  double spread_bps = 7;
+}
+
+enum UpdateType {
+  UPDATE_TYPE_UNSPECIFIED = 0;
+  UPDATE_TYPE_DELTA       = 1;
+  UPDATE_TYPE_SNAPSHOT    = 2;
+}
+
+// ─────────────────────────────────────────────
+// Responses
+// ─────────────────────────────────────────────
+
+message BarResponse {
+  string symbol    = 1;
+  string timeframe = 2;
+  repeated Bar bars = 3;
+  int32  count     = 4;
+  google.protobuf.Timestamp fetched_at = 5;
+  string cache_source = 6; // "csv", "parquet", "redis", "live"
+}
+
+message QuoteResponse {
+  string symbol     = 1;
+  double bid        = 2;
+  double ask        = 3;
+  double bid_size   = 4;
+  double ask_size   = 5;
+  double last       = 6;
+  double last_size  = 7;
+  google.protobuf.Timestamp timestamp = 8;
+  string exchange   = 9;
+  double mid        = 10;
+  double spread_bps = 11;
+}
+
+message OrderBookResponse {
+  OrderBookSnapshot snapshot = 1;
+  string cache_source = 2;
+}

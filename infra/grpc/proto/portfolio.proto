@@ -1,0 +1,276 @@
+syntax = "proto3";
+
+package srfm.portfolio;
+
+option go_package = "github.com/srfm/infra/grpc/proto/portfolio";
+
+import "google/protobuf/timestamp.proto";
+
+// ─────────────────────────────────────────────
+// Service
+// ─────────────────────────────────────────────
+
+service PortfolioService {
+  // Get all open positions for an account.
+  rpc GetPositions(PositionsRequest) returns (PositionResponse);
+
+  // Get P&L summary — realized + unrealized, by symbol/strategy/total.
+  rpc GetPnL(PnLRequest) returns (PnLResponse);
+
+  // Get current allocation breakdown (by symbol, sector, asset class).
+  rpc GetAllocation(AllocationRequest) returns (AllocationResponse);
+
+  // Run mean-variance optimization to suggest target weights.
+  rpc OptimizeWeights(OptimizeRequest) returns (OptimizeResponse);
+
+  // Stream position updates as trades are executed.
+  rpc StreamPositions(PositionsRequest) returns (stream PositionUpdate);
+
+  // Get account summary (cash, margin, buying power).
+  rpc GetAccountSummary(AccountSummaryRequest) returns (AccountSummaryResponse);
+
+  // Get historical portfolio performance.
+  rpc GetPerformance(PerformanceRequest) returns (PerformanceResponse);
+
+  // Record a trade execution and update positions.
+  rpc RecordExecution(ExecutionRequest) returns (ExecutionResponse);
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum PositionSide {
+  POSITION_SIDE_UNSPECIFIED = 0;
+  POSITION_SIDE_LONG        = 1;
+  POSITION_SIDE_SHORT       = 2;
+}
+
+enum AssetClass {
+  ASSET_CLASS_UNSPECIFIED = 0;
+  ASSET_CLASS_EQUITY      = 1;
+  ASSET_CLASS_ETF         = 2;
+  ASSET_CLASS_OPTION      = 3;
+  ASSET_CLASS_FUTURE      = 4;
+  ASSET_CLASS_CRYPTO      = 5;
+  ASSET_CLASS_FOREX       = 6;
+  ASSET_CLASS_BOND        = 7;
+}
+
+enum OptimizationObjective {
+  OPT_OBJECTIVE_UNSPECIFIED      = 0;
+  OPT_OBJECTIVE_MAX_SHARPE       = 1;
+  OPT_OBJECTIVE_MIN_VARIANCE     = 2;
+  OPT_OBJECTIVE_MAX_RETURN       = 3;
+  OPT_OBJECTIVE_RISK_PARITY      = 4;
+  OPT_OBJECTIVE_MAX_DIVERSIFICATION = 5;
+  OPT_OBJECTIVE_BLACK_LITTERMAN  = 6;
+}
+
+// ─────────────────────────────────────────────
+// Requests
+// ─────────────────────────────────────────────
+
+message PositionsRequest {
+  string account_id  = 1;
+  string strategy_id = 2; // optional: filter by strategy
+  string symbol      = 3; // optional: filter by symbol
+}
+
+message PnLRequest {
+  string account_id  = 1;
+  string strategy_id = 2;
+  string symbol      = 3;
+  google.protobuf.Timestamp start = 4;
+  google.protobuf.Timestamp end   = 5;
+  string currency    = 6; // default "USD"
+}
+
+message AllocationRequest {
+  string account_id = 1;
+  bool   by_sector  = 2;
+  bool   by_strategy = 3;
+  bool   by_asset_class = 4;
+}
+
+message OptimizeRequest {
+  string account_id = 1;
+  repeated string symbols = 2;
+  OptimizationObjective objective = 3;
+  double  target_return  = 4; // for max-return with constraint
+  double  max_weight     = 5; // per-asset max; 0 = no constraint
+  double  min_weight     = 6; // per-asset min; 0 = 0 (long only)
+  bool    allow_short    = 7;
+  int32   lookback_days  = 8; // for covariance estimation
+  map<string, double> views = 9; // Black-Litterman views: symbol -> expected return
+}
+
+message AccountSummaryRequest {
+  string account_id = 1;
+}
+
+message PerformanceRequest {
+  string account_id  = 1;
+  string strategy_id = 2;
+  google.protobuf.Timestamp start = 3;
+  google.protobuf.Timestamp end   = 4;
+  string benchmark   = 5; // e.g. "SPY"
+}
+
+message ExecutionRequest {
+  string account_id   = 1;
+  string order_id     = 2;
+  string symbol       = 3;
+  string side         = 4;
+  double quantity     = 5;
+  double fill_price   = 6;
+  double commission   = 7;
+  string strategy_id  = 8;
+  google.protobuf.Timestamp executed_at = 9;
+}
+
+// ─────────────────────────────────────────────
+// Core types
+// ─────────────────────────────────────────────
+
+message Position {
+  string         account_id     = 1;
+  string         symbol         = 2;
+  AssetClass     asset_class    = 3;
+  PositionSide   side           = 4;
+  double         quantity       = 5;
+  double         avg_entry      = 6;
+  double         market_price   = 7;
+  double         market_value   = 8;
+  double         unrealized_pnl = 9;
+  double         realized_pnl   = 10;
+  double         cost_basis     = 11;
+  double         pct_of_portfolio = 12;
+  string         strategy_id    = 13;
+  string         sector         = 14;
+  google.protobuf.Timestamp opened_at = 15;
+  google.protobuf.Timestamp updated_at = 16;
+  map<string, string> metadata = 17;
+}
+
+message AllocationBucket {
+  string label       = 1; // symbol, sector, strategy name, asset class
+  double value       = 2; // dollar value
+  double pct         = 3; // % of portfolio
+  double target_pct  = 4; // target weight (if set)
+  double drift       = 5; // current - target
+  int32  position_count = 6;
+}
+
+message PerformanceMetrics {
+  double total_return       = 1;
+  double annualized_return  = 2;
+  double volatility         = 3;
+  double sharpe_ratio       = 4;
+  double sortino_ratio      = 5;
+  double calmar_ratio       = 6;
+  double max_drawdown       = 7;
+  double max_drawdown_duration_days = 8;
+  double win_rate           = 9;
+  double profit_factor      = 10;
+  double avg_win            = 11;
+  double avg_loss           = 12;
+  double expectancy         = 13;
+  double alpha              = 14; // vs benchmark
+  double beta               = 15;
+  double information_ratio  = 16;
+  int32  total_trades       = 17;
+}
+
+message PositionUpdate {
+  string   event_type = 1; // "opened", "updated", "closed"
+  Position position   = 2;
+  double   fill_price = 3;
+  double   fill_qty   = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+// ─────────────────────────────────────────────
+// Responses
+// ─────────────────────────────────────────────
+
+message PositionResponse {
+  string account_id           = 1;
+  repeated Position positions = 2;
+  double total_market_value   = 3;
+  double total_unrealized_pnl = 4;
+  double total_realized_pnl   = 5;
+  int32  position_count       = 6;
+  google.protobuf.Timestamp as_of = 7;
+}
+
+message PnLResponse {
+  string account_id     = 1;
+  double unrealized_pnl = 2;
+  double realized_pnl   = 3;
+  double total_pnl      = 4;
+  double day_pnl        = 5;
+  double day_pnl_pct    = 6;
+  map<string, double> pnl_by_symbol   = 7;
+  map<string, double> pnl_by_strategy = 8;
+  google.protobuf.Timestamp as_of = 9;
+}
+
+message AllocationResponse {
+  string account_id    = 1;
+  double total_value   = 2;
+  double cash          = 3;
+  double cash_pct      = 4;
+  repeated AllocationBucket by_symbol   = 5;
+  repeated AllocationBucket by_sector   = 6;
+  repeated AllocationBucket by_strategy = 7;
+  repeated AllocationBucket by_asset_class = 8;
+  google.protobuf.Timestamp as_of = 9;
+}
+
+message OptimizeResponse {
+  map<string, double> target_weights  = 1; // symbol -> weight
+  map<string, double> current_weights = 2;
+  map<string, double> delta_weights   = 3; // rebalance trades needed
+  double expected_return    = 4;
+  double expected_volatility = 5;
+  double expected_sharpe    = 6;
+  repeated string rebalance_actions = 7; // human-readable
+  string solver_status      = 8;
+  int64  solve_us           = 9;
+}
+
+message AccountSummaryResponse {
+  string account_id      = 1;
+  double equity          = 2;
+  double cash            = 3;
+  double margin_used     = 4;
+  double margin_available = 5;
+  double buying_power    = 6;
+  double gross_exposure  = 7;
+  double net_exposure    = 8;
+  double leverage        = 9;
+  double day_pnl         = 10;
+  double total_pnl       = 11;
+  google.protobuf.Timestamp updated_at = 12;
+}
+
+message PerformanceResponse {
+  string account_id    = 1;
+  string strategy_id   = 2;
+  PerformanceMetrics metrics = 3;
+  PerformanceMetrics benchmark_metrics = 4;
+  repeated double equity_curve  = 5; // daily portfolio values
+  repeated google.protobuf.Timestamp curve_dates = 6;
+  google.protobuf.Timestamp start = 7;
+  google.protobuf.Timestamp end   = 8;
+}
+
+message ExecutionResponse {
+  string execution_id  = 1;
+  string order_id      = 2;
+  Position updated_position = 3;
+  double  realized_pnl = 4; // for closing trades
+  bool    position_closed = 5;
+  google.protobuf.Timestamp recorded_at = 6;
+}

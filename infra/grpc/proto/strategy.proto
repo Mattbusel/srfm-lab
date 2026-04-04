@@ -1,0 +1,222 @@
+syntax = "proto3";
+
+package srfm.strategy;
+
+option go_package = "github.com/srfm/infra/grpc/proto/strategy";
+
+import "google/protobuf/timestamp.proto";
+
+// ─────────────────────────────────────────────
+// Service
+// ─────────────────────────────────────────────
+
+service StrategyService {
+  // Compute a directional signal for a symbol given a feature set.
+  rpc ComputeSignal(SignalRequest) returns (SignalResponse);
+
+  // Retrieve the full BH (Bull-Hawk) state vector for a symbol.
+  rpc GetBHState(BHStateRequest) returns (BHStateResponse);
+
+  // Retrieve the delta score for a specific hypothesis bucket.
+  rpc GetDeltaScore(DeltaScoreRequest) returns (DeltaScoreResponse);
+
+  // Stream real-time signals as they are generated.
+  rpc StreamSignals(StreamSignalsRequest) returns (stream SignalEvent);
+
+  // Batch compute signals for multiple symbols.
+  rpc BatchComputeSignals(BatchSignalRequest) returns (BatchSignalResponse);
+
+  // Retrieve strategy configuration and metadata.
+  rpc GetStrategyInfo(StrategyInfoRequest) returns (StrategyInfoResponse);
+}
+
+// ─────────────────────────────────────────────
+// Core enums
+// ─────────────────────────────────────────────
+
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  DIRECTION_LONG        = 1;
+  DIRECTION_SHORT       = 2;
+  DIRECTION_FLAT        = 3;
+}
+
+enum SignalStrength {
+  SIGNAL_STRENGTH_UNSPECIFIED = 0;
+  SIGNAL_STRENGTH_WEAK        = 1;
+  SIGNAL_STRENGTH_MODERATE    = 2;
+  SIGNAL_STRENGTH_STRONG      = 3;
+  SIGNAL_STRENGTH_CONVICTION  = 4;
+}
+
+enum RegimeType {
+  REGIME_UNSPECIFIED   = 0;
+  REGIME_TRENDING_UP   = 1;
+  REGIME_TRENDING_DOWN = 2;
+  REGIME_RANGING       = 3;
+  REGIME_VOLATILE      = 4;
+  REGIME_BREAKOUT      = 5;
+  REGIME_BREAKDOWN     = 6;
+}
+
+// ─────────────────────────────────────────────
+// Requests
+// ─────────────────────────────────────────────
+
+message SignalRequest {
+  string symbol      = 1;
+  string strategy_id = 2;
+  string timeframe   = 3;
+  // Optional: pass feature values directly instead of recomputing.
+  map<string, double> features = 4;
+  google.protobuf.Timestamp as_of = 5; // backtest mode timestamp
+}
+
+message BHStateRequest {
+  string symbol      = 1;
+  string timeframe   = 2;
+  google.protobuf.Timestamp as_of = 3;
+  bool   include_history = 4; // return historical BH state transitions
+  int32  history_bars    = 5;
+}
+
+message DeltaScoreRequest {
+  string symbol      = 1;
+  string bucket_id   = 2; // e.g. "momentum_1d", "mean_revert_4h"
+  string timeframe   = 3;
+  google.protobuf.Timestamp as_of = 4;
+}
+
+message StreamSignalsRequest {
+  repeated string symbols     = 1;
+  repeated string strategy_ids = 2;
+  string          timeframe   = 3;
+  double          min_confidence = 4; // only emit signals above this threshold
+}
+
+message BatchSignalRequest {
+  repeated SignalRequest requests = 1;
+  bool parallel = 2; // hint to process concurrently
+}
+
+message StrategyInfoRequest {
+  string strategy_id = 1;
+}
+
+// ─────────────────────────────────────────────
+// BH State types
+// ─────────────────────────────────────────────
+
+message BHState {
+  string symbol    = 1;
+  string timeframe = 2;
+  google.protobuf.Timestamp timestamp = 3;
+
+  // Core BH dimensions (0.0–1.0 scale).
+  double bull_score    = 4;  // aggregate bullish pressure
+  double hawk_score    = 5;  // aggressive momentum / breakout energy
+  double bear_score    = 6;  // aggregate bearish pressure
+  double dove_score    = 7;  // mean-reversion / exhaustion energy
+
+  // Composite scores.
+  double bh_ratio      = 8;  // bull_score / (bull_score + bear_score)
+  double momentum_z    = 9;  // z-scored momentum factor
+  double vol_regime    = 10; // realized vol percentile rank (0-1)
+
+  RegimeType regime    = 11;
+  Direction  direction = 12;
+  double     confidence = 13;
+
+  // Sub-components.
+  map<string, double> factor_scores = 14;
+  repeated string active_patterns   = 15;
+}
+
+message BHStateHistory {
+  repeated BHState states = 1;
+}
+
+// ─────────────────────────────────────────────
+// Delta Score types
+// ─────────────────────────────────────────────
+
+message DeltaScore {
+  string bucket_id   = 1;
+  string symbol      = 2;
+  google.protobuf.Timestamp timestamp = 3;
+
+  double raw_delta     = 4; // raw price delta over bucket window
+  double normalized    = 5; // z-score normalized delta
+  double percentile    = 6; // historical percentile rank
+  double signal_value  = 7; // processed signal in [-1, 1]
+  double decay_factor  = 8; // time-decay weight
+  int32  sample_count  = 9; // bars used in computation
+  bool   is_stale      = 10;
+}
+
+// ─────────────────────────────────────────────
+// Signal types
+// ─────────────────────────────────────────────
+
+message Signal {
+  string symbol      = 1;
+  string strategy_id = 2;
+  string timeframe   = 3;
+  google.protobuf.Timestamp timestamp = 4;
+
+  Direction      direction   = 5;
+  SignalStrength strength    = 6;
+  double         confidence  = 7; // 0.0–1.0
+  double         entry_price = 8;
+  double         stop_loss   = 9;
+  double         take_profit = 10;
+  double         position_size_pct = 11; // suggested size as % of portfolio
+  string         rationale   = 12;
+  map<string, double> scores = 13; // contributing factor scores
+  BHState        bh_state    = 14;
+}
+
+message SignalEvent {
+  Signal signal    = 1;
+  string event_id  = 2;
+  int64  sequence  = 3;
+}
+
+// ─────────────────────────────────────────────
+// Responses
+// ─────────────────────────────────────────────
+
+message SignalResponse {
+  Signal signal    = 1;
+  int64  compute_us = 2; // microseconds to compute
+}
+
+message BHStateResponse {
+  BHState current  = 1;
+  BHStateHistory history = 2; // only if include_history=true
+  int64  compute_us = 3;
+}
+
+message DeltaScoreResponse {
+  DeltaScore score  = 1;
+  int64  compute_us = 2;
+}
+
+message BatchSignalResponse {
+  repeated SignalResponse results = 1;
+  int32  total_count = 2;
+  int32  error_count = 3;
+  repeated string errors = 4;
+  int64  total_compute_us = 5;
+}
+
+message StrategyInfoResponse {
+  string strategy_id   = 1;
+  string name          = 2;
+  string version       = 3;
+  string description   = 4;
+  repeated string supported_timeframes = 5;
+  repeated string required_features    = 6;
+  map<string, string> parameters       = 7;
+  google.protobuf.Timestamp created_at = 8;
+}

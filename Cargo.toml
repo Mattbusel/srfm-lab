@@ -6,6 +6,9 @@ members = [
     "crates/risk-engine",
     "crates/regime-detector",
     "crates/data-pipeline",
+    "crates/fix-engine",
+    "crates/options-engine",
+    "crates/smart-order-router",
 ]
 resolver = "2"
 
@@ -20,3 +23,5 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 thiserror = "1"
+bytes = "1"
+indexmap = "2"

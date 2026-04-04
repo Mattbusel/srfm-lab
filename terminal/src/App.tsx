@@ -10,20 +10,26 @@ import { Research } from '@/pages/Research'
 import { Scanner } from '@/pages/Scanner'
 import { Alerts } from '@/pages/Alerts'
 import { Settings } from '@/pages/Settings'
+import { OptionsChain } from '@/pages/OptionsChain'
+import { Microstructure } from '@/pages/Microstructure'
+import { Heatmaps } from '@/pages/Heatmaps'
 
 // ============================================================
 // Route types
 // ============================================================
 
-type Route = 'terminal' | 'strategy' | 'research' | 'scanner' | 'alerts' | 'settings'
+type Route = 'terminal' | 'strategy' | 'research' | 'scanner' | 'alerts' | 'settings' | 'options' | 'microstructure' | 'heatmaps'
 
 const ROUTES: { key: Route; label: string; shortLabel: string; icon: string }[] = [
-  { key: 'terminal',  label: 'Terminal',         shortLabel: 'TML', icon: '⬡' },
-  { key: 'scanner',   label: 'Market Scanner',   shortLabel: 'SCN', icon: '◈' },
-  { key: 'strategy',  label: 'Strategy Builder', shortLabel: 'STR', icon: '⬢' },
-  { key: 'research',  label: 'Research',         shortLabel: 'RES', icon: '⬟' },
-  { key: 'alerts',    label: 'Alerts',           shortLabel: 'ALT', icon: '◎' },
-  { key: 'settings',  label: 'Settings',         shortLabel: 'CFG', icon: '◉' },
+  { key: 'terminal',       label: 'Terminal',         shortLabel: 'TML', icon: '⬡' },
+  { key: 'scanner',        label: 'Market Scanner',   shortLabel: 'SCN', icon: '◈' },
+  { key: 'options',        label: 'Options Chain',    shortLabel: 'OPT', icon: '◎' },
+  { key: 'microstructure', label: 'Microstructure',   shortLabel: 'MIC', icon: '◆' },
+  { key: 'heatmaps',       label: 'Heatmaps',         shortLabel: 'HMP', icon: '⬟' },
+  { key: 'strategy',       label: 'Strategy Builder', shortLabel: 'STR', icon: '⬢' },
+  { key: 'research',       label: 'Research',         shortLabel: 'RES', icon: '⬟' },
+  { key: 'alerts',         label: 'Alerts',           shortLabel: 'ALT', icon: '◎' },
+  { key: 'settings',       label: 'Settings',         shortLabel: 'CFG', icon: '◉' },
 ]
 
 // ============================================================
@@ -154,13 +160,16 @@ const App: React.FC = () => {
 
   const renderPage = () => {
     switch (route) {
-      case 'terminal':  return <Terminal />
-      case 'scanner':   return <Scanner />
-      case 'strategy':  return <StrategyBuilder />
-      case 'research':  return <Research />
-      case 'alerts':    return <Alerts />
-      case 'settings':  return <Settings />
-      default:          return <Terminal />
+      case 'terminal':       return <Terminal />
+      case 'scanner':        return <Scanner />
+      case 'options':        return <OptionsChain />
+      case 'microstructure': return <Microstructure />
+      case 'heatmaps':       return <Heatmaps />
+      case 'strategy':       return <StrategyBuilder />
+      case 'research':       return <Research />
+      case 'alerts':         return <Alerts />
+      case 'settings':       return <Settings />
+      default:               return <Terminal />
     }
   }
 

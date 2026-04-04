@@ -1,7 +1,6 @@
 # SRFM Lab — Relativistic Trading Research
 
-A local LEAN-powered research environment for developing, backtesting, and iterating
-on trading strategies built on **Special Relativistic Financial Mechanics (SRFM)**.
+A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** — from raw tick data to live paper trading, across 8 languages and 300K+ lines of code.
 
 > Mad scientist workshop. Everything automated, everything measurable, rapid iteration at scale.
 
@@ -10,53 +9,95 @@ on trading strategies built on **Special Relativistic Financial Mechanics (SRFM)
 ## Quick Start
 
 ```bash
-# Create a new experiment (copies template)
-make new name=my-experiment
+# Live paper trader (Alpaca, $1M paper account)
+python tools/live_trader_alpaca.py
 
-# Edit ONE thing in your experiment
-vim strategies/my-experiment/main.py
+# Spacetime Arena API + web UI
+python run_api.py                  # FastAPI on :8765
+cd spacetime/web && npm run dev   # React on :5173
 
-# Run a backtest
-make backtest s=my-experiment
+# Crypto backtest + Monte Carlo
+python tools/crypto_backtest_mc.py
 
-# Compare against baseline
-make compare2 s1=larsa-v1 s2=my-experiment
+# BH engine backtest (ES/NQ/any instrument)
+python spacetime/engine/bh_engine.py
 
-# Sweep a parameter
-make sweep s=my-experiment param=BH_FORM min=0.5 max=3.0 step=0.25
+# Genetic algorithm parameter optimizer
+python ml/genetic/cli.py evolve --instrument BTC/USD
+
+# Backtest all 29 strategies
+python scripts/backtest_all_strategies.py
+
+# Walk-forward analysis
+python tools/walk_forward_engine.py
+
+# Factor analysis
+python tools/factor_analysis.py
+
+# Run regime analysis
+python scripts/run_regime_analysis.py
 ```
 
 ---
 
-## Architecture
+## BH Physics — Core Primitives
 
+> These are the fundamental building blocks. Everything else is built on top of them.
+
+| Primitive | File | Description |
+|-----------|------|-------------|
+| `BHState` | `lib/srfm_core.py` | Single-instrument BH state machine. Core primitive — use this everywhere |
+| `ATRTracker` | `tools/live_trader_alpaca.py:181` | EMA-based ATR. `update(h,l,c)` → `.atr` |
+| `BullScaleTracker` | `tools/live_trader_alpaca.py` | Trend multiplier (3.0 bull / 1.0 bear) via EMA200/12/26/50 |
+| `LARSAEngine` | `tools/live_trader_alpaca.py:194` | 3-timeframe (daily/hourly/15m) engine with delta scoring. The live trader brain |
+| `BHEngine` | `spacetime/engine/bh_engine.py` | Universal backtester — multi-TF, MFE/MAE, regime per trade |
+
+**BH Physics Reference:**
+
+| Formula | Meaning |
+|---------|---------|
+| `ds² = c²dt² − dx²` | TIMELIKE (ordered) vs SPACELIKE (anomalous). CF tunes the speed of light |
+| `mass += γ` on TIMELIKE | Mass accretes from causal bars. Ceiling ~2.0 |
+| `mass *= decay` on SPACELIKE | Mass leaks on noise bars |
+| `active = mass >= bh_form` | BH formation threshold (typically 1.5) |
+| `tf_score = 4×daily + 2×hourly + 1×15m` | Multi-timeframe conviction score (max=7) |
+| `delta_score = tf_score × mass × ATR` | Expected dollar move per bar — the allocation signal |
+
+**Per-timeframe CF scaling** (in `LARSAEngine`):
+- `cf_1d = base_cf × 5.0` — daily bars move 0.5-1%, needs higher CF
+- `cf_1h = base_cf` — baseline
+- `cf_15m = base_cf × 0.35` — 15m bars are noisy, lower threshold
+
+---
+
+## Live Trader
+
+**`tools/live_trader_alpaca.py`** — Alpaca paper trader, crypto 24/7 + stocks market hours
+
+Key constants to tune:
+```python
+STALE_15M_MOVE  = 0.001   # Cut losers moving < 0.1% per 15m bar
+DELTA_MAX_FRAC  = 0.75    # Max single-instrument allocation
+MIN_TRADE_FRAC  = 0.03    # 3% equity shift needed to trigger rebalance
+MIN_HOLD        = 3       # Minimum bars before direction reversal
+TAIL_FIXED_CAPITAL = 1_000_000  # Size positions off this equity
 ```
-Price Bar
-    │
-    ▼
-MinkowskiClassifier ─── ds² = c²dt² − dx² ──► TIMELIKE / SPACELIKE
-    │
-    ▼
-BlackHoleDetector ────── mass accretion ──────► BHState (ABSENT/FORMING/ACTIVE/COLLAPSE)
-    │                    + well memory
-    ▼
-GeodesicAnalyzer ─────── rapidity, deviation ► causal_fraction, geodesic_deviation
-    │
-    ▼
-RegimeDetector ───────── combine above ───────► TRENDING / RANGING / CRISIS / RECOVERY
-    │
-    ▼
-HawkingMonitor ────────── T_H = 1/(8πM) ─────► stability scalar → position size
-    │
-    ▼
-AgentEnsemble ─────────── D3QN + DDQN + TD3QN ► consensus signal (+1 / 0 / -1)
-    │
-    ▼
-RiskManager ──────────── stops, drawdown ─────► final entry / exit decision
-    │
-    ▼
-LEAN MarketOrder
+
+**Allocation logic** (delta-proportional):
 ```
+score = tf_score × BH_mass × ATR
+share = score / total_score   (capped at DELTA_MAX_FRAC)
+```
+
+**Exit rules:**
+1. BH signal dies (daily + hourly both inactive) → close
+2. Stale-15m: losing AND move < 0.1% on 15m bar → close immediately
+3. Profitable (0.1%+ from entry) → position size locked, won't rotate out
+
+**Rebalance triggers:**
+- Every hourly bar close (forced)
+- Every 15m bar close (threshold-gated, MIN_TRADE_FRAC=3%)
+- Every 60s poll (threshold-gated)
 
 ---
 
@@ -64,85 +105,213 @@ LEAN MarketOrder
 
 ```
 srfm-lab/
-├── strategies/
-│   ├── larsa-v1/          # 274% production baseline — DO NOT MODIFY
-│   ├── larsa-v2/          # Active development
-│   ├── templates/         # Starting point for new experiments
-│   └── graveyard/         # Failed experiments + post-mortem notes
-├── lib/
-│   ├── srfm_core.py       # SRFM physics (Minkowski, BH, Geodesic, Hawking, Lens, ProperTime)
-│   ├── agents.py          # D3QN, DDQN, TD3QN ensemble agents
-│   ├── regime.py          # Regime detection
-│   └── risk.py            # Risk management, stops, circuit breakers
-├── tools/
-│   ├── batch_runner.py    # Parallel backtesting with variant configs
-│   ├── compare.py         # Side-by-side result comparison + equity charts
-│   ├── param_sweep.py     # Parameter sensitivity surface
-│   ├── regime_analyzer.py # Historical regime timeline analysis
-│   └── well_detector.py   # Standalone BH well detection on price CSV
-├── scripts/               # Shell wrappers (called by Makefile)
-├── research/notebooks/    # Jupyter via `lean research` or Docker
-├── data/                  # LEAN auto-populates
-├── results/               # Backtest outputs
-└── .github/workflows/     # Auto-backtest on push to strategies/*/main.py
+│
+├── 🔴 PRIMITIVES & CORE
+│   ├── lib/srfm_core.py              # BHState, MinkowskiClassifier, HawkingMonitor
+│   ├── lib/agents.py                 # D3QN, DDQN, TD3QN ensemble agents
+│   ├── lib/regime.py                 # Regime detection
+│   └── lib/risk.py                   # Risk management, stops, circuit breakers
+│
+├── 🟢 LIVE TRADING
+│   ├── tools/live_trader_alpaca.py   # ★ Main live trader — Alpaca paper/live
+│   └── tools/download_alpaca.py      # Historical data downloader
+│
+├── 🔵 BACKTESTING & RESEARCH TOOLS
+│   ├── tools/crypto_backtest_mc.py   # ★ Crypto BH backtest + Monte Carlo
+│   ├── tools/walk_forward_engine.py  # Walk-forward analysis engine
+│   ├── tools/factor_analysis.py      # Fama-MacBeth, IC/ICIR, factor decay
+│   ├── tools/execution_analyzer.py   # Almgren-Chriss, IS, slippage analysis
+│   ├── tools/stress_testing.py       # 10 historical stress scenarios
+│   ├── tools/alpha_decay.py          # Signal half-life, optimal rebalance freq
+│   └── tools/local_backtest.py       # Quick local BH backtest
+│
+├── 🟣 SPACETIME ARENA (full research platform)
+│   ├── run_api.py                    # ★ Launch FastAPI server (:8765)
+│   ├── spacetime/engine/bh_engine.py # Universal BH backtester
+│   ├── spacetime/engine/mc.py        # Regime-aware Monte Carlo
+│   ├── spacetime/engine/sensitivity.py # Parameter sensitivity sweeps
+│   ├── spacetime/engine/correlation.py # BH activation correlation
+│   ├── spacetime/engine/archaeology.py # QC CSV trade DB
+│   ├── spacetime/engine/replay.py    # Bar-by-bar replay engine
+│   ├── spacetime/api/main.py         # FastAPI: 15 routes + WebSocket
+│   ├── spacetime/reports/generator.py # 9-section PDF reports
+│   └── spacetime/web/                # React/TS frontend (:5173)
+│
+├── 🟡 ML / AI
+│   ├── ml/rl_agent/                  # PPO + SAC + DQN + Transformer RL agents
+│   ├── ml/nlp_alpha/                 # FinBERT news sentiment → alpha signals
+│   ├── ml/genetic/                   # Genetic algorithm strategy optimizer
+│   └── strategies/ml_alpha/          # ML-based strategy implementations
+│
+├── 🟠 STRATEGIES (29 total)
+│   ├── strategies/larsa-v16/         # ★ Current best BH strategy
+│   ├── strategies/momentum/          # Momentum strategies
+│   ├── strategies/mean_reversion/    # Mean reversion strategies
+│   ├── strategies/volatility/        # Vol strategies
+│   ├── strategies/crypto/            # Crypto-specific strategies
+│   └── strategies/event_driven/      # Event-driven strategies
+│
+├── ⚙️  RUST CRATES (compiled, high-performance)
+│   ├── crates/larsa-core/            # ★ Core BH engine in Rust
+│   ├── crates/orderbook-sim/         # L2 orderbook, Hawkes process
+│   ├── crates/portfolio-engine/      # Ledoit-Wolf, HRP, Black-Litterman
+│   ├── crates/risk-engine/           # VaR/CVaR, Greeks, stress scenarios
+│   ├── crates/regime-detector/       # HMM, PELT, Kalman filters
+│   ├── crates/data-pipeline/         # 15 indicators, CPCV splitter
+│   ├── crates/fix-engine/            # FIX 4.2/4.4 protocol
+│   ├── crates/options-engine/        # BSM/Heston/SABR/SVI pricing
+│   └── crates/smart-order-router/    # Multi-venue SOR
+│
+├── 🐹 GO INFRA
+│   ├── infra/gateway/                # ★ Market data gateway (17 indicators, regime)
+│   ├── infra/monitor/                # Trade journal, alert backtester
+│   ├── infra/timeseries/             # InfluxDB, DuckDB factor model
+│   ├── infra/grpc/                   # gRPC microservices (market/strategy/risk/portfolio)
+│   ├── infra/event-bus/              # Redis pub/sub event bus
+│   └── infra/websocket-hub/          # Scalable WebSocket broadcasting
+│
+├── ⚛️  REACT FRONTENDS
+│   ├── terminal/                     # ★ Trading terminal (6 pages + options chain)
+│   └── dashboard/                    # Executive P&L dashboard (Tremor)
+│
+├── 🔬 JULIA QUANT SUITE
+│   ├── julia/src/BHPhysics.jl        # BH engine, walk-forward, cross-sectional
+│   ├── julia/src/Stochastic.jl       # GARCH, Heston, Hawkes, OU, Merton JD
+│   ├── julia/src/Statistics.jl       # Sharpe, Hurst, Ljung-Box, bootstrap CI
+│   ├── julia/src/Optimization.jl     # HRP, Black-Litterman, CVaR, Kelly
+│   ├── julia/src/Visualization.jl    # 14 plot functions
+│   ├── julia/src/Bayesian.jl         # Turing.jl MCMC, Bayesian CF estimation
+│   ├── julia/src/FactorModel.jl      # Fama-MacBeth, Barra risk model
+│   ├── julia/src/OptimalExecution.jl # Almgren-Chriss, Obizhaeva-Wang
+│   ├── julia/src/InterestRates.jl    # Vasicek, CIR, HJM, LMM
+│   ├── julia/src/VolatilitySurface.jl # SVI, SABR, Dupire local vol
+│   ├── julia/src/NetworkAnalysis.jl  # MST, community detection, CoVaR
+│   ├── julia/src/MachineLearning.jl  # LSTM, XGBoost, GP regression
+│   └── julia/notebooks/              # 6 research notebooks
+│
+├── 🔬 RESEARCH
+│   ├── research/factor_model/        # Factor construction, IC, attribution
+│   ├── research/regime_analysis/     # Regime detection comparison
+│   ├── research/options/             # Options pricing, Greeks
+│   ├── research/alternative_data/    # Alt data pipelines
+│   ├── research/onchain/             # Crypto on-chain (DeFi, whales, NVT)
+│   ├── research/options_flow/        # GEX, unusual flow, vol regime
+│   ├── research/micro_structure/     # OFI, VPIN, spread decomposition
+│   └── research/notebooks/           # 8 research notebooks
+│
+├── ⚡ C/C++/ZIG (native performance)
+│   ├── extensions/fast_indicators/   # ★ C extension: 20 indicators + bh_backtest_c
+│   ├── native/orderbook/             # Lock-free L3 orderbook (C++17 + AVX2)
+│   ├── native/matrix/                # SIMD matrix ops (AVX2)
+│   ├── native/ringbuffer/            # mmap tick store
+│   └── native/zig/                   # Zig ITCH 5.0 decoder + orderbook
+│
+├── 📊 R STATISTICAL SUITE
+│   ├── r/bh_analysis.R               # BH state reconstruction, ggplot2
+│   ├── r/factor_research.R           # Fama-French, IC, Newey-West
+│   ├── r/regime_models.R             # HMM, Markov switching, GARCH-DCC
+│   ├── r/portfolio_optimization.R    # quadprog, PortfolioAnalytics, BL
+│   ├── r/backtesting.R               # PerformanceAnalytics, bootstrap CI
+│   └── r/visualization.R             # ggplot2 chart suite
+│
+├── 🗄️  WAREHOUSE
+│   ├── warehouse/schema/             # SQLite: 6 schema files, 30 named queries
+│   └── warehouse/duckdb/             # DuckDB analytics + BH UDFs
+│
+├── 🧪 TESTS
+│   └── tests/                        # 10 test files
+│
+├── 📚 DOCS
+│   ├── docs/theory/bh_physics.md     # Full mathematical derivation
+│   ├── docs/theory/monte_carlo.md    # MC theory, Kelly derivation
+│   ├── docs/theory/portfolio_theory.md # BL, HRP, correlation-adjusted sizing
+│   └── docs/architecture.md          # System architecture + data flows
+│
+└── 🔧 SCRIPTS & CONFIG
+    ├── scripts/backtest_all_strategies.py
+    ├── scripts/optimize_portfolio.py
+    ├── scripts/run_regime_analysis.py
+    ├── scripts/stress_test.py
+    ├── config/instruments.yaml       # All 30+ instruments with CF calibration
+    ├── config/risk_limits.yaml
+    ├── Makefile                      # 60+ targets
+    └── .github/workflows/            # CI/CD: Python/Rust/Go/TS/Julia
 ```
-
----
-
-## Core Principles
-
-1. **Every experiment is reproducible**: strategy code + LEAN version + data = same result.
-2. **One change at a time**: copy template, modify ONE constant or ONE component, backtest.
-3. **Failed experiments go to graveyard with a note**: document why they failed.
-4. **`lib/` is the moat**: portable SRFM physics that works across any LEAN strategy.
-5. **Batch testing is the default**: 10 variants in parallel beats 10 sequential runs.
-6. **Results are always compared**: never evaluate a strategy in isolation.
 
 ---
 
 ## SRFM Physics Reference
 
-| Component | Key Formula | Interpretation |
-|-----------|-------------|----------------|
+| Component | Formula | Interpretation |
+|-----------|---------|----------------|
 | MinkowskiClassifier | `ds² = c²dt² − dx²` | TIMELIKE = ordered, causal; SPACELIKE = anomalous velocity |
-| BlackHoleDetector | mass accretes on spacelike moves | Well forms when mass ≥ `BH_FORM` |
-| HawkingMonitor | `T_H = 1 / (8πM)` | Cold well = stable signal; hot well = reduce size |
+| BlackHoleDetector | mass accretes on TIMELIKE | Well forms when `mass ≥ bh_form` |
+| HawkingMonitor | `T_H = 1/(8πM)` | Cold well = stable signal; hot well = reduce size |
 | GravitationalLens | `μ = (u²+2) / (u√(u²+4))` | BH amplifies signal from other indicators |
-| ProperTimeClock | `dτ² = dt² − (dx/c)²` | Proper time gates entries; spacelike moves don't advance it |
-| GeodesicAnalyzer | RMS deviation from mean return | High deviation = curved spacetime = crisis |
+| ProperTimeClock | `dτ² = dt² − (dx/c)²` | Proper time gates entries |
+| Delta Score | `tf × mass × ATR` | Expected dollar move — the allocation signal |
 
 ---
 
-## Parameters to Tune
+## Key Parameters
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `CF` | 1.2 | Minkowski speed-of-light (higher → fewer spacelike) |
-| `BH_FORM` | 1.5 | Mass to declare BH active |
-| `BH_COLLAPSE` | 0.4 | Mass at which BH collapses |
-| `MASS_DECAY` | 0.92 | Per-bar exponential mass decay |
-| `PROPER_TIME_MIN` | 5.0 | Proper time bars between entries |
-
-Sweep these with `make sweep` before touching strategy logic.
-
----
-
-## Baseline: LARSA v1
-
-- **Return**: 274% (verified QC Cloud)
-- **Instrument**: ES (S&P 500 E-mini futures)
-- **Period**: [see strategies/larsa-v1/main.py]
-- **Do not modify this directory** — it is the reference.
+| Parameter | Location | Default | Effect |
+|-----------|----------|---------|--------|
+| `CF` (base) | `instruments.yaml` | 0.001–0.003 | Minkowski speed of light. Higher = fewer TIMELIKE bars |
+| `cf_1d` | `bh_engine.py` | `base × 5.0` | Daily CF scaling |
+| `cf_15m` | `bh_engine.py` | `base × 0.35` | 15m CF scaling |
+| `bh_form` | `instruments.yaml` | 1.5 | Mass threshold for BH activation |
+| `STALE_15M_MOVE` | `live_trader_alpaca.py` | 0.001 | Cut losers < 0.1% move per 15m |
+| `DELTA_MAX_FRAC` | `live_trader_alpaca.py` | 0.75 | Max single-asset allocation |
+| `MIN_TRADE_FRAC` | `live_trader_alpaca.py` | 0.03 | Minimum shift to trigger rebalance |
 
 ---
 
-## References
+## Instrument Universe
 
-- SRFM papers: [Zenodo — add links]
-- LEAN documentation: https://www.lean.io/docs
-- QuantConnect: https://www.quantconnect.com
+**Crypto (24/7):** BTC, ETH, SOL, XRP, AVAX, LINK, DOT, UNI, AAVE, LTC, BCH, ADA, DOGE, SHIB, FIL, GRT, BAT, CRV, SUSHI  
+**Equities/ETFs:** SPY, QQQ, DIA, USO, GLD, TLT, UNG, VIXY  
+**Futures (backtest):** ES, NQ, YM, CL, GC, NG, ZB, VX
 
 ---
 
-*License: Proprietary. All rights reserved. This repository contains unpublished
-research and strategy IP. Do not distribute.*
+## Baselines
+
+| Strategy | Return | Instrument | Notes |
+|----------|--------|-----------|-------|
+| LARSA v1 | 274% | ES | Original QC baseline — do not modify |
+| LARSA v16 | TBD | Multi | Current live version |
+| Crypto BH MC | -11% CAGR | 19 coins | 2021–2026; 2024 was +26% |
+
+---
+
+## LOC by Language
+
+| Language | LOC | Key systems |
+|----------|-----|------------|
+| Python | ~120K | Strategies, ML, research, backtesting, live trader |
+| Rust | ~20K | orderbook, portfolio, risk, regime, FIX, options, SOR |
+| Go | ~35K | Gateway, monitor, gRPC, event bus, WebSocket hub |
+| TypeScript | ~35K | Trading terminal, Spacetime Arena web, dashboard |
+| Julia | ~20K | BHPhysics, stochastic, optimization, vol surface, networks |
+| C/C++ | ~15K | Fast indicators, L3 orderbook, SIMD matrix, ring buffer |
+| Zig | ~8K | ITCH 5.0 decoder, low-latency orderbook |
+| R | ~10K | Statistical analysis, ggplot2 visualization |
+| SQL | ~4K | Warehouse schema, DuckDB analytics |
+| **Total** | **~267K** | |
+
+---
+
+## Running Services
+
+| Service | Command | Port |
+|---------|---------|------|
+| Spacetime Arena API | `python run_api.py` | 8765 |
+| Spacetime Arena Web | `cd spacetime/web && npm run dev` | 5173 |
+| Trading Terminal | `cd terminal && npm run dev` | 5174 |
+| P&L Dashboard | `cd dashboard && npm run dev` | 5175 |
+| Live Trader | `python tools/live_trader_alpaca.py` | — |
+
+---
+
+*License: Proprietary. All rights reserved. This repository contains unpublished research and strategy IP. Do not distribute.*
