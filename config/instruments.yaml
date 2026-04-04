@@ -1,9 +1,12 @@
 # instruments.yaml — SRFM Lab Instrument Universe
 # Full configuration for all tradeable instruments.
 # CF values are calibrated to ~1 sigma of returns per timeframe.
-# bh_form is the mass threshold at which a BH forms (default 1.5).
-# bh_collapse is the mass level at which the BH dissolves (default 1.0).
-# bh_decay is the per-bar mass decay multiplier (default 0.95).
+# bh_form is the mass threshold at which a BH forms.
+#   Crypto default: 2.0 (optimizer result: 77.4% of Sharpe variance explained by this param)
+#   Equity default: 1.5 (lower vol → lower threshold acceptable)
+# bh_collapse is the mass level at which the BH dissolves (optimizer: 0.992 → near-persistent).
+# bh_decay is the per-bar mass decay multiplier (optimizer: 0.924 → slower decay, longer holds).
+# min_hold_bars: minimum bars before reversing a position (6 bars = ~1.5h at 15m timeframe).
 ---
 
 instruments:
@@ -225,9 +228,10 @@ instruments:
     cf_15m: 0.00500
     cf_1h:  0.01500
     cf_1d:  0.05000
-    bh_form: 1.5
-    bh_collapse: 1.0
-    bh_decay: 0.95
+    bh_form: 2.0
+    bh_collapse: 0.992
+    bh_decay: 0.924
+    min_hold_bars: 6
     corr_group: crypto_large
     is_active: true
 
@@ -242,9 +246,10 @@ instruments:
     cf_15m: 0.00700
     cf_1h:  0.02000
     cf_1d:  0.07000
-    bh_form: 1.5
-    bh_collapse: 1.0
-    bh_decay: 0.95
+    bh_form: 2.0
+    bh_collapse: 0.992
+    bh_decay: 0.924
+    min_hold_bars: 6
     corr_group: crypto_large
     is_active: true
 
@@ -259,9 +264,10 @@ instruments:
     cf_15m: 0.01000
     cf_1h:  0.03000
     cf_1d:  0.10000
-    bh_form: 1.5
-    bh_collapse: 1.0
-    bh_decay: 0.95
+    bh_form: 2.0
+    bh_collapse: 0.992
+    bh_decay: 0.924
+    min_hold_bars: 6
     corr_group: crypto_mid
     is_active: true
 
@@ -276,9 +282,10 @@ instruments:
     cf_15m: 0.01000
     cf_1h:  0.03000
     cf_1d:  0.10000
-    bh_form: 1.5
-    bh_collapse: 1.0
-    bh_decay: 0.95
+    bh_form: 2.0
+    bh_collapse: 0.992
+    bh_decay: 0.924
+    min_hold_bars: 6
     corr_group: crypto_mid
     is_active: false
 
@@ -293,9 +300,10 @@ instruments:
     cf_15m: 0.01200
     cf_1h:  0.03500
     cf_1d:  0.12000
-    bh_form: 1.5
-    bh_collapse: 1.0
-    bh_decay: 0.95
+    bh_form: 2.0
+    bh_collapse: 0.992
+    bh_decay: 0.924
+    min_hold_bars: 6
     corr_group: crypto_mid
     is_active: false
 
@@ -310,9 +318,10 @@ instruments:
     cf_15m: 0.01200
     cf_1h:  0.03500
     cf_1d:  0.12000
-    bh_form: 1.5
-    bh_collapse: 1.0
-    bh_decay: 0.95
+    bh_form: 2.0
+    bh_collapse: 0.992
+    bh_decay: 0.924
+    min_hold_bars: 6
     corr_group: crypto_mid
     is_active: false
 
@@ -327,9 +336,10 @@ instruments:
     cf_15m: 0.02000
     cf_1h:  0.06000
     cf_1d:  0.20000
-    bh_form: 1.5
-    bh_collapse: 1.0
-    bh_decay: 0.95
+    bh_form: 2.0
+    bh_collapse: 0.992
+    bh_decay: 0.924
+    min_hold_bars: 6
     corr_group: crypto_small
     is_active: false
     notes: "High meme-vol. BH formations unreliable due to social media spikes."
@@ -346,9 +356,10 @@ instruments:
     cf_15m: 0.00050
     cf_1h:  0.00150
     cf_1d:  0.00500
-    bh_form: 1.5
-    bh_collapse: 1.0
-    bh_decay: 0.95
+    bh_form: 2.0
+    bh_collapse: 0.992
+    bh_decay: 0.924
+    min_hold_bars: 6
     corr_group: forex_majors
     is_active: false
     notes: "Not available on Alpaca. Use IBKR or OANDA for live trading."
@@ -364,9 +375,10 @@ instruments:
     cf_15m: 0.00060
     cf_1h:  0.00180
     cf_1d:  0.00600
-    bh_form: 1.5
-    bh_collapse: 1.0
-    bh_decay: 0.95
+    bh_form: 2.0
+    bh_collapse: 0.992
+    bh_decay: 0.924
+    min_hold_bars: 6
     corr_group: forex_majors
     is_active: false
 
