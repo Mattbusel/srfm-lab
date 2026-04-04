@@ -1,0 +1,51 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: srfm-lab
+    env: local
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+scrape_configs:
+
+  # Prometheus self-scrape.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Market data gateway.
+  - job_name: gateway
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["gateway:8080"]
+    metrics_path: /metrics
+    honor_labels: true
+
+  # Spacetime FastAPI backend.
+  - job_name: arena-api
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["arena-api:8000"]
+    metrics_path: /metrics
+
+  # Monitor service (if it exposes Prometheus metrics).
+  - job_name: monitor
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["monitor:8081"]
+    metrics_path: /metrics
+    honor_errors: true
+
+  # InfluxDB self-metrics.
+  - job_name: influxdb
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["influxdb:8086"]
+    metrics_path: /metrics

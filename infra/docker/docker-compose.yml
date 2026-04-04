@@ -1,0 +1,196 @@
+version: "3.9"
+
+networks:
+  srfm:
+    driver: bridge
+
+volumes:
+  influxdb-data:
+  grafana-data:
+  prometheus-data:
+  parquet-data:
+
+services:
+
+  # ------------------------------------------------------------------ gateway
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile: ../docker/gateway/Dockerfile
+    container_name: srfm-gateway
+    restart: unless-stopped
+    networks: [srfm]
+    ports:
+      - "8080:8080"
+    environment:
+      LISTEN_ADDR: ":8080"
+      LOG_LEVEL: "info"
+      ENABLE_SIMULATOR: "true"
+      SYMBOLS: "AAPL,MSFT,SPY,QQQ,TSLA,NVDA,AMZN,GOOGL"
+      CRYPTO_SYMBOLS: "BTCUSDT,ETHUSDT,SOLUSDT"
+      SIMULATOR_SPEED_MULT: "1.0"
+      MAX_BAR_CACHE: "10000"
+      AGGREGATION_TIMEFRAMES: "5m,15m,1h,4h,1d"
+      PARQUET_DIR: "/data/parquet"
+      INFLUX_URL: "http://influxdb:8086"
+      INFLUX_TOKEN: "${INFLUX_TOKEN:-srfm-dev-token}"
+      INFLUX_ORG: "srfm"
+      INFLUX_BUCKET: "market_data"
+      ALPACA_API_KEY: "${ALPACA_API_KEY:-}"
+      ALPACA_SECRET: "${ALPACA_SECRET:-}"
+      ALPACA_PAPER: "true"
+      BINANCE_API_KEY: "${BINANCE_API_KEY:-}"
+      BINANCE_SECRET: "${BINANCE_SECRET:-}"
+    volumes:
+      - parquet-data:/data/parquet
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+  # ------------------------------------------------------------ arena-api
+  arena-api:
+    build:
+      context: ../../spacetime/web
+      dockerfile: ../../infra/docker/arena-api/Dockerfile
+    container_name: srfm-arena-api
+    restart: unless-stopped
+    networks: [srfm]
+    ports:
+      - "8000:8000"
+    environment:
+      GATEWAY_URL: "http://gateway:8080"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ../../spacetime:/app/spacetime:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+  # ------------------------------------------------------------ arena-web
+  arena-web:
+    build:
+      context: ../../spacetime/web
+      dockerfile: ../../infra/docker/arena-web/Dockerfile
+    container_name: srfm-arena-web
+    restart: unless-stopped
+    networks: [srfm]
+    ports:
+      - "3000:80"
+    depends_on:
+      - arena-api
+
+  # --------------------------------------------------------------- monitor
+  monitor:
+    build:
+      context: ../monitor
+      dockerfile: ../docker/monitor/Dockerfile
+    container_name: srfm-monitor
+    restart: unless-stopped
+    networks: [srfm]
+    ports:
+      - "8081:8081"
+    environment:
+      LISTEN_ADDR: ":8081"
+      LOG_LEVEL: "info"
+      ALPACA_API_KEY: "${ALPACA_API_KEY:-}"
+      ALPACA_SECRET: "${ALPACA_SECRET:-}"
+      BH_STATE_FILE: "/spacetime/cache/live_state.json"
+      ALERT_FILE: "/data/alerts.csv"
+      WEBHOOK_URL: "${ALERT_WEBHOOK_URL:-}"
+    volumes:
+      - ../../spacetime:/spacetime:ro
+      - parquet-data:/data
+    depends_on:
+      - gateway
+
+  # -------------------------------------------------------------- influxdb
+  influxdb:
+    image: influxdb:2.7
+    container_name: srfm-influxdb
+    restart: unless-stopped
+    networks: [srfm]
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: srfm-password
+      DOCKER_INFLUXDB_INIT_ORG: srfm
+      DOCKER_INFLUXDB_INIT_BUCKET: market_data
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: "${INFLUX_TOKEN:-srfm-dev-token}"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # --------------------------------------------------------------- grafana
+  grafana:
+    image: grafana/grafana:10.3.1
+    container_name: srfm-grafana
+    restart: unless-stopped
+    networks: [srfm]
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: srfm-grafana
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: "grafana-clock-panel,grafana-simple-json-datasource"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+
+  # ------------------------------------------------------------- prometheus
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: srfm-prometheus
+    restart: unless-stopped
+    networks: [srfm]
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  # --------------------------------------------------------- duckdb-proxy
+  duckdb-proxy:
+    image: python:3.11-slim
+    container_name: srfm-duckdb-proxy
+    restart: unless-stopped
+    networks: [srfm]
+    ports:
+      - "8082:8082"
+    command: >
+      sh -c "pip install duckdb flask --quiet &&
+             python /app/proxy.py"
+    volumes:
+      - ./duckdb-proxy/proxy.py:/app/proxy.py:ro
+      - parquet-data:/data/parquet:ro
+    environment:
+      PARQUET_DIR: "/data/parquet"
+      PORT: "8082"

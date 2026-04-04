@@ -1,0 +1,13 @@
+[package]
+name = "orderbook-sim"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+ordered-float = { version = "4", features = ["serde"] }

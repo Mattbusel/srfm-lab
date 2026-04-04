@@ -1,0 +1,1 @@
+"""Spacetime Arena report generation."""

@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "18"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Build Rust extensions with maturin (wheel per platform)
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-extension:
+    name: Build extension (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build wheel
+        working-directory: extensions
+        run: maturin build --release
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: srfm-wheel-${{ matrix.os }}
+          path: target/wheels/*.whl
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Build frontend apps
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-web:
+    name: Build web apps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build Arena
+        working-directory: spacetime/web
+        run: npm ci && npm run build
+
+      - name: Build Terminal
+        working-directory: terminal
+        run: npm ci && npm run build
+        continue-on-error: true
+
+      - name: Upload web artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: |
+            spacetime/web/dist/
+            terminal/dist/
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Create release
+  # ─────────────────────────────────────────────────────────────────────────────
+  release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    needs: [build-extension, build-web]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts/
+
+      - name: Create release archive
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          tar -czf srfm-lab-${VERSION}-warehouse.tar.gz warehouse/
+          tar -czf srfm-lab-${VERSION}-docs.tar.gz docs/
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/**/*.whl
+            srfm-lab-*.tar.gz
+          generate_release_notes: true
+          draft: false

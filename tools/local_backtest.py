@@ -17,19 +17,26 @@ from pathlib import Path
 
 # ── Config ────────────────────────────────────────────────────────────────────
 INSTRUMENTS = {
-    "ES": {"ticker": "SPY", "cf_1h": 0.001,  "cf_1d": 0.005},
-    "NQ": {"ticker": "QQQ", "cf_1h": 0.0012, "cf_1d": 0.006},
-    "YM": {"ticker": "DIA", "cf_1h": 0.0008, "cf_1d": 0.004},
+    # Equity indices (high cross-correlation)
+    "ES": {"ticker": "SPY",  "cf_15m": 0.0003,  "cf_1h": 0.001,  "cf_1d": 0.005, "bh_form": 1.5},
+    "NQ": {"ticker": "QQQ",  "cf_15m": 0.0004,  "cf_1h": 0.0012, "cf_1d": 0.006, "bh_form": 1.5},
+    "YM": {"ticker": "DIA",  "cf_15m": 0.00025, "cf_1h": 0.0008, "cf_1d": 0.004, "bh_form": 1.5},
+    # Commodities / alternatives (lower correlation, higher vol — BH_FORM=2.0 for noisy ones)
+    "CL": {"ticker": "USO",  "cf_15m": 0.0015,  "cf_1h": 0.004,  "cf_1d": 0.015, "bh_form": 1.8},
+    "GC": {"ticker": "GLD",  "cf_15m": 0.0008,  "cf_1h": 0.0025, "cf_1d": 0.008, "bh_form": 1.5},
+    "ZB": {"ticker": "TLT",  "cf_15m": 0.0005,  "cf_1h": 0.0015, "cf_1d": 0.005, "bh_form": 1.5},
+    "NG": {"ticker": "UNG",  "cf_15m": 0.0020,  "cf_1h": 0.006,  "cf_1d": 0.020, "bh_form": 1.8},
+    "VX": {"ticker": "VIXY", "cf_15m": 0.0030,  "cf_1h": 0.008,  "cf_1d": 0.025, "bh_form": 1.8},
 }
 
 START_DATE           = "2010-01-01"
 STARTING_EQUITY      = 1_000_000.0
 TAIL_FIXED_CAPITAL   = 3_000_000.0
 PORTFOLIO_DAILY_RISK = 0.01
-N_INST               = 3
-CORR                 = 0.90
+N_INST               = 8
+CORR                 = 0.35   # lower — cross-asset, not all equity
 CORR_FACTOR          = math.sqrt(N_INST + N_INST * (N_INST - 1) * CORR)
-PER_INST_RISK        = PORTFOLIO_DAILY_RISK / CORR_FACTOR   # ~0.00345
+PER_INST_RISK        = PORTFOLIO_DAILY_RISK / CORR_FACTOR   # ~0.00181
 
 TF_CAP      = {6: 0.55, 4: 0.35, 2: 0.25, 0: 0.0}
 MIN_HOLD    = 4
@@ -43,8 +50,9 @@ OUT_DIR.mkdir(exist_ok=True)
 
 # ── BH State ──────────────────────────────────────────────────────────────────
 class BHState:
-    def __init__(self, cf):
+    def __init__(self, cf, bh_form=1.5):
         self.cf       = cf
+        self.bh_form  = bh_form
         self.cf_scale = 1.0
         self.mass     = 0.0
         self.active   = False
@@ -68,7 +76,7 @@ class BHState:
         else:
             self.ctl = 0
             self.mass *= BH_DECAY
-        self.active = (self.mass > BH_FORM and self.ctl >= 3) if not was else \
+        self.active = (self.mass > self.bh_form and self.ctl >= 3) if not was else \
                       (self.mass > BH_COLLAPSE and self.ctl >= 3)
         if not was and self.active:
             lb = min(20, len(self.prices) - 1)
@@ -97,45 +105,50 @@ def download_data():
     Falls back to yfinance last-730-days if cache not found.
     Daily: always from yfinance (full history, no API limit).
     """
-    try:
-        from download_twelvedata import load_cached, CACHE_DIR
-        use_cache = True
-    except ImportError:
-        use_cache = False
+    cache_dir = Path(__file__).parent / "data_cache"
 
-    daily, hourly = {}, {}
+    daily, hourly, intra15m = {}, {}, {}
     for sym, cfg in INSTRUMENTS.items():
         tk = cfg["ticker"]
+
+        # Daily — always yfinance
         print(f"  {tk} daily...", end=" ", flush=True)
         d = yf.download(tk, start=START_DATE, interval="1d", progress=False, auto_adjust=True)
         d.columns = d.columns.get_level_values(0)
         daily[sym] = d
         print(f"{len(d)} bars")
 
-        if use_cache:
-            h = load_cached(sym)
-            if not h.empty:
-                print(f"  {tk} hourly (cache)... {len(h)} bars "
-                      f"[{h.index.min().date()} to {h.index.max().date()}]")
-                hourly[sym] = h
-                continue
-
-        # Fallback: yfinance last 730 days
-        print(f"  {tk} hourly (yfinance fallback)...", end=" ", flush=True)
-        h = yf.download(tk, period="730d", interval="1h", progress=False, auto_adjust=True)
-        h.columns = h.columns.get_level_values(0)
-        h.index = h.index.tz_convert("America/New_York")
-        h = h.between_time("09:30", "16:00")
-        if h.index.tz is not None:
-            h.index = h.index.tz_localize(None)
+        # 1h — prefer cache
+        h1_path = cache_dir / f"{sym}_1h.csv"
+        if h1_path.exists():
+            h = pd.read_csv(h1_path, index_col=0, parse_dates=True)
+            if h.index.tz is not None: h.index = h.index.tz_localize(None)
+            print(f"  {tk} 1h (cache)... {len(h)} bars [{h.index.min().date()} to {h.index.max().date()}]")
+        else:
+            print(f"  {tk} 1h (yfinance)...", end=" ", flush=True)
+            h = yf.download(tk, period="730d", interval="1h", progress=False, auto_adjust=True)
+            h.columns = h.columns.get_level_values(0)
+            h.index = h.index.tz_convert("America/New_York")
+            h = h.between_time("09:30", "16:00")
+            if h.index.tz is not None: h.index = h.index.tz_localize(None)
+            print(f"{len(h)} bars")
         hourly[sym] = h
-        print(f"{len(h)} bars")
 
-    return daily, hourly
+        # 15m — Alpaca cache
+        h15_path = cache_dir / f"{sym}_15m.csv"
+        if h15_path.exists():
+            h15 = pd.read_csv(h15_path, index_col=0, parse_dates=True)
+            if h15.index.tz is not None: h15.index = h15.index.tz_localize(None)
+            print(f"  {tk} 15m (cache)... {len(h15)} bars [{h15.index.min().date()} to {h15.index.max().date()}]")
+            intra15m[sym] = h15
+        else:
+            intra15m[sym] = pd.DataFrame()
+
+    return daily, hourly, intra15m
 
 
 # ── Backtest ──────────────────────────────────────────────────────────────────
-def run_backtest(daily, hourly):
+def run_backtest(daily, hourly, intra15m=None):
     syms = list(INSTRUMENTS.keys())
 
     # Pre-compute indicators
@@ -147,8 +160,15 @@ def run_backtest(daily, hourly):
         if not h.empty:
             h_atr[s] = atr_s(h["High"], h["Low"], h["Close"])
 
-    d_bh = {s: BHState(INSTRUMENTS[s]["cf_1d"]) for s in syms}
-    h_bh = {s: BHState(INSTRUMENTS[s]["cf_1h"]) for s in syms}
+    if intra15m is None:
+        intra15m = {s: pd.DataFrame() for s in syms}
+
+    d_bh  = {s: BHState(INSTRUMENTS[s]["cf_1d"],  INSTRUMENTS[s].get("bh_form", 1.5)) for s in syms}
+    h_bh  = {s: BHState(INSTRUMENTS[s]["cf_1h"],  INSTRUMENTS[s].get("bh_form", 1.5)) for s in syms}
+    m15_bh = {s: BHState(INSTRUMENTS[s].get("cf_15m", INSTRUMENTS[s]["cf_1h"] * 0.8),
+                         INSTRUMENTS[s].get("bh_form", 1.5)) for s in syms}
+
+    m15_dates = {s: set(intra15m[s].index.date) for s in syms if not intra15m[s].empty}
 
     all_days     = daily["ES"].index[daily["ES"].index >= pd.Timestamp(START_DATE)]
     hourly_dates = {s: set(hourly[s].index.date) for s in syms if not hourly[s].empty}
@@ -181,18 +201,42 @@ def run_backtest(daily, hourly):
             equity_curve.append((day_date, equity))
             continue
 
-        use_hourly = (not hourly["ES"].empty and day_date in hourly_dates.get("ES", set()))
+        # Use hourly / 15m bars if *any* instrument has them for this day
+        use_hourly = any(day_date in hourly_dates.get(s, set()) for s in syms)
+        use_15m    = any(day_date in m15_dates.get(s, set()) for s in syms)
 
         if use_hourly:
-            h_bars = {s: hourly[s][hourly[s].index.date == day_date] for s in syms}
-            bar_times = h_bars["ES"].index
+            h_bars = {s: hourly[s][hourly[s].index.date == day_date] for s in syms if not hourly[s].empty}
+            # Use bar times from the instrument with most bars this day
+            ref = max(h_bars, key=lambda s: len(h_bars[s])) if h_bars else "ES"
+            bar_times = h_bars[ref].index if ref in h_bars and not h_bars[ref].empty else [day]
         else:
             bar_times = [day]
 
+        if use_15m:
+            m15_bars = {s: intra15m[s][intra15m[s].index.date == day_date] for s in syms}
+
         for bar_time in bar_times:
+            # Update 15m BH for all 15m bars within this hour
+            if use_15m:
+                for s in syms:
+                    if s not in m15_bars: continue
+                    # Get 15m bars that fall within this hour
+                    if use_hourly:
+                        hour_start = bar_time
+                        hour_end   = bar_time + pd.Timedelta(hours=1)
+                        mb = m15_bars[s][(m15_bars[s].index >= hour_start) &
+                                         (m15_bars[s].index < hour_end)]
+                    else:
+                        mb = m15_bars[s]
+                    for _, row in mb.iterrows():
+                        m15_bh[s].cf_scale = float(d_scale[s].get(day, 1.0))
+                        m15_bh[s].update(row["Close"])
+
             # Update hourly BH
             if use_hourly:
                 for s in syms:
+                    if s not in h_bars: continue
                     b = h_bars[s]
                     if bar_time not in b.index: continue
                     h_bh[s].cf_scale = float(d_scale[s].get(day, 1.0))
@@ -201,7 +245,7 @@ def run_backtest(daily, hourly):
             # Current prices
             curr_price = {}
             for s in syms:
-                if use_hourly and bar_time in h_bars[s].index:
+                if use_hourly and s in h_bars and bar_time in h_bars[s].index:
                     curr_price[s] = float(h_bars[s].loc[bar_time, "Close"])
                 elif day in daily[s].index:
                     curr_price[s] = float(daily[s].loc[day, "Close"])
@@ -224,7 +268,9 @@ def run_backtest(daily, hourly):
             raw_targets = {}
 
             for s in syms:
-                tf = (4 if d_bh[s].active else 0) + (2 if (use_hourly and h_bh[s].active) else 0)
+                tf = (4 if d_bh[s].active else 0) + \
+                     (2 if (use_hourly and h_bh[s].active) else 0) + \
+                     (1 if (use_15m and m15_bh[s].active) else 0)
                 ceiling = TF_CAP.get(tf, 0.0)
 
                 if tf == 2 and abs(last_frac[s]) < 0.02:
@@ -260,7 +306,9 @@ def run_backtest(daily, hourly):
             # pos_floor
             for s in syms:
                 tgt = raw_targets.get(s, 0.0)
-                tf  = (4 if d_bh[s].active else 0) + (2 if (use_hourly and h_bh[s].active) else 0)
+                tf  = (4 if d_bh[s].active else 0) + \
+                      (2 if (use_hourly and h_bh[s].active) else 0) + \
+                      (1 if (use_15m and m15_bh[s].active) else 0)
                 if (tf >= 6 and abs(tgt) > 0.15 and not np.isclose(tgt, 0.0) and h_bh[s].ctl >= 5):
                     pos_floor[s] = max(pos_floor[s], 0.70 * abs(tgt))
                 if pos_floor[s] > 0.0 and tf >= 4 and not np.isclose(last_frac[s], 0.0):
@@ -434,7 +482,7 @@ def print_stats(equity_curve, trades, peak):
 # ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("Downloading data...")
-    daily, hourly = download_data()
-    print("\nRunning backtest (2010-present, Geeky params)...")
-    eq, tr, pk = run_backtest(daily, hourly)
+    daily, hourly, intra15m = download_data()
+    print("\nRunning backtest (2010-present, Geeky params, 3-timeframe BH)...")
+    eq, tr, pk = run_backtest(daily, hourly, intra15m)
     print_stats(eq, tr, pk)

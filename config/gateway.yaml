@@ -1,0 +1,66 @@
+# gateway.yaml — Go Gateway Configuration
+---
+
+server:
+  listen_addr: ":9000"
+  read_timeout_s: 30
+  write_timeout_s: 30
+  idle_timeout_s: 60
+  shutdown_grace_s: 10
+
+backend:
+  url: "http://localhost:8000"
+  timeout_s: 120              # Long timeout for backtests
+  max_idle_conns: 20
+  max_conns_per_host: 50
+
+auth:
+  enabled: true
+  jwt_secret: "${JWT_SECRET}"
+  jwt_expiry_hours: 24
+  # Paths excluded from auth
+  public_paths:
+    - "/health"
+    - "/metrics"
+    - "/auth/token"
+
+rate_limit:
+  enabled: true
+  # Per-user rate limits (requests per minute)
+  default_per_min: 60
+  per_endpoint:
+    "POST /api/backtest":    10
+    "POST /api/mc":           5
+    "POST /api/sensitivity":  5
+    "POST /api/report":       3
+
+cors:
+  allowed_origins:
+    - "http://localhost:5173"
+    - "http://localhost:5174"
+    - "https://srfm-lab.local"
+  allowed_methods:
+    - GET
+    - POST
+    - OPTIONS
+  allowed_headers:
+    - Content-Type
+    - Authorization
+  allow_credentials: true
+  max_age_s: 3600
+
+websocket:
+  # Maximum concurrent connections per user
+  max_per_user: 5
+  # Ping interval to keep connections alive
+  ping_interval_s: 30
+  # Maximum message size (bytes)
+  max_message_size: 1048576   # 1 MB
+  # Read/write deadlines
+  read_deadline_s: 60
+  write_deadline_s: 10
+
+logging:
+  level: info
+  format: json
+  output: stdout

@@ -1,0 +1,134 @@
+# alert_rules.yaml — SRFM Lab Alert Configuration
+# Alerts are sent to the dashboard and optionally to Slack/email.
+---
+
+alerts:
+
+  # ── BH State Alerts ──────────────────────────────────────────────────────
+  bh_formation:
+    enabled: true
+    level: INFO
+    condition: "bh_formed == true"
+    message: "BH formation on {symbol} {timeframe}: mass={mass:.2f} dir={direction} regime={regime}"
+    cooldown_minutes: 60          # Don't spam on every bar
+
+  bh_collapse:
+    enabled: true
+    level: INFO
+    condition: "bh_collapsed == true"
+    message: "BH collapsed on {symbol} {timeframe}: duration={duration_bars} bars"
+    cooldown_minutes: 0
+
+  tf_score_high:
+    enabled: true
+    level: WARNING
+    condition: "tf_score >= 6"
+    message: "High conviction signal: {symbol} tf_score={tf_score} mass_1d={mass_1d:.2f}"
+    cooldown_minutes: 240
+
+  bh_mass_spike:
+    enabled: true
+    level: WARNING
+    condition: "mass > 5.0"
+    message: "BH mass spike on {symbol}: mass={mass:.2f} (unusual, verify)"
+    cooldown_minutes: 360
+
+  # ── Risk Alerts ───────────────────────────────────────────────────────────
+  drawdown_10pct:
+    enabled: true
+    level: WARNING
+    condition: "drawdown_pct < -0.10"
+    message: "Portfolio drawdown at {drawdown_pct:.1%} — approaching circuit breaker threshold"
+    cooldown_minutes: 60
+
+  drawdown_circuit_breaker:
+    enabled: true
+    level: CRITICAL
+    condition: "drawdown_pct < -0.15"
+    message: "CIRCUIT BREAKER FIRED: drawdown={drawdown_pct:.1%}. Closing all positions."
+    cooldown_minutes: 0           # Always alert
+
+  daily_loss_limit:
+    enabled: true
+    level: CRITICAL
+    condition: "day_pnl_pct < -0.02"
+    message: "DAILY LOSS LIMIT: day P&L={day_pnl_pct:.1%}. No new entries today."
+    cooldown_minutes: 0
+
+  equity_floor:
+    enabled: true
+    level: CRITICAL
+    condition: "equity < initial_equity * 0.70"
+    message: "EQUITY FLOOR: equity={equity:.0f} ({pct_of_initial:.1%} of initial). HALT."
+    cooldown_minutes: 0
+
+  loss_streak:
+    enabled: true
+    level: WARNING
+    condition: "consecutive_losses >= 5"
+    message: "Loss streak: {consecutive_losses} consecutive losses. Reducing position sizes."
+    cooldown_minutes: 120
+
+  # ── Position Alerts ────────────────────────────────────────────────────────
+  position_opened:
+    enabled: true
+    level: INFO
+    condition: "order_filled and side == 'buy'"
+    message: "Opened {side} {symbol}: qty={qty:.2f} @ {price:.2f} tf_score={tf_score}"
+
+  position_closed:
+    enabled: true
+    level: INFO
+    condition: "order_filled and exit == true"
+    message: "Closed {symbol}: P&L={pnl_dollar:+.0f} ({pnl_pct:+.2%}) hold={hold_bars}bars reason={exit_reason}"
+
+  # ── Regime Alerts ─────────────────────────────────────────────────────────
+  regime_change:
+    enabled: true
+    level: INFO
+    condition: "regime_changed == true"
+    message: "Regime change on {symbol}: {old_regime} → {new_regime}"
+    cooldown_minutes: 0
+
+  # ── Data Quality Alerts ───────────────────────────────────────────────────
+  stale_data:
+    enabled: true
+    level: ERROR
+    condition: "last_bar_age_minutes > 20"
+    message: "Stale data for {symbol}: last bar {last_bar_age_minutes} minutes ago"
+    cooldown_minutes: 10
+
+  connection_lost:
+    enabled: true
+    level: CRITICAL
+    condition: "alpaca_connected == false"
+    message: "ALPACA CONNECTION LOST. Trading halted until reconnected."
+    cooldown_minutes: 0
+
+notification_channels:
+  # Dashboard WebSocket (always enabled)
+  dashboard:
+    enabled: true
+    min_level: INFO
+
+  # Log file
+  log:
+    enabled: true
+    min_level: INFO
+    file: "spacetime/logs/alerts.log"
+
+  # Slack (optional — set SLACK_WEBHOOK_URL in environment)
+  slack:
+    enabled: false
+    min_level: WARNING
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+
+  # Email (optional)
+  email:
+    enabled: false
+    min_level: CRITICAL
+    smtp_host: "${SMTP_HOST}"
+    smtp_port: 587
+    from: "${ALERT_FROM_EMAIL}"
+    to:
+      - "${ALERT_TO_EMAIL}"

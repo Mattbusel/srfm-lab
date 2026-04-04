@@ -1,0 +1,91 @@
+# risk_limits.yaml — SRFM Lab Risk Management Configuration
+# All limits are enforced by the live trader circuit breaker logic.
+---
+
+portfolio:
+  # Maximum total drawdown before all positions are closed
+  max_drawdown_pct: 0.15          # 15% from HWM
+
+  # Maximum single-day loss as a fraction of equity
+  max_daily_loss_pct: 0.02        # 2% daily loss limit
+
+  # Maximum total portfolio exposure (sum of abs position fracs)
+  max_gross_exposure: 1.50        # 150% (allows modest leverage)
+
+  # Maximum net exposure (long - short as fraction)
+  max_net_exposure: 1.00          # 100%
+
+  # Minimum cash buffer (never fully invest)
+  min_cash_buffer_pct: 0.05       # 5% always in cash
+
+  # Maximum number of open positions simultaneously
+  max_open_positions: 8
+
+  # Daily equity snapshot for drawdown tracking
+  equity_snapshot_hour_utc: 21    # 9 PM UTC (after US close)
+
+per_instrument:
+  # Default maximum position fraction for any single instrument
+  default_max_frac: 0.65          # TF_CAP[7] = 65%
+
+  # Hard dollar caps for illiquid instruments
+  notional_caps:
+    NQ:   400000     # $400K notional max
+    NG:   200000     # $200K notional max
+    VX:   150000     # $150K notional max
+    VIXY: 150000     # Same as VX
+
+  # Minimum position size (don't bother with tiny trades)
+  min_position_usd: 1000
+
+  # Override bh_form for noisy instruments
+  bh_form_overrides:
+    CL: 1.8
+    NG: 1.8
+    VX: 1.8
+
+  # Minimum tf_score required to enter (per asset class)
+  min_tf_score:
+    equity_index: 2
+    commodity:    3
+    bond:         2
+    volatility:   3
+    crypto:       2
+    forex:        2
+
+circuit_breakers:
+  # Pause all trading if equity drops below this multiple of initial
+  equity_floor_pct: 0.70          # 30% max loss from initial
+
+  # Cool-down period after a circuit breaker fires (bars)
+  cooldown_bars: 5
+
+  # Consecutive losing trades before reducing position sizes
+  loss_streak_reduction:
+    trigger_n_losses: 5
+    size_multiplier: 0.70
+
+  # BH mass spike alert (unusual formation — verify manually)
+  bh_mass_spike_threshold: 5.0   # Alert if mass > 5.0 (usually capped at 20)
+
+slippage:
+  # Assumed slippage for backtests (basis points, varies by instrument)
+  default_bps: 5.0
+
+  # Per-instrument slippage overrides
+  overrides:
+    NQ:   8.0
+    NG:   12.0
+    VX:   15.0
+    DOGE: 20.0
+    SHIB: 30.0
+
+commission:
+  # Stock ETF: Alpaca NBBO (zero commission, but spread cost modeled)
+  stock_pct: 0.0
+
+  # Crypto: Alpaca charges 0.15% per trade
+  crypto_pct: 0.0015
+
+  # Per-share commission for option-like instruments
+  per_share: 0.0

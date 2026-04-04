@@ -1,6 +1,6 @@
 [package]
 name = "larsa-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [lib]
@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pyo3 = { version = "0.22", features = ["extension-module"] }
+rand = "0.8"
 
 [features]
 default = ["pyo3/extension-module"]

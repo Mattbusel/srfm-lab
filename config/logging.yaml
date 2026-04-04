@@ -1,0 +1,102 @@
+# logging.yaml — SRFM Lab Logging Configuration
+# Used by Python services via logging.config.dictConfig
+---
+
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  standard:
+    format: "%(asctime)s  %(levelname)-7s  %(name)s  %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+  json:
+    class: pythonjsonlogger.jsonlogger.JsonFormatter
+    format: "%(asctime)s %(levelname)s %(name)s %(message)s"
+  rich:
+    class: rich.logging.RichHandler
+    rich_tracebacks: true
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: standard
+    stream: ext://sys.stdout
+
+  api_file:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: standard
+    filename: spacetime/logs/api.log
+    maxBytes: 10485760      # 10 MB
+    backupCount: 5
+
+  trader_file:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: standard
+    filename: spacetime/logs/live_trader.log
+    maxBytes: 10485760
+    backupCount: 10
+
+  alerts_file:
+    class: logging.handlers.RotatingFileHandler
+    level: WARNING
+    formatter: standard
+    filename: spacetime/logs/alerts.log
+    maxBytes: 5242880       # 5 MB
+    backupCount: 10
+
+  error_file:
+    class: logging.handlers.RotatingFileHandler
+    level: ERROR
+    formatter: standard
+    filename: spacetime/logs/errors.log
+    maxBytes: 10485760
+    backupCount: 5
+
+loggers:
+  # API server
+  spacetime.api:
+    level: INFO
+    handlers: [console, api_file]
+    propagate: false
+
+  # BH engine
+  spacetime.engine:
+    level: INFO
+    handlers: [console, api_file]
+    propagate: false
+
+  # Live trader
+  live_trader:
+    level: INFO
+    handlers: [console, trader_file, alerts_file]
+    propagate: false
+
+  # DuckDB
+  duckdb.setup:
+    level: INFO
+    handlers: [console]
+    propagate: false
+
+  # FastAPI / uvicorn internals (suppress verbose access logs)
+  uvicorn.access:
+    level: WARNING
+    handlers: [api_file]
+    propagate: false
+
+  uvicorn.error:
+    level: INFO
+    handlers: [console, error_file]
+    propagate: false
+
+  # Alpaca SDK
+  alpaca:
+    level: WARNING
+    handlers: [trader_file]
+    propagate: false
+
+root:
+  level: WARNING
+  handlers: [console, error_file]

@@ -1,0 +1,22 @@
+[workspace]
+members = [
+    "crates/larsa-core",
+    "crates/orderbook-sim",
+    "crates/portfolio-engine",
+    "crates/risk-engine",
+    "crates/regime-detector",
+    "crates/data-pipeline",
+]
+resolver = "2"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
+nalgebra = "0.33"
+statrs = "0.17"
+rayon = "1"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+thiserror = "1"

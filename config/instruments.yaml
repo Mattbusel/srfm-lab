@@ -1,0 +1,407 @@
+# instruments.yaml — SRFM Lab Instrument Universe
+# Full configuration for all tradeable instruments.
+# CF values are calibrated to ~1 sigma of returns per timeframe.
+# bh_form is the mass threshold at which a BH forms (default 1.5).
+# bh_collapse is the mass level at which the BH dissolves (default 1.0).
+# bh_decay is the per-bar mass decay multiplier (default 0.95).
+---
+
+instruments:
+
+  # ── Equity Indices ────────────────────────────────────────────────────────
+  ES:
+    name: "S&P 500 E-mini Futures (via SPY)"
+    asset_class: equity_index
+    base_currency: USD
+    quote_currency: USD
+    alpaca_ticker: SPY
+    type: stock
+    tick_size: 0.01
+    lot_size: 1.0
+    margin_rate: 0.0
+    cf_15m: 0.00030
+    cf_1h:  0.00100
+    cf_1d:  0.00500
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: equity_us
+    is_active: true
+    notes: "Core equity index. Proxy via SPY ETF on Alpaca."
+
+  NQ:
+    name: "Nasdaq 100 E-mini Futures (via QQQ)"
+    asset_class: equity_index
+    base_currency: USD
+    quote_currency: USD
+    alpaca_ticker: QQQ
+    type: stock
+    tick_size: 0.01
+    cf_15m: 0.00040
+    cf_1h:  0.00120
+    cf_1d:  0.00600
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: equity_us
+    is_active: true
+    notes: "High beta relative to ES. BH formations more frequent."
+
+  YM:
+    name: "Dow Jones E-mini Futures (via DIA)"
+    asset_class: equity_index
+    base_currency: USD
+    quote_currency: USD
+    alpaca_ticker: DIA
+    type: stock
+    tick_size: 0.01
+    cf_15m: 0.00025
+    cf_1h:  0.00080
+    cf_1d:  0.00400
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: equity_us
+    is_active: true
+
+  RTY:
+    name: "Russell 2000 Futures (via IWM)"
+    asset_class: equity_index
+    base_currency: USD
+    quote_currency: USD
+    alpaca_ticker: IWM
+    type: stock
+    tick_size: 0.01
+    cf_15m: 0.00035
+    cf_1h:  0.00110
+    cf_1d:  0.00550
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: equity_us
+    is_active: false
+    notes: "Small-cap equity. Higher vol than ES/NQ/YM."
+
+  # ── Energy Commodities ────────────────────────────────────────────────────
+  CL:
+    name: "Crude Oil WTI Futures (via USO)"
+    asset_class: commodity
+    base_currency: USD
+    quote_currency: USD
+    alpaca_ticker: USO
+    type: stock
+    tick_size: 0.01
+    cf_15m: 0.00150
+    cf_1h:  0.00400
+    cf_1d:  0.01500
+    bh_form: 1.8
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: energy
+    is_active: true
+    notes: "Noisy. Higher bh_form (1.8) to filter false formations."
+
+  NG:
+    name: "Natural Gas Futures (via UNG)"
+    asset_class: commodity
+    base_currency: USD
+    quote_currency: USD
+    alpaca_ticker: UNG
+    type: stock
+    tick_size: 0.001
+    cf_15m: 0.00200
+    cf_1h:  0.00600
+    cf_1d:  0.02000
+    bh_form: 1.8
+    bh_collapse: 1.0
+    bh_decay: 0.92
+    corr_group: energy
+    is_active: true
+    notes: "Very volatile. Faster decay (0.92). Position cap $200K notional."
+
+  # ── Metals ────────────────────────────────────────────────────────────────
+  GC:
+    name: "Gold Futures (via GLD)"
+    asset_class: commodity
+    base_currency: USD
+    quote_currency: USD
+    alpaca_ticker: GLD
+    type: stock
+    tick_size: 0.10
+    cf_15m: 0.00080
+    cf_1h:  0.00250
+    cf_1d:  0.00800
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: metals
+    is_active: true
+    notes: "Safe-haven asset. Often counter-trend to ES. Clean BH formations."
+
+  SI:
+    name: "Silver Futures (via SLV)"
+    asset_class: commodity
+    base_currency: USD
+    quote_currency: USD
+    alpaca_ticker: SLV
+    type: stock
+    tick_size: 0.005
+    cf_15m: 0.00080
+    cf_1h:  0.00250
+    cf_1d:  0.00800
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: metals
+    is_active: false
+
+  # ── Bonds ─────────────────────────────────────────────────────────────────
+  ZB:
+    name: "30-Year US Treasury Bond Futures (via TLT)"
+    asset_class: bond
+    base_currency: USD
+    quote_currency: USD
+    alpaca_ticker: TLT
+    type: stock
+    tick_size: 0.015625
+    cf_15m: 0.00050
+    cf_1h:  0.00150
+    cf_1d:  0.00500
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: bonds_us
+    is_active: true
+    notes: "Long duration. Negative correlation to equities in risk-off. Clean trend."
+
+  ZN:
+    name: "10-Year US Treasury Note Futures (via IEF)"
+    asset_class: bond
+    base_currency: USD
+    quote_currency: USD
+    alpaca_ticker: IEF
+    type: stock
+    tick_size: 0.015625
+    cf_15m: 0.00030
+    cf_1h:  0.00100
+    cf_1d:  0.00350
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: bonds_us
+    is_active: false
+
+  # ── Volatility ────────────────────────────────────────────────────────────
+  VX:
+    name: "VIX Futures (via VIXY)"
+    asset_class: volatility
+    base_currency: USD
+    quote_currency: USD
+    alpaca_ticker: VIXY
+    type: stock
+    tick_size: 0.05
+    cf_15m: 0.00300
+    cf_1h:  0.00800
+    cf_1d:  0.02500
+    bh_form: 1.8
+    bh_collapse: 1.0
+    bh_decay: 0.92
+    corr_group: volatility
+    is_active: true
+    notes: >
+      Structural VIX term structure headwind (contango).
+      Position cap $150K notional. Faster decay (0.92).
+      Uncorrelated to all other instruments.
+
+  # ── Crypto — Large Cap ────────────────────────────────────────────────────
+  BTC:
+    name: "Bitcoin"
+    asset_class: crypto
+    base_currency: BTC
+    quote_currency: USD
+    alpaca_ticker: "BTC/USD"
+    type: crypto
+    tick_size: 1.0
+    cf_15m: 0.00500
+    cf_1h:  0.01500
+    cf_1d:  0.05000
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: crypto_large
+    is_active: true
+
+  ETH:
+    name: "Ethereum"
+    asset_class: crypto
+    base_currency: ETH
+    quote_currency: USD
+    alpaca_ticker: "ETH/USD"
+    type: crypto
+    tick_size: 0.01
+    cf_15m: 0.00700
+    cf_1h:  0.02000
+    cf_1d:  0.07000
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: crypto_large
+    is_active: true
+
+  SOL:
+    name: "Solana"
+    asset_class: crypto
+    base_currency: SOL
+    quote_currency: USD
+    alpaca_ticker: "SOL/USD"
+    type: crypto
+    tick_size: 0.01
+    cf_15m: 0.01000
+    cf_1h:  0.03000
+    cf_1d:  0.10000
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: crypto_mid
+    is_active: true
+
+  XRP:
+    name: "Ripple XRP"
+    asset_class: crypto
+    base_currency: XRP
+    quote_currency: USD
+    alpaca_ticker: "XRP/USD"
+    type: crypto
+    tick_size: 0.0001
+    cf_15m: 0.01000
+    cf_1h:  0.03000
+    cf_1d:  0.10000
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: crypto_mid
+    is_active: false
+
+  AVAX:
+    name: "Avalanche"
+    asset_class: crypto
+    base_currency: AVAX
+    quote_currency: USD
+    alpaca_ticker: "AVAX/USD"
+    type: crypto
+    tick_size: 0.001
+    cf_15m: 0.01200
+    cf_1h:  0.03500
+    cf_1d:  0.12000
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: crypto_mid
+    is_active: false
+
+  LINK:
+    name: "Chainlink"
+    asset_class: crypto
+    base_currency: LINK
+    quote_currency: USD
+    alpaca_ticker: "LINK/USD"
+    type: crypto
+    tick_size: 0.001
+    cf_15m: 0.01200
+    cf_1h:  0.03500
+    cf_1d:  0.12000
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: crypto_mid
+    is_active: false
+
+  DOGE:
+    name: "Dogecoin"
+    asset_class: crypto
+    base_currency: DOGE
+    quote_currency: USD
+    alpaca_ticker: "DOGE/USD"
+    type: crypto
+    tick_size: 0.00001
+    cf_15m: 0.02000
+    cf_1h:  0.06000
+    cf_1d:  0.20000
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: crypto_small
+    is_active: false
+    notes: "High meme-vol. BH formations unreliable due to social media spikes."
+
+  # ── Forex ─────────────────────────────────────────────────────────────────
+  EURUSD:
+    name: "Euro / US Dollar"
+    asset_class: forex
+    base_currency: EUR
+    quote_currency: USD
+    alpaca_ticker: null
+    type: forex
+    tick_size: 0.00001
+    cf_15m: 0.00050
+    cf_1h:  0.00150
+    cf_1d:  0.00500
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: forex_majors
+    is_active: false
+    notes: "Not available on Alpaca. Use IBKR or OANDA for live trading."
+
+  GBPUSD:
+    name: "British Pound / US Dollar"
+    asset_class: forex
+    base_currency: GBP
+    quote_currency: USD
+    alpaca_ticker: null
+    type: forex
+    tick_size: 0.00001
+    cf_15m: 0.00060
+    cf_1h:  0.00180
+    cf_1d:  0.00600
+    bh_form: 1.5
+    bh_collapse: 1.0
+    bh_decay: 0.95
+    corr_group: forex_majors
+    is_active: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Correlation groups (used for portfolio risk aggregation)
+# Instruments in the same group have higher BH activation correlation.
+# ─────────────────────────────────────────────────────────────────────────────
+correlation_groups:
+  equity_us:
+    description: "US equity indices (ES, NQ, YM). High BH co-occurrence (~0.65)."
+    expected_corr: 0.65
+  energy:
+    description: "Energy commodities (CL, NG). Semi-independent BH events (~0.25)."
+    expected_corr: 0.25
+  metals:
+    description: "Precious metals (GC, SI). Often counter-equity BH events (~0.20)."
+    expected_corr: 0.20
+  bonds_us:
+    description: "US Treasuries (ZB, ZN). Low BH correlation to equities (~0.08)."
+    expected_corr: 0.08
+  volatility:
+    description: "VIX products. Structurally uncorrelated to all other groups (~0.15)."
+    expected_corr: 0.15
+  crypto_large:
+    description: "BTC, ETH. High intra-group correlation (~0.72)."
+    expected_corr: 0.72
+  crypto_mid:
+    description: "SOL, XRP, AVAX, LINK. Moderately correlated (~0.55)."
+    expected_corr: 0.55
+  crypto_small:
+    description: "DOGE, SHIB, etc. High noise. Use with caution."
+    expected_corr: 0.50
+  crypto_defi:
+    description: "UNI, AAVE, CRV, SUSHI. DeFi sector correlation (~0.60)."
+    expected_corr: 0.60
+  forex_majors:
+    description: "Major FX pairs. Low correlation to other asset classes."
+    expected_corr: 0.40

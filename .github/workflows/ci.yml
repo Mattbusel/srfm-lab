@@ -1,0 +1,279 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "18"
+  GO_VERSION: "1.21"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Python — lint, type-check, test
+  # ─────────────────────────────────────────────────────────────────────────────
+  python:
+    name: Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov ruff mypy
+
+      - name: Lint with ruff
+        run: ruff check spacetime/ tools/ scripts/
+
+      - name: Type check with mypy
+        run: mypy spacetime/engine/ spacetime/api/ --ignore-missing-imports
+        continue-on-error: true  # Non-blocking until stubs are complete
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=spacetime \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -v \
+            --tb=short
+        env:
+          PYTHONPATH: .
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Rust — build and test all crates
+  # ─────────────────────────────────────────────────────────────────────────────
+  rust:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy lint
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build
+        run: cargo build --release --all
+
+      - name: Run tests
+        run: cargo test --all --release
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Python extension (PyO3 / maturin)
+  # ─────────────────────────────────────────────────────────────────────────────
+  python-extension:
+    name: Build Python extension
+    runs-on: ubuntu-latest
+    needs: rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build extension
+        working-directory: extensions
+        run: maturin build --release
+
+      - name: Test extension import
+        run: |
+          pip install target/wheels/*.whl --force-reinstall
+          python -c "from srfm_core import BlackHoleDetector; print('Extension OK')"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Go — build and test gateway
+  # ─────────────────────────────────────────────────────────────────────────────
+  go:
+    name: Go tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l ./cmd/...)"
+
+      - name: Lint with golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          working-directory: .
+          args: --timeout=5m ./cmd/...
+
+      - name: Run tests
+        run: go test ./cmd/... ./lib/... -v -race -count=1
+        timeout-minutes: 10
+
+      - name: Build gateway
+        run: go build -o bin/gateway ./cmd/gateway/
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # TypeScript — Arena web app
+  # ─────────────────────────────────────────────────────────────────────────────
+  typescript-arena:
+    name: TypeScript build (Arena)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: spacetime/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: spacetime/web
+        run: npm ci
+
+      - name: Lint
+        working-directory: spacetime/web
+        run: npm run lint
+
+      - name: Type check
+        working-directory: spacetime/web
+        run: npx tsc --noEmit
+
+      - name: Build
+        working-directory: spacetime/web
+        run: npm run build
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # TypeScript — Terminal web app
+  # ─────────────────────────────────────────────────────────────────────────────
+  typescript-terminal:
+    name: TypeScript build (Terminal)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: terminal/package-lock.json
+
+      - name: Install dependencies
+        working-directory: terminal
+        run: npm ci
+
+      - name: Build
+        working-directory: terminal
+        run: npm run build
+        continue-on-error: true  # terminal is in development
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Julia tests (if julia directory exists)
+  # ─────────────────────────────────────────────────────────────────────────────
+  julia:
+    name: Julia tests
+    runs-on: ubuntu-latest
+    if: hashFiles('julia/Project.toml') != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.9"
+
+      - uses: julia-actions/cache@v2
+
+      - name: Install dependencies
+        run: |
+          julia --project=julia -e "using Pkg; Pkg.instantiate()"
+
+      - name: Run tests
+        run: |
+          julia --project=julia -e "using Pkg; Pkg.test()"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # SQL validation — basic syntax check on warehouse SQL files
+  # ─────────────────────────────────────────────────────────────────────────────
+  sql-lint:
+    name: SQL lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install sqlfluff
+        run: pip install sqlfluff
+
+      - name: Lint warehouse SQL
+        run: |
+          sqlfluff lint warehouse/schema/ \
+            --dialect postgres \
+            --exclude-rules L016,L019,L031 \
+            --max-line-length 120
+        continue-on-error: true  # Non-blocking until all SQL is formatted
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Integration test — spin up API and run smoke test
+  # ─────────────────────────────────────────────────────────────────────────────
+  integration:
+    name: Integration smoke test
+    runs-on: ubuntu-latest
+    needs: [python, rust, python-extension]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start API server
+        run: |
+          python -m uvicorn spacetime.api.main:app --host 0.0.0.0 --port 8000 &
+          sleep 5
+        env:
+          PYTHONPATH: .
+
+      - name: Smoke test API endpoints
+        run: |
+          curl -sf http://localhost:8000/docs > /dev/null
+          curl -sf http://localhost:8000/api/instruments > /dev/null
+          echo "API smoke test passed"

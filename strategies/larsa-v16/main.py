@@ -67,9 +67,9 @@ INST_CAPS = {
 # Higher BH formation threshold for noisy instruments — require stronger signal before entry
 # CL/NG/VX are prone to false formations; GC/ZB trend cleanly once they break
 BH_FORM_OVERRIDE = {
-    "CL": 2.0,
-    "NG": 2.0,
-    "VX": 2.0,
+    "CL": 1.8,
+    "NG": 1.8,
+    "VX": 1.8,
 }
 
 ALL_SYMS = ["ES", "NQ", "YM", "CL", "GC", "ZB", "NG", "VX"]

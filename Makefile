@@ -1,18 +1,136 @@
 # SRFM Lab Makefile
-# Usage examples:
-#   make backtest s=larsa-v1
-#   make sweep s=larsa-v1 param=BH_FORM min=0.5 max=3.0 step=0.25
-#   make compare s=larsa-v1
-#   make new name=experiment-1
-#   make research s=larsa-v1
-#   make wells ticker=ES start=20200101 end=20240101
+# Usage:  make help  (shows all targets)
+#
+# Quick start:
+#   make install
+#   make backtest s=larsa-v16
+#   make run-api
+#   make run-terminal
 
-SHELL   := bash
+SHELL     := bash
 TIMESTAMP := $(shell date +%Y%m%d_%H%M%S)
+PYTHON    := python
+PIP       := pip
+CARGO     := cargo
+GO        := go
+NPM       := npm
 
-# ── Backtest ──────────────────────────────────────────────────────────────────
+.DEFAULT_GOAL := help
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Install / build
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: install
+install: ## Install all dependencies (Python, Rust, Node, Go)
+	$(PIP) install -r requirements.txt
+	$(CARGO) build --release
+	cd spacetime/web && $(NPM) install && cd ../..
+	cd terminal && $(NPM) install && cd ..
+	@echo "All dependencies installed."
+
+.PHONY: install-python
+install-python: ## Install Python dependencies only
+	$(PIP) install -r requirements.txt
+
+.PHONY: build
+build: build-rust build-ext build-web ## Build all artifacts
+
+.PHONY: build-rust
+build-rust: ## Build all Rust crates
+	$(CARGO) build --release --all
+
+.PHONY: build-ext
+build-ext: ## Build PyO3 Python extension via maturin
+	cd extensions && python -m maturin develop --release
+	@echo "Extension installed: srfm_core"
+
+.PHONY: build-web
+build-web: ## Build both React apps for production
+	cd spacetime/web && $(NPM) run build
+	cd terminal && $(NPM) run build
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Testing
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: test
+test: test-python test-rust test-go ## Run all tests
+
+.PHONY: test-python
+test-python: ## Run Python test suite with coverage
+	pytest tests/ --cov=spacetime --cov-report=term-missing -v --tb=short
+
+.PHONY: test-rust
+test-rust: ## Run Rust tests
+	$(CARGO) test --all
+
+.PHONY: test-go
+test-go: ## Run Go tests
+	$(GO) test ./cmd/... -v -race
+
+.PHONY: test-quick
+test-quick: ## Run fast tests only (no integration)
+	pytest tests/ -m "not slow" -v --tb=short
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Code quality
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: lint
+lint: ## Lint Python, Rust, Go
+	ruff check spacetime/ tools/ scripts/
+	$(CARGO) clippy --all-targets --all-features -- -D warnings
+	test -z "$$(gofmt -l ./cmd/...)"
+
+.PHONY: fmt
+fmt: ## Format all code
+	ruff format spacetime/ tools/ scripts/
+	$(CARGO) fmt --all
+	gofmt -w ./cmd/...
+	cd spacetime/web && $(NPM) run lint -- --fix
+	cd terminal && $(NPM) run lint -- --fix 2>/dev/null || true
+
+.PHONY: typecheck
+typecheck: ## Run mypy type checks
+	mypy spacetime/engine/ spacetime/api/ --ignore-missing-imports
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Running services
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: run-api
+run-api: ## Start Spacetime Arena FastAPI server (port 8000)
+	PYTHONPATH=. uvicorn spacetime.api.main:app \
+		--host 0.0.0.0 --port 8000 --reload \
+		--log-level info
+
+.PHONY: run-terminal
+run-terminal: ## Start Spacetime Arena Vite dev server (port 5173)
+	cd spacetime/web && $(NPM) run dev -- --port 5173
+
+.PHONY: run-terminal-app
+run-terminal-app: ## Start portfolio Terminal Vite dev server (port 5174)
+	cd terminal && $(NPM) run dev -- --port 5174
+
+.PHONY: run-gateway
+run-gateway: ## Start Go gateway (port 9000)
+	$(GO) run ./cmd/gateway/
+
+.PHONY: run-all
+run-all: ## Start API + Arena + Gateway concurrently (requires tmux or separate terminals)
+	@echo "Starting all services..."
+	@echo "  API:      http://localhost:8000"
+	@echo "  Arena:    http://localhost:5173"
+	@echo "  Terminal: http://localhost:5174"
+	@echo "  Gateway:  http://localhost:9000"
+	@echo ""
+	@echo "Run in separate terminals:"
+	@echo "  make run-api"
+	@echo "  make run-terminal"
+	@echo "  make run-gateway"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Backtesting
+# ─────────────────────────────────────────────────────────────────────────────
 .PHONY: backtest
-backtest:
+backtest: ## Run LEAN backtest: make backtest s=larsa-v16
 ifndef s
 	$(error Usage: make backtest s=<strategy-name>)
 endif
@@ -20,584 +138,494 @@ endif
 	@echo ""
 	@echo "Done. To compare: make compare s=$(s)"
 
-# ── Sweep ─────────────────────────────────────────────────────────────────────
+.PHONY: local
+local: ## Run Spacetime Arena local backtest: make local s=larsa-v16
+ifndef s
+	$(error Usage: make local s=larsa-v16)
+endif
+	PYTHONPATH=. $(PYTHON) -c "
+from spacetime.engine.bh_engine import run_backtest_from_config
+result = run_backtest_from_config('strategies/$(s)')
+print(result.summary())
+"
+
 .PHONY: sweep
-sweep:
+sweep: ## Parameter sweep: make sweep s=larsa-v16 param=BH_FORM min=1.0 max=2.5 step=0.25
 ifndef s
 	$(error Usage: make sweep s=<strategy> param=<PARAM> min=<min> max=<max> step=<step>)
 endif
-	python tools/param_sweep.py strategies/$(s) $(param) $(min) $(max) $(step)
+	$(PYTHON) tools/param_sweep.py strategies/$(s) $(param) $(min) $(max) $(step)
 
-# ── Compare ───────────────────────────────────────────────────────────────────
 .PHONY: compare
-compare:
+compare: ## Compare all runs for a strategy: make compare s=larsa-v16
 ifndef s
 	$(error Usage: make compare s=<strategy-name>)
 endif
-	python tools/compare.py results/$(s)
+	$(PYTHON) tools/compare.py results/$(s)
 
-# ── Compare two strategies ────────────────────────────────────────────────────
 .PHONY: compare2
-compare2:
+compare2: ## Compare two strategies: make compare2 s1=larsa-v14 s2=larsa-v16
 ifndef s1
 	$(error Usage: make compare2 s1=larsa-v1 s2=larsa-v2)
 endif
-	python tools/compare.py results/$(s1) results/$(s2) --chart
+	$(PYTHON) tools/compare.py results/$(s1) results/$(s2) --chart
 
-# ── New experiment ────────────────────────────────────────────────────────────
+.PHONY: sensitivity
+sensitivity: ## Sensitivity analysis: make sensitivity s=larsa-v16
+ifndef s
+	$(error Usage: make sensitivity s=larsa-v16)
+endif
+	PYTHONPATH=. $(PYTHON) tools/risk_sensitivity.py --strategy $(s)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Live trading
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: run-live
+run-live: ## Start live Alpaca trader (reads .env for keys)
+	@if [ -f .env ]; then export $$(cat .env | xargs); fi; \
+	$(PYTHON) tools/live_trader_alpaca.py
+
+.PHONY: run-paper
+run-paper: ## Same as run-live but forces paper trading URL
+	@if [ -f .env ]; then export $$(cat .env | xargs); fi; \
+	ALPACA_BASE_URL=https://paper-api.alpaca.markets \
+	$(PYTHON) tools/live_trader_alpaca.py
+
+.PHONY: livecheck
+livecheck: ## Check live state and current positions
+	$(PYTHON) tools/live_check.py
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Data management
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: data-fetch
+data-fetch: ## Fetch bar data from Polygon: make data-fetch start=2020-01-01
+	$(PYTHON) scripts/fetch_polygon.py --all --timeframes 1d 1h 15m \
+		--start $(or $(start),2020-01-01)
+
+.PHONY: data-init
+data-init: ## Download LEAN security master
+	lean data download --dataset "US Futures Security Master"
+
+.PHONY: duckdb-setup
+duckdb-setup: ## Initialize DuckDB analytics database
+	$(PYTHON) warehouse/duckdb/setup.py
+
+.PHONY: duckdb-bh
+duckdb-bh: ## Compute and export BH state timeseries
+	$(PYTHON) warehouse/duckdb/setup.py --export-bh
+
+.PHONY: duckdb-reports
+duckdb-reports: ## Export CSV reports from DuckDB
+	$(PYTHON) warehouse/duckdb/setup.py --reports
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Database / warehouse
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: db-migrate
+db-migrate: ## Run all pending migrations
+	@for f in warehouse/migrations/*.sql; do \
+		echo "Applying $$f..."; \
+		psql $$DATABASE_URL -f "$$f" 2>&1 | tail -3; \
+	done
+
+.PHONY: db-seed
+db-seed: ## Seed instruments and reference data
+	psql $$DATABASE_URL -f warehouse/schema/06_seed_data.sql
+
+.PHONY: db-reset
+db-reset: ## Drop and recreate all tables (DESTRUCTIVE)
+	@echo "WARNING: This will destroy all data. Ctrl-C to cancel."; sleep 5
+	psql $$DATABASE_URL -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+	$(MAKE) db-migrate
+	$(MAKE) db-seed
+
+.PHONY: db-refresh-views
+db-refresh-views: ## Refresh all materialized views
+	psql $$DATABASE_URL -c "REFRESH MATERIALIZED VIEW CONCURRENTLY run_daily_metrics;"
+	psql $$DATABASE_URL -c "REFRESH MATERIALIZED VIEW CONCURRENTLY instrument_correlation_matrix;"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reports and analytics
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: report
+report: ## Generate strategy HTML report
+	$(PYTHON) tools/report_builder.py
+	@echo "Report -> results/lab_report.md"
+
+.PHONY: html-report
+html-report: ## Generate interactive HTML tearsheet
+	$(PYTHON) tools/generate_report.py
+	@echo "Report -> results/strategy_report.html"
+
+.PHONY: tearsheet
+tearsheet: ## QuantStats HTML tearsheet
+	$(PYTHON) tools/quantstats_report.py --json research/trade_analysis_data.json
+	@echo "Open results/tearsheet.html in browser"
+
+.PHONY: r-tearsheet
+r-tearsheet: ## R PerformanceAnalytics tearsheet
+	Rscript scripts/r_tearsheet.R
+
+.PHONY: r-garch
+r-garch: ## R DCC-GARCH volatility forecasts
+	Rscript scripts/r_garch.R
+
+.PHONY: r-tables
+r-tables: ## R GT publication-quality tables
+	Rscript scripts/r_tables.R
+
+.PHONY: r-install
+r-install: ## Install R packages
+	Rscript scripts/install_r_packages.R
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Strategy utilities
+# ─────────────────────────────────────────────────────────────────────────────
 .PHONY: new
-new:
+new: ## Create new strategy from template: make new name=experiment-1
 ifndef name
 	$(error Usage: make new name=<experiment-name>)
 endif
 	./scripts/new_experiment.sh $(name)
 
-# ── Research (Jupyter via lean research) ─────────────────────────────────────
 .PHONY: research
-research:
+research: ## Open Jupyter notebook for a strategy: make research s=larsa-v16
 ifndef s
 	$(error Usage: make research s=<strategy-name>)
 endif
 	lean research strategies/$(s)
 
-# ── Well detection ────────────────────────────────────────────────────────────
-.PHONY: wells
-wells:
-ifndef ticker
-	$(error Usage: make wells ticker=ES csv=data/ES_hourly.csv)
-endif
-	python tools/well_detector.py --csv $(csv) --ticker $(ticker) --plot --save-csv
-
-# ── Regime analysis ───────────────────────────────────────────────────────────
-.PHONY: regimes
-regimes:
-ifndef csv
-	$(error Usage: make regimes csv=data/ES_hourly.csv ticker=ES)
-endif
-	python tools/regime_analyzer.py --csv $(csv) --ticker $(ticker) --plot --save-csv
-
-# ── Batch run ─────────────────────────────────────────────────────────────────
-.PHONY: batch
-batch:
-ifndef s
-	$(error Usage: make batch s=larsa-v1 variants=variants.json)
-endif
-	python tools/batch_runner.py strategies/$(s) $(variants)
-
-# ── Data download ─────────────────────────────────────────────────────────────
-.PHONY: data-init
-data-init:
-	lean data download --dataset "US Futures Security Master"
-	@echo "Security master downloaded. Run 'lean data download --dataset ...' for price data."
-
-# ── Lab dashboard ────────────────────────────────────────────────────────────
-.PHONY: lab
-lab:
-	python tools/lab.py
-
-# ── Install dependencies ──────────────────────────────────────────────────────
-.PHONY: install
-install:
-	pip install lean numpy pandas matplotlib seaborn scipy
-
-# ── Clean results ─────────────────────────────────────────────────────────────
-.PHONY: clean
-clean:
-	@echo "This will delete all backtest results. Are you sure? (ctrl-c to cancel)"
-	@sleep 3
-	rm -rf results/*/[0-9]*
-
-# ── Build Rust viz tool ───────────────────────────────────────────────────────
-.PHONY: viz-build
-viz-build:
-	cd viz && cargo build --release
-	@echo "srfm-viz built -> viz/target/release/srfm-viz"
-
-# ── Build srfm-tools (pulse, drift, snap, srfm) ───────────────────────────────
-.PHONY: tools-build
-tools-build:
-	CARGO_HOME=C:/Users/Matthew/.cargo CARGO_TARGET_DIR=C:/Users/Matthew/srfm-lab/crates/srfm-tools/target \
-		C:/Users/Matthew/.cargo/bin/cargo.exe build --release --manifest-path crates/srfm-tools/Cargo.toml
-	@echo "Binaries -> crates/srfm-tools/target/release/"
-
-.PHONY: pulse
-pulse:
-	cat data/NDX_hourly_poly.csv | cut -d, -f5 | tail -50 | ./crates/srfm-tools/target/release/pulse --cf 0.005
-
-.PHONY: drift
-drift:
-	./crates/srfm-tools/target/release/drift data/ES_hourly_real.csv data/NQ_hourly_real.csv --window 60 --summary
-
-# ── Generate SRFM primitives (Python) ────────────────────────────────────────
-.PHONY: primitives
-primitives:
-	python tools/primitive_builder.py --csv data/NDX_hourly_poly.csv --cf 0.005
-	@echo "Primitives -> results/primitives.md"
-
-# ── Generate lab report (Python) ─────────────────────────────────────────────
-.PHONY: report
-report:
-	python tools/report_builder.py
-	@echo "Report -> results/lab_report.md"
-
-# ── Generate all graphics (Rust viz) ─────────────────────────────────────────
-.PHONY: graphics
-graphics: viz-build
-	@mkdir -p results/graphics
-	./viz/target/release/srfm-viz spacetime --csv data/NDX_hourly_poly.csv --cf 0.005 --out results/graphics/spacetime.svg
-	./viz/target/release/srfm-viz wells --json research/trade_analysis_data.json --out results/graphics/wells_calendar.svg
-	./viz/target/release/srfm-viz experiments --json results/v2_experiments.json --out results/graphics/experiments.svg
-	./viz/target/release/srfm-viz equity --json research/trade_analysis_data.json --out results/graphics/equity.svg
-	./viz/target/release/srfm-viz convergence --json research/trade_analysis_data.json --out results/graphics/convergence.svg
-	@echo "Graphics -> results/graphics/"
-
-# ── Full pipeline: primitives + report + graphics ────────────────────────────
-.PHONY: pipeline
-pipeline: primitives report graphics
-	@echo ""
-	@echo "Pipeline complete:"
-	@echo "  results/primitives.md"
-	@echo "  results/lab_report.md"
-	@echo "  results/graphics/*.svg"
-
-# ── Run experiment suite ──────────────────────────────────────────────────────
-.PHONY: experiments
-experiments:
-	python tools/experiment_runner.py --quick
-	@echo "Experiments -> results/v2_experiments.md"
-
-.PHONY: experiments-full
-experiments-full:
-	python tools/experiment_runner.py
-	@echo "Full experiments -> results/v2_experiments.md"
-
-# ── Deathloop detective (QC forensics) ───────────────────────────────────────
-.PHONY: deathloop
-deathloop:
-ifndef trades
-	$(error Usage: make deathloop trades=path/to/trades.csv)
-endif
-	python tools/deathloop_detective.py --trades "$(trades)"
-
-.PHONY: autopsy
-autopsy:
-	python tools/srfm_autopsy.py
-
-# ── v8 multi-resolution arena ────────────────────────────────────────────────
-.PHONY: arena-v8
-arena-v8:
-	python tools/arena_v8.py --mode both --n-synth 5
-
-.PHONY: arena-v8-synth
-arena-v8-synth:
-	python tools/arena_v8.py --mode synth --n-synth 10 --no-lab
-
-.PHONY: arena-v8-real
-arena-v8-real:
-	python tools/arena_v8.py --mode real
-
-# ── Multi-instrument arena (convergence testing) ──────────────────────────────
-.PHONY: arena-multi
-arena-multi:
-	python tools/arena_multi.py --mode synth --n-worlds 5 --n-bars 20000
-
-# ── v3 design research ────────────────────────────────────────────────────────
-.PHONY: v3-design
-v3-design:
-	@echo "v3 design doc -> results/v3_design.md"
-	@echo "Run: python tools/experiment_runner.py then review results/v3_design.md"
-
-.PHONY: regime-graph
-regime-graph:
-	python tools/regime_graph.py
-	@echo "Regime graph -> results/graphics/regime_states.dot/.svg"
-
-# ── Analytics query ───────────────────────────────────────────────────────────
-.PHONY: query
-query:
-ifndef q
-	python tools/query.py schema
-else
-	python tools/query.py ask "$(q)"
-endif
-
-# ── Analytics profile ─────────────────────────────────────────────────────────
-.PHONY: profile
-profile:
-	python tools/query.py profile
-
-# ── Statistical validation (R) ───────────────────────────────────────────────
-.PHONY: stats
-stats:
-	Rscript research/statistical_validation.R
-	@echo "Statistical validation -> results/graphics/stat_*.png"
-	@echo "Report -> results/statistical_report.md"
-
-.PHONY: html-report
-html-report:
-	python tools/generate_report.py
-	@echo "Report -> results/strategy_report.html"
-
-.PHONY: dashboard
-dashboard:
-	streamlit run tools/dashboard.py --server.port 8501
-
-# ── Quick context tools ───────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Forensics / diagnostic tools
+# ─────────────────────────────────────────────────────────────────────────────
 .PHONY: what
-what:
+what: ## What was happening on a date: make what d=2024-10-14
 ifndef d
 	@echo "Usage: make what d=2024-10-14"
 else
-	python tools/what.py $(d)
+	$(PYTHON) tools/what.py $(d)
 endif
 
 .PHONY: blame
-blame:
+blame: ## P&L attribution: make blame from=2024-01-01 to=2024-12-31
 ifndef from
 	@echo "Usage: make blame from=2024-01-01 to=2024-12-31"
 else
-	python tools/blame.py --from $(from) --to $(to) --csv "C:/Users/Matthew/Downloads/Measured Red Anguilline_trades.csv"
+	$(PYTHON) tools/blame.py --from $(from) --to $(to)
 endif
-
-.PHONY: mirror
-mirror:
-ifndef d
-	@echo "Usage: make mirror d=2023-11-01"
-else
-	python tools/mirror.py --well $(d)
-endif
-
-.PHONY: cost
-cost:
-ifndef start
-	@echo "Usage: make cost start=2022-01-15 end=2022-07-15"
-else
-	python tools/cost.py --start $(start) --end $(end)
-endif
-
-.PHONY: anatomy
-anatomy:
-	python tools/anatomy.py --top 5
-	@echo "Written to ANATOMY.md"
-
-.PHONY: heat
-heat:
-	cat results/v2_experiments.json | python tools/heat.py
-
-.PHONY: well
-well:
-	cat data/NDX_hourly_poly.csv | python tools/well.py --cf 0.005
-
-.PHONY: edge
-edge:
-	python tools/edge.py "C:/Users/Matthew/Downloads/Calm Orange Mule_trades.csv" "C:/Users/Matthew/Downloads/Measured Red Anguilline_trades.csv"
-
-.PHONY: when
-when:
-ifndef p
-	@echo "Usage: make when p=-265000"
-else
-	python tools/when.py $(p)
-endif
-
-.PHONY: regime-line
-regime-line:
-	cat data/NDX_hourly_poly.csv | python tools/regime.py
-
-.PHONY: odds
-odds:
-	python tools/odds.py --regime BULL --bh_active true --convergence 2
-
-.PHONY: journal
-journal:
-	python tools/journal.py log --n 10
 
 .PHONY: why
-why:
+why: ## Why did a trade happen: make why date=2024-10-14 instrument=NQ
 ifndef date
 	@echo "Usage: make why date=2024-10-14 instrument=NQ"
 else
-	python tools/why.py --date $(date) --instrument $(instrument)
+	$(PYTHON) tools/why.py --date $(date) --instrument $(or $(instrument),ES)
 endif
 
-.PHONY: config-check
-config-check:
-	python tools/srfm_config.py strategies/larsa-v4/strategy.srfm
+.PHONY: when
+when: ## Find trade by dollar P&L: make when p=-265000
+ifndef p
+	@echo "Usage: make when p=-265000"
+else
+	$(PYTHON) tools/when.py $(p)
+endif
 
-# ── larsa-core (PyO3 Rust extension) ─────────────────────────────────────────
-.PHONY: larsa-core
-larsa-core:
-	CARGO_HOME=C:/Users/Matthew/.cargo CARGO_TARGET_DIR=C:/Users/Matthew/srfm-lab/crates/larsa-core/target \
-		python -m maturin build --release --manifest-path crates/larsa-core/Cargo.toml
-	pip install --force-reinstall crates/larsa-core/target/wheels/larsa_core-*.whl
+.PHONY: odds
+odds: ## Historical win probability given current state
+	$(PYTHON) tools/odds.py --regime BULL --bh_active true --convergence 2
 
-.PHONY: larsa-core-demo
-larsa-core-demo:
-	python tools/larsa_core_demo.py --benchmark
+.PHONY: anatomy
+anatomy: ## Dissect top N trades
+	$(PYTHON) tools/anatomy.py --top 5
+	@echo "Written to ANATOMY.md"
 
-.PHONY: larsa-core-clean
-larsa-core-clean:
-	CARGO_HOME=C:/Users/Matthew/.cargo CARGO_TARGET_DIR=C:/Users/Matthew/srfm-lab/crates/larsa-core/target \
-		cargo clean --manifest-path crates/larsa-core/Cargo.toml
-
-# ── Fast arena (Numba-JIT Python) ────────────────────────────────────────────
-.PHONY: fast-arena
-fast-arena:
-	python tools/fast_arena.py --benchmark
-
-# ── Rust parallel sweep ───────────────────────────────────────────────────────
-.PHONY: sweep-rust
-sweep-rust:
-	CARGO_HOME=C:/Users/Matthew/.cargo cargo run --manifest-path crates/srfm-tools/Cargo.toml --bin sweep --release -- --cf-range 0.001,0.015,20 --lev-range 0.30,0.80,10
-
-# ── Python parallel sweep ─────────────────────────────────────────────────────
-.PHONY: sweep-python
-sweep-python:
-	python -c "from tools.fast_arena import sweep_fast; from tools.arena_v2 import generate_synthetic; bars=generate_synthetic(20000); import json; r=sweep_fast(bars, {'cf':[0.002,0.004,0.006,0.008,0.010],'max_lev':[0.40,0.55,0.65,0.80]}); print(r.to_string())"
-
-# ── QuantStats tearsheet ────────────────────────────────────────────
-.PHONY: tearsheet
-tearsheet:
-	python tools/quantstats_report.py --json research/trade_analysis_data.json
-	@echo "Open results/tearsheet.html in browser"
-
-# ── Optuna Bayesian optimization ────────────────────────────────────
-# (sweep already defined above for param sweeps; autotuner is distinct)
-.PHONY: autotune
-autotune:
-	python tools/autotuner.py --trials 100 --csv data/NDX_hourly_poly.csv
-
-# ── Rust turbo arena ────────────────────────────────────────────────
-.PHONY: turbo
-turbo:
-	CARGO_HOME=C:/Users/Matthew/.cargo cargo build --manifest-path crates/srfm-tools/Cargo.toml --bin srfm_turbo --release
-	./crates/srfm-tools/target/release/srfm_turbo --synthetic 50000 --trials 10000
-
-# ── SHAP explainer ──────────────────────────────────────────────────
-.PHONY: explain
-explain:
-	python tools/explainer.py
-
-# ── HMM regime detection ────────────────────────────────────────────
-.PHONY: hmm
-hmm:
-	python tools/hmm_regime.py --csv data/NDX_hourly_poly.csv
-
-# ── GARCH volatility ────────────────────────────────────────────────
-.PHONY: garch
-garch:
-	python tools/garch_vol.py --csv data/NDX_hourly_poly.csv
-
-# ── Feature mining ──────────────────────────────────────────────────
-.PHONY: features
-features:
-	python tools/feature_mine.py --csv data/NDX_hourly_poly.csv
-
-# ── Kelly optimal sizing ────────────────────────────────────────────
 .PHONY: kelly
-kelly:
-	python tools/kelly.py
+kelly: ## Compute Kelly optimal sizing from trade history
+	$(PYTHON) tools/kelly.py
 
-# ── WASM build ──────────────────────────────────────────────────────
-.PHONY: wasm
-wasm:
-	cd crates/larsa-wasm && CARGO_HOME=C:/Users/Matthew/.cargo wasm-pack build --target web
-	@echo "WASM built: crates/larsa-wasm/pkg/"
+.PHONY: deathloop
+deathloop: ## QC forensics on a trade CSV: make deathloop trades=file.csv
+ifndef trades
+	$(error Usage: make deathloop trades=path/to/trades.csv)
+endif
+	$(PYTHON) tools/deathloop_detective.py --trades "$(trades)"
 
-# ── Terminal dashboard ──────────────────────────────────────────────
-.PHONY: tui
-tui:
-	cd cmd/srfm-tui && go run .
+# ─────────────────────────────────────────────────────────────────────────────
+# Visualization
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: viz-build
+viz-build: ## Build Rust visualization tool
+	cd viz && $(CARGO) build --release
+	@echo "srfm-viz built -> viz/target/release/srfm-viz"
 
-# ── Manim animation ─────────────────────────────────────────────────
-.PHONY: animate
-animate:
-	manim -pql tools/manim_srfm.py SRFM
-	@echo "Or: python tools/manim_srfm.py (SVG storyboard fallback)"
+.PHONY: graphics
+graphics: viz-build ## Generate all SVG graphics via Rust viz tool
+	@mkdir -p results/graphics
+	./viz/target/release/srfm-viz spacetime \
+		--csv data/NDX_hourly_poly.csv --cf 0.005 \
+		--out results/graphics/spacetime.svg
+	@echo "Graphics -> results/graphics/"
 
-# ── 3D well gallery ─────────────────────────────────────────────────
-.PHONY: gallery
-gallery:
-	@echo "Open tools/web/well_gallery.html in browser"
-	python -m http.server 8080 --directory tools/web &
+.PHONY: regime-graph
+regime-graph: ## Graphviz regime state machine diagram
+	$(PYTHON) tools/regime_graph.py
+	@echo "Regime graph -> results/graphics/regime_states.dot/.svg"
 
-# ── Interactive regime graph ─────────────────────────────────────────
+.PHONY: regime-line
+regime-line: ## 7-year regime in one colored line
+	cat data/NDX_hourly_poly.csv | $(PYTHON) tools/regime.py
+
 .PHONY: network
-network:
-	python tools/regime_network.py 2>/dev/null || \
-		echo "Opening tools/web/regime_force.html directly"
+network: ## D3 regime network diagram (browser)
+	$(PYTHON) tools/regime_network.py 2>/dev/null || true
 	@echo "Open tools/web/regime_force.html in browser"
 
-# ── R statistical reports ───────────────────────────────────────────
-.PHONY: r-tearsheet
-r-tearsheet:
-	Rscript scripts/r_tearsheet.R
+.PHONY: gallery
+gallery: ## 3D well gallery (browser)
+	$(PYTHON) -m http.server 8080 --directory tools/web &
+	@echo "Open http://localhost:8080/well_gallery.html"
 
-.PHONY: r-garch
-r-garch:
-	Rscript scripts/r_garch.R
+.PHONY: animate
+animate: ## Manim SRFM physics animation
+	manim -pql tools/manim_srfm.py SRFM
+	@echo "Or: python tools/manim_srfm.py (SVG fallback)"
 
-.PHONY: r-tables
-r-tables:
-	Rscript scripts/r_tables.R
+.PHONY: tui
+tui: ## Go terminal TUI dashboard
+	$(GO) run ./cmd/srfm-tui/
 
-.PHONY: r-install
-r-install:
-	Rscript scripts/install_r_packages.R
+.PHONY: dashboard
+dashboard: ## Streamlit dashboard (port 8501)
+	streamlit run tools/dashboard.py --server.port 8501
 
-# ── Live Dash dashboard ─────────────────────────────────────────────
 .PHONY: dash
-dash:
-	python tools/dash_app.py
+dash: ## Live Plotly Dash dashboard
+	$(PYTHON) tools/dash_app.py
 
-# ── Run everything ──────────────────────────────────────────────────
-.PHONY: all
-all: kelly hmm garch features explain network tearsheet turbo
-	@echo "All tools complete. Results in results/"
+# ─────────────────────────────────────────────────────────────────────────────
+# Docker
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: docker-up
+docker-up: ## Start all services via docker-compose
+	docker-compose up -d
+	@echo "Services started:"
+	@echo "  API:      http://localhost:8000"
+	@echo "  Arena:    http://localhost:5173"
+	@echo "  Gateway:  http://localhost:9000"
+	@echo "  PgAdmin:  http://localhost:5050 (if configured)"
 
-.PHONY: help
-help:
-	@echo ""
-	@echo "SRFM Lab — Makefile commands:"
-	@echo ""
-	@echo "── Strategy ──────────────────────────────────────────────"
-	@echo "  make backtest s=larsa-v4          Run QC backtest"
-	@echo "  make config-check                 Validate .srfm config"
-	@echo ""
-	@echo "── Analysis Pipeline ─────────────────────────────────────"
-	@echo "  make pipeline                     Full: primitives+report+graphics"
-	@echo "  make primitives                   SRFM physics metrics"
-	@echo "  make report                       Lab report markdown"
-	@echo "  make html-report                  Interactive HTML report"
-	@echo "  make dashboard                    Streamlit dashboard (port 8501)"
-	@echo "  make graphics                     All SVG graphics (Rust)"
-	@echo ""
-	@echo "── Forensics Tools ───────────────────────────────────────"
-	@echo "  make what d=2024-10-14            What was happening on a date"
-	@echo "  make blame from=2024-01-01 to=2024-12-31  P&L attribution"
-	@echo "  make when p=-265000               Find trade by dollar amount"
-	@echo "  make why date=2024-10-14 instrument=NQ    Why a trade happened"
-	@echo "  make odds                         Historical win probability"
-	@echo "  make edge                         v1 vs v3 P&L comparison"
-	@echo "  make mirror d=2023-11-01          Bull well -> bear setup"
-	@echo "  make cost start=X end=Y           Quantify flat period patience"
-	@echo "  make anatomy                      Dissect top 5 trades"
-	@echo ""
-	@echo "── Data Streams ──────────────────────────────────────────"
-	@echo "  make well                         Pipe prices -> print wells"
-	@echo "  make regime-line                  7-year regime in one colored line"
-	@echo "  make heat                         Experiment heatmap (terminal)"
-	@echo "  make pulse                        BH mass progress bar (Rust)"
-	@echo "  make drift                        Rolling ES/NQ correlation (Rust)"
-	@echo ""
-	@echo "── Experiment Tools ──────────────────────────────────────"
-	@echo "  make experiments                  Quick experiment suite"
-	@echo "  make experiments-full             Full 10-world suite"
-	@echo "  make arena-multi                  Multi-instrument arena"
-	@echo "  make profile                      DuckDB analytics profile"
-	@echo "  make query q=\"...\"              Natural language query"
-	@echo ""
-	@echo "── Build ──────────────────────────────────────────────────"
-	@echo "  make viz-build                    Build Rust srfm-viz"
-	@echo "  make tools-build                  Build Rust srfm-tools"
-	@echo "  make install                      Install Python deps"
-	@echo "  make stats                        Run R statistical tests"
-	@echo "  make journal                      Show experiment journal"
-	@echo "  make regime-graph                 Graphviz state machine"
-	@echo ""
-	@echo "── Statistical / Visualization ───────────────────────────"
-	@echo "  make tearsheet                    QuantStats HTML tearsheet"
-	@echo "  make r-tearsheet                  R PerformanceAnalytics tearsheet"
-	@echo "  make r-garch                      R DCC-GARCH vol forecasts"
-	@echo "  make r-tables                     R GT publication tables"
-	@echo "  make r-install                    Install R packages"
-	@echo "  make tui                          Go terminal dashboard"
-	@echo "  make gallery                      3D well gallery (browser)"
-	@echo "  make network                      D3 regime network (browser)"
-	@echo "  make animate                      Manim SRFM animation"
-	@echo "  make dash                         Live Dash dashboard"
-	@echo "  make wasm                         Build WASM module"
-	@echo "  make turbo                        Rust turbo arena"
-	@echo "  make explain                      SHAP explainer"
-	@echo "  make hmm                          HMM regime detection"
-	@echo "  make garch                        Python GARCH volatility"
-	@echo "  make features                     Feature mining"
-	@echo "  make kelly                        Kelly optimal sizing"
-	@echo ""
+.PHONY: docker-down
+docker-down: ## Stop all docker-compose services
+	docker-compose down
 
-# ── v11 full test suite ──────────────────────────────────────────────────────
-.PHONY: suite-v11
-suite-v11:
-	python tools/suite_v11.py
+.PHONY: docker-logs
+docker-logs: ## Tail logs from all docker-compose services
+	docker-compose logs -f
 
-.PHONY: suite-v11-quick
-suite-v11-quick:
-	python tools/suite_v11.py --quick
+.PHONY: docker-build
+docker-build: ## Rebuild all docker images
+	docker-compose build
 
-# ── 10 specialized analysis tools ────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Advanced analytics tools
+# ─────────────────────────────────────────────────────────────────────────────
 .PHONY: stress
-stress:
-	python tools/stress_test.py
+stress: ## Stress test analysis
+	$(PYTHON) tools/stress_test.py
 
 .PHONY: margin
-margin:
-	python tools/margin_sim.py
+margin: ## Margin simulation
+	$(PYTHON) tools/margin_sim.py
 
 .PHONY: corrmon
-corrmon:
-	python tools/corr_monitor.py
+corrmon: ## Correlation monitor
+	$(PYTHON) tools/corr_monitor.py
 
 .PHONY: paths
-paths:
-	python tools/equity_paths.py --paths 1000
+paths: ## Monte Carlo equity paths (1000 sims)
+	$(PYTHON) tools/equity_paths.py --paths 1000
 
 .PHONY: paths-full
-paths-full:
-	python tools/equity_paths.py --paths 10000
+paths-full: ## Monte Carlo equity paths (10000 sims)
+	$(PYTHON) tools/equity_paths.py --paths 10000
 
 .PHONY: replay
-replay:
-	python tools/size_replay.py
+replay: ## Position size replay
+	$(PYTHON) tools/size_replay.py
 
 .PHONY: regime-stress
-regime-stress:
-	python tools/regime_stress.py
-
-.PHONY: sensitivity
-sensitivity:
-	python tools/risk_sensitivity.py
+regime-stress: ## Regime stress test
+	$(PYTHON) tools/regime_stress.py
 
 .PHONY: dddecomp
-dddecomp:
-	python tools/dd_decomp.py
+dddecomp: ## Drawdown decomposition
+	$(PYTHON) tools/dd_decomp.py
 
 .PHONY: fees
-fees:
-	python tools/fee_impact.py
+fees: ## Fee impact analysis
+	$(PYTHON) tools/fee_impact.py
 
-.PHONY: livecheck
-livecheck:
-	python tools/live_check.py
+.PHONY: hmm
+hmm: ## HMM regime detection
+	$(PYTHON) tools/hmm_regime.py --csv data/NDX_hourly_poly.csv
 
-# ── Run everything (full test suite) ─────────────────────────────────────────
-.PHONY: backtest-v12
-backtest-v12:
-	python tools/backtest_v12.py
+.PHONY: garch
+garch: ## Python GARCH volatility model
+	$(PYTHON) tools/garch_vol.py --csv data/NDX_hourly_poly.csv
+
+.PHONY: features
+features: ## Feature mining / ML alpha search
+	$(PYTHON) tools/feature_mine.py --csv data/NDX_hourly_poly.csv
+
+.PHONY: explain
+explain: ## SHAP feature importance explainer
+	$(PYTHON) tools/explainer.py
+
+.PHONY: autotune
+autotune: ## Optuna Bayesian hyperparameter optimization
+	$(PYTHON) tools/autotuner.py --trials 100 --csv data/NDX_hourly_poly.csv
+
+.PHONY: turbo
+turbo: ## Rust turbo arena (50k synthetic bars, 10k trials)
+	$(CARGO) build --manifest-path crates/srfm-tools/Cargo.toml --bin srfm_turbo --release
+	./crates/srfm-tools/target/release/srfm_turbo --synthetic 50000 --trials 10000
+
+.PHONY: sweep-rust
+sweep-rust: ## Rust parallel parameter sweep
+	$(CARGO) run --manifest-path crates/srfm-tools/Cargo.toml --bin sweep --release -- \
+		--cf-range 0.001,0.015,20 --lev-range 0.30,0.80,10
+
+.PHONY: wells
+wells: ## Well detection: make wells ticker=ES csv=data/ES_hourly.csv
+ifndef ticker
+	$(error Usage: make wells ticker=ES csv=data/ES_hourly.csv)
+endif
+	$(PYTHON) tools/well_detector.py --csv $(csv) --ticker $(ticker) --plot --save-csv
+
+.PHONY: regimes
+regimes: ## Regime analysis: make regimes csv=data/ES_hourly.csv ticker=ES
+ifndef csv
+	$(error Usage: make regimes csv=data/ES_hourly.csv ticker=ES)
+endif
+	$(PYTHON) tools/regime_analyzer.py --csv $(csv) --ticker $(ticker) --plot --save-csv
+
+.PHONY: pulse
+pulse: ## BH mass progress bar (Rust): pipe CSV prices
+	cat data/NDX_hourly_poly.csv | cut -d, -f5 | tail -50 | \
+		./crates/srfm-tools/target/release/pulse --cf 0.005
+
+.PHONY: drift
+drift: ## Rolling correlation (Rust): make drift
+	./crates/srfm-tools/target/release/drift \
+		data/ES_hourly_real.csv data/NQ_hourly_real.csv --window 60 --summary
+
+.PHONY: wasm
+wasm: ## Build WebAssembly module from larsa-wasm crate
+	cd crates/larsa-wasm && wasm-pack build --target web
+	@echo "WASM built: crates/larsa-wasm/pkg/"
+
+.PHONY: query
+query: ## Natural language query: make query q="best performing strategies"
+ifndef q
+	$(PYTHON) tools/query.py schema
+else
+	$(PYTHON) tools/query.py ask "$(q)"
+endif
+
+.PHONY: profile
+profile: ## DuckDB analytics profile
+	$(PYTHON) tools/query.py profile
+
+.PHONY: journal
+journal: ## Show experiment journal
+	$(PYTHON) tools/journal.py log --n 10
+
+.PHONY: autopsy
+autopsy: ## Strategy autopsy / forensic analysis
+	$(PYTHON) tools/srfm_autopsy.py
+
+.PHONY: heat
+heat: ## Experiment heatmap (terminal)
+	cat results/v2_experiments.json | $(PYTHON) tools/heat.py
+
+.PHONY: well
+well: ## Pipe prices → print wells
+	cat data/NDX_hourly_poly.csv | $(PYTHON) tools/well.py --cf 0.005
+
+.PHONY: edge
+edge: ## v1 vs v3 P&L comparison
+	$(PYTHON) tools/edge.py \
+		"C:/Users/Matthew/Downloads/Calm Orange Mule_trades.csv" \
+		"C:/Users/Matthew/Downloads/Measured Red Anguilline_trades.csv"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Test suites
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: suite-v11
+suite-v11: ## v11 quick analysis suite
+	$(PYTHON) tools/suite_v11.py
+
+.PHONY: suite-v11-full
+suite-v11-full: ## v11 full 10-world analysis suite
+	$(PYTHON) tools/suite_v11.py --full
 
 .PHONY: test-all
-test-all: suite-v11 stress margin corrmon replay regime-stress sensitivity dddecomp fees livecheck backtest-v12
-	python tools/dashboard_v11.py
-	@echo "All analysis complete. Dashboard open."
+test-all: suite-v11 stress margin corrmon replay regime-stress sensitivity dddecomp fees livecheck ## Run all analysis tools
+	$(PYTHON) tools/dashboard_v11.py
+	@echo "All analysis complete."
 
-# ── v11 Streamlit dashboard ───────────────────────────────────────────────────
-.PHONY: dashboard-v11
-dashboard-v11:
-	streamlit run tools/dashboard_v11.py --server.port 8502
+# ─────────────────────────────────────────────────────────────────────────────
+# Docs
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: docs
+docs: ## Serve documentation locally (port 8088)
+	$(PYTHON) -m http.server 8088 --directory docs &
+	@echo "Docs at http://localhost:8088"
 
-# ── Local QC-equivalent backtest ────────────────────────────────────────────
-.PHONY: local
-local:
-ifndef s
-	$(error Usage: make local s=larsa-v12)
-endif
-	python tools/backtest_v12.py --strategy $(s)
+# ─────────────────────────────────────────────────────────────────────────────
+# Clean
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: clean
+clean: ## Remove build artifacts (NOT results)
+	$(CARGO) clean 2>/dev/null || true
+	find . -name "*.pyc" -delete
+	find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+	find . -name ".pytest_cache" -type d -exec rm -rf {} + 2>/dev/null || true
+	find . -name "*.ruff_cache" -type d -exec rm -rf {} + 2>/dev/null || true
+	rm -rf spacetime/web/dist terminal/dist 2>/dev/null || true
+
+.PHONY: clean-results
+clean-results: ## Delete all backtest results (DESTRUCTIVE — prompts first)
+	@echo "This will delete all backtest results. Are you sure? (ctrl-c to cancel)"; sleep 5
+	rm -rf results/*/[0-9]*
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Misc
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: stats
+stats: ## Run R statistical validation tests
+	Rscript research/statistical_validation.R 2>/dev/null || Rscript scripts/r_tables.R
+	@echo "Statistical validation -> results/graphics/"
+
+.PHONY: arena-multi
+arena-multi: ## Multi-instrument arena convergence test
+	$(PYTHON) tools/arena_multi.py --mode synth --n-worlds 5 --n-bars 20000
+
+.PHONY: larsa-core
+larsa-core: ## Build larsa-core PyO3 extension
+	python -m maturin build --release --manifest-path crates/larsa-core/Cargo.toml
+	pip install --force-reinstall crates/larsa-core/target/wheels/larsa_core-*.whl
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Help
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: help
+help: ## Show this help message
+	@echo ""
+	@echo "SRFM Lab — Makefile"
+	@echo ""
+	@awk 'BEGIN {FS = ":.*##"; printf "%-28s %s\n", "Target", "Description"} \
+		/^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-26s\033[0m %s\n", $$1, $$2 } \
+		/^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
+	@echo ""
