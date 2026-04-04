@@ -1,6 +1,6 @@
 # SRFM Lab — Relativistic Trading Research
 
-A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** — from raw tick data to live paper trading, across 8 languages and 300K+ lines of code.
+A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** — from raw tick data to live paper trading, across 9 languages and 410K+ lines of code.
 
 > Mad scientist workshop. Everything automated, everything measurable, rapid iteration at scale.
 
@@ -16,6 +16,38 @@ python tools/live_trader_alpaca.py
 python run_api.py                  # FastAPI on :8765
 cd spacetime/web && npm run dev   # React on :5173
 
+# Research dashboard (reconciliation, walk-forward, signal analytics, regime lab)
+cd research/dashboard && npm install && npm run dev  # React on :5174
+
+# Research API server (Go, serves all research modules)
+cd infra/research-api && go run main.go  # :8766
+
+# Live/backtest reconciliation — diagnose slippage, drift, attribution
+python -m research.reconciliation.cli recon run \
+  --live tools/backtest_output/live_trades.db \
+  --backtest tools/backtest_output/crypto_trades.csv \
+  --output research/reports/
+
+# Walk-forward + CPCV parameter optimization (Sobol/Bayesian)
+python -m research.walk_forward.cli wf optimize \
+  --trades tools/backtest_output/crypto_trades.csv \
+  --method sobol --n-iter 200
+
+# Signal analytics: IC decay, factor attribution, quintile analysis
+python -m research.signal_analytics.cli signal report \
+  --trades tools/backtest_output/crypto_trades.csv
+
+# Regime lab: stress test 20 historical scenarios
+python -m research.regime_lab.cli regime stress \
+  --trades tools/backtest_output/crypto_trades.csv
+
+# Live trading monitor (terminal dashboard)
+python -m research.live_monitor.cli monitor run \
+  --db tools/backtest_output/live_trades.db
+
+# Rust tick-level backtest engine (10x faster parameter sweeps)
+cargo run -p tick-backtest -- sweep --data-dir data/ --sym BTC --n-trials 1000
+
 # Crypto backtest + Monte Carlo
 python tools/crypto_backtest_mc.py
 
@@ -28,7 +60,7 @@ python ml/genetic/cli.py evolve --instrument BTC/USD
 # Backtest all 29 strategies
 python scripts/backtest_all_strategies.py
 
-# Walk-forward analysis
+# Walk-forward analysis (legacy)
 python tools/walk_forward_engine.py
 
 # Factor analysis
@@ -152,6 +184,7 @@ srfm-lab/
 │   └── strategies/event_driven/      # Event-driven strategies
 │
 ├── ⚙️  RUST CRATES (compiled, high-performance)
+│   ├── crates/tick-backtest/         # ★ NEW: Tick-level BH backtest engine (rayon parallel sweeps)
 │   ├── crates/larsa-core/            # ★ Core BH engine in Rust
 │   ├── crates/orderbook-sim/         # L2 orderbook, Hawkes process
 │   ├── crates/portfolio-engine/      # Ledoit-Wolf, HRP, Black-Litterman
@@ -163,6 +196,7 @@ srfm-lab/
 │   └── crates/smart-order-router/    # Multi-venue SOR
 │
 ├── 🐹 GO INFRA
+│   ├── infra/research-api/           # ★ NEW: Research API server (:8766) — 14 routes + WebSocket
 │   ├── infra/gateway/                # ★ Market data gateway (17 indicators, regime)
 │   ├── infra/monitor/                # Trade journal, alert backtester
 │   ├── infra/timeseries/             # InfluxDB, DuckDB factor model
@@ -171,6 +205,7 @@ srfm-lab/
 │   └── infra/websocket-hub/          # Scalable WebSocket broadcasting
 │
 ├── ⚛️  REACT FRONTENDS
+│   ├── research/dashboard/           # ★ NEW: Research dashboard (8 pages: recon/WF/signals/regime/MC)
 │   ├── terminal/                     # ★ Trading terminal (6 pages + options chain)
 │   └── dashboard/                    # Executive P&L dashboard (Tremor)
 │
@@ -189,7 +224,16 @@ srfm-lab/
 │   ├── julia/src/MachineLearning.jl  # LSTM, XGBoost, GP regression
 │   └── julia/notebooks/              # 6 research notebooks
 │
-├── 🔬 RESEARCH
+├── 🔬 RESEARCH (simulation lab)
+│   ├── research/reconciliation/      # ★ NEW: Live vs backtest recon — slippage, drift, attribution
+│   ├── research/walk_forward/        # ★ NEW: CPCV walk-forward, Sobol/Bayesian param opt, DSR
+│   ├── research/param_explorer/      # ★ NEW: Saltelli Sobol, Morris, GP Bayesian opt, OAT
+│   ├── research/regime_lab/          # ★ NEW: HMM, PELT, Heston/GARCH gen, 20 stress scenarios
+│   ├── research/signal_analytics/    # ★ NEW: IC/ICIR, factor attribution, alpha decay, quintiles
+│   ├── research/agent_training/      # ★ NEW: Pure-numpy RL (D3QN/TD3/PPO), PER, curriculum
+│   ├── research/portfolio_lab/       # ★ NEW: HRP, Black-Litterman, risk parity, DCC-GARCH
+│   ├── research/execution_research/  # ★ NEW: TCA, Almgren-Chriss order splitting, market impact
+│   ├── research/live_monitor/        # ★ NEW: Live trading dashboard, diagnostics, alerts
 │   ├── research/factor_model/        # Factor construction, IC, attribution
 │   ├── research/regime_analysis/     # Regime detection comparison
 │   ├── research/options/             # Options pricing, Greeks
@@ -289,16 +333,16 @@ srfm-lab/
 
 | Language | LOC | Key systems |
 |----------|-----|------------|
-| Python | ~120K | Strategies, ML, research, backtesting, live trader |
-| Rust | ~20K | orderbook, portfolio, risk, regime, FIX, options, SOR |
-| Go | ~35K | Gateway, monitor, gRPC, event bus, WebSocket hub |
-| TypeScript | ~35K | Trading terminal, Spacetime Arena web, dashboard |
+| Python | ~235K | Strategies, ML, research, backtesting, live trader, sim lab (9 new modules) |
+| Rust | ~24K | tick-backtest engine, orderbook, portfolio, risk, regime, FIX, options, SOR |
+| Go | ~38K | research-api (:8766), gateway, monitor, gRPC, event bus, WebSocket hub |
+| TypeScript | ~42K | Research dashboard (:5174), trading terminal, Spacetime Arena web |
 | Julia | ~20K | BHPhysics, stochastic, optimization, vol surface, networks |
 | C/C++ | ~15K | Fast indicators, L3 orderbook, SIMD matrix, ring buffer |
 | Zig | ~8K | ITCH 5.0 decoder, low-latency orderbook |
 | R | ~10K | Statistical analysis, ggplot2 visualization |
-| SQL | ~4K | Warehouse schema, DuckDB analytics |
-| **Total** | **~267K** | |
+| SQL | ~5K | Warehouse schema (016 migrations), DuckDB analytics |
+| **Total** | **~410K** | |
 
 ---
 
@@ -307,10 +351,13 @@ srfm-lab/
 | Service | Command | Port |
 |---------|---------|------|
 | Spacetime Arena API | `python run_api.py` | 8765 |
+| Research API (Go) | `cd infra/research-api && go run main.go` | 8766 |
 | Spacetime Arena Web | `cd spacetime/web && npm run dev` | 5173 |
 | Trading Terminal | `cd terminal && npm run dev` | 5174 |
+| Research Dashboard | `cd research/dashboard && npm run dev` | 5174 |
 | P&L Dashboard | `cd dashboard && npm run dev` | 5175 |
 | Live Trader | `python tools/live_trader_alpaca.py` | — |
+| Live Monitor | `python -m research.live_monitor.cli monitor run` | — |
 
 ---
 

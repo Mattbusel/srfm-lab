@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: #080b12;
+    color: #e2e8f0;
+    overflow: hidden;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #2d3a4f;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3b4a60;
+  }
+
+  /* Recharts overrides */
+  .recharts-default-tooltip {
+    background-color: #111827 !important;
+    border: 1px solid #1e2a3a !important;
+    border-radius: 6px !important;
+  }
+
+  .recharts-tooltip-label {
+    color: #8899aa !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 11px !important;
+  }
+
+  .recharts-cartesian-axis-tick-value {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer utilities {
+  .font-mono {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  }
+}

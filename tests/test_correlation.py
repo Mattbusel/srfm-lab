@@ -26,8 +26,8 @@ sys.path.insert(0, str(_ROOT / "lib"))
 def _compute_bh_activation_series(
     closes: np.ndarray,
     cf: float = 0.001,
-    bh_form: float = 1.5,
-    bh_collapse: float = 1.0,
+    bh_form: float = 1.2,
+    bh_collapse: float = 0.8,
     bh_decay: float = 0.95,
 ) -> np.ndarray:
     """Return a boolean array: True where BH is active."""

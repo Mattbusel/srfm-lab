@@ -9,6 +9,7 @@ members = [
     "crates/fix-engine",
     "crates/options-engine",
     "crates/smart-order-router",
+    "crates/tick-backtest",
 ]
 resolver = "2"
 

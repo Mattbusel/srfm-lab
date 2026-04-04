@@ -1,0 +1,25 @@
+[package]
+name = "tick-backtest"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance bar-by-bar backtest engine with BH physics simulation"
+license = "MIT"
+
+[[bin]]
+name = "tick-backtest"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rayon = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+csv = "1"
+ndarray = "0.16"
+log = "0.4"
+env_logger = "0.11"
+clap = { version = "4", features = ["derive"] }
+rand = { version = "0.8", features = ["small_rng"] }
+rand_distr = "0.4"

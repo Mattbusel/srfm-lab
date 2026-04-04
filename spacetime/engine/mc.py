@@ -99,24 +99,34 @@ def _trade_exit_time(t: object) -> object:
 
 def compute_kelly(returns: np.ndarray) -> float:
     """
-    Kelly-optimal fraction: find f* that maximizes E[log(1 + f*r)] over all returns.
-    Uses scipy minimize_scalar on the bounded interval [0, 2].
+    Kelly-optimal fraction using the binary Kelly formula.
+
+    Estimates win_rate p and average win/loss ratio b from the return distribution,
+    then applies: f* = p - (1-p) / b
+
+    For raw dollar P&L arrays, normalizes by median absolute return first.
+    Returns a value in [0, 1].
     """
     if len(returns) == 0:
         return 0.0
 
-    from scipy.optimize import minimize_scalar  # type: ignore
+    # Normalize raw dollar amounts to fractional returns in [-1, 1]
+    max_abs = float(np.max(np.abs(returns)))
+    if max_abs > 10.0:
+        returns = returns / max_abs
 
-    def neg_log_growth(f: float) -> float:
-        vals = 1.0 + f * returns
-        vals = np.where(vals <= 0, 1e-10, vals)
-        return -float(np.mean(np.log(vals)))
+    wins   = returns[returns > 0]
+    losses = returns[returns < 0]
 
-    try:
-        result = minimize_scalar(neg_log_growth, bounds=(0.0, 2.0), method="bounded")
-        return float(np.clip(result.x, 0.0, 1.0))
-    except Exception:
+    if len(wins) == 0 or len(losses) == 0:
         return 0.0
+
+    p   = float(len(wins)) / len(returns)
+    q   = 1.0 - p
+    b   = float(np.mean(wins)) / float(np.mean(np.abs(losses)))  # avg win / avg loss
+
+    kelly = p - q / b
+    return float(np.clip(kelly, 0.0, 1.0))
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +186,11 @@ def run_mc(
     regime_buckets = classify_by_regime(trades)
     all_returns = np.array([_trade_return(t) for t in trades], dtype=float)
 
+    # Detect if returns are raw dollar P&L (not fractional).
+    # When dollar-mode, the simulation adds P&L arithmetically scaled by Kelly;
+    # when fractional-mode, it compounds geometrically.
+    _dollar_mode = len(all_returns) > 0 and float(np.max(np.abs(all_returns))) > 10.0
+
     # Kelly fraction from all returns
     kelly = compute_kelly(all_returns)
 
@@ -203,70 +218,68 @@ def run_mc(
                    for r in regime_list]
     regime_seq_for_sim = regime_list if len(regime_list) > 10 else None
 
-    for sim_idx in range(cfg.n_sims):
-        eq   = starting_equity
-        peak = eq
-        max_dd = 0.0
+    # Vectorized simulation: generate all paths at once for speed.
+    # AR(1) serial correlation is applied via a post-sampling adjustment
+    # on the full matrix using a Markov-style loss-state transition.
+    _all_arr = np.array(list(all_returns), dtype=float)
+    pos_frac = min(kelly, 1.0) if kelly > 0 else 0.25
+    n_total  = max(1, int(trades_per_month * cfg.months))
 
-        # Determine regime order for this sim
-        n_trades = max(1, int(rng.normal(trades_per_month, math.sqrt(trades_per_month + 1e-9))))
-        n_total  = int(n_trades * cfg.months)
+    # Draw returns: shape (n_sims, n_total)
+    draws = rng.choice(_all_arr, size=(cfg.n_sims, n_total), replace=True)
 
-        # AR(1) loss state
-        prev_loss = False
-        prev_loss_val = 0.0
+    # Apply AR(1) serial correlation if enabled
+    if cfg.regime_aware and cfg.serial_corr > 0 and len(_all_arr) > 1:
+        _losses = _all_arr[_all_arr < 0]
+        _gains  = _all_arr[_all_arr >= 0]
+        _base_p_loss = float(np.mean(_all_arr < 0))
+        _all_max_abs = float(np.max(np.abs(_all_arr))) if len(_all_arr) > 0 else 1.0
+        if len(_losses) > 0 and len(_gains) > 0:
+            for t in range(1, n_total):
+                prev_col = draws[:, t - 1]
+                loss_mask = prev_col < 0
+                if loss_mask.any():
+                    # For sims where previous trade was a loss, increase p_loss
+                    p_loss = np.where(
+                        loss_mask,
+                        np.minimum(0.99, _base_p_loss + cfg.serial_corr * np.abs(prev_col) / _all_max_abs),
+                        _base_p_loss,
+                    )
+                    rand_u = rng.random(cfg.n_sims)
+                    should_redraw = loss_mask & (rand_u < p_loss - _base_p_loss)
+                    if should_redraw.any():
+                        n_redraw = int(should_redraw.sum())
+                        draws[should_redraw, t] = rng.choice(_losses, size=n_redraw, replace=True)
 
-        for _ in range(n_total):
-            if eq <= 0:
-                blowups += 1
-                break
+    # Compute equity paths
+    scaled = pos_frac * draws  # (n_sims, n_total)
 
-            # Sample regime: use actual sequence if available, else random
-            if regime_seq_for_sim and cfg.regime_aware:
-                regime = rng.choice(regime_seq_for_sim)
-            else:
-                regime = "SIDEWAYS"
+    if _dollar_mode:
+        # Arithmetic: cumulative sum of dollar P&L
+        paths = starting_equity + np.cumsum(scaled, axis=1)
+    else:
+        # Geometric: cumulative product of (1 + fractional return)
+        factors = np.clip(1.0 + scaled, 1e-10, None)
+        paths = starting_equity * np.cumprod(factors, axis=1)
 
-            bucket = regime_buckets.get(regime, [])
-            if not bucket:
-                bucket = list(all_returns)
+    # Clamp negative equity to 0
+    paths = np.maximum(paths, 0.0)
 
-            # AR(1): if previous trade was a loss, bias toward drawing another loss
-            if cfg.regime_aware and prev_loss and len(bucket) > 1:
-                losses_arr = np.array([r for r in bucket if r < 0])
-                gains_arr  = np.array([r for r in bucket if r >= 0])
-                if len(losses_arr) > 0 and len(gains_arr) > 0:
-                    p_loss = min(0.99, (sum(1 for r in bucket if r < 0) / len(bucket))
-                                 + cfg.serial_corr * prev_loss_val)
-                    if rng.random() < p_loss:
-                        ret = float(rng.choice(losses_arr))
-                    else:
-                        ret = float(rng.choice(gains_arr))
-                else:
-                    ret = float(rng.choice(bucket))
-            else:
-                ret = float(rng.choice(bucket))
+    # Final equities and per-path max drawdown
+    final_equities = paths[:, -1]
 
-            pos_frac = min(kelly, 1.0) if kelly > 0 else 0.25
-            eq += pos_frac * eq * ret
+    # Max drawdown: running max then (peak - equity) / peak
+    running_max = np.maximum.accumulate(paths, axis=1)
+    # Prepend starting_equity as the initial peak
+    running_max = np.maximum(running_max, starting_equity)
+    dd_matrix = np.where(running_max > 0, (running_max - paths) / running_max, 0.0)
+    max_drawdowns = dd_matrix.max(axis=1)
 
-            if ret < 0:
-                prev_loss     = True
-                prev_loss_val = abs(ret)
-            else:
-                prev_loss     = False
-                prev_loss_val = 0.0
-
-            if eq > peak:
-                peak = eq
-            dd = (peak - eq) / peak if peak > 0 else 0.0
-            if dd > max_dd:
-                max_dd = dd
-
-        final_equities[sim_idx] = max(0.0, eq)
-        max_drawdowns[sim_idx]  = max_dd
-        if eq < starting_equity * cfg.blowup_threshold:
-            blowups += 1
+    # Blowup: any path crossing 0 mid-sim OR final equity below threshold
+    blowup_mid_any = (paths == 0.0).any(axis=1)
+    blowup_end = final_equities < starting_equity * cfg.blowup_threshold
+    blowup_mask = blowup_mid_any | blowup_end
+    blowups = int(blowup_mask.sum())
 
     blowup_rate = blowups / cfg.n_sims
 
@@ -375,15 +388,22 @@ def run_portfolio_mc(
         trades_per_month_vals.append(len(tl) / span)
     avg_tpm = float(np.mean(trades_per_month_vals)) if trades_per_month_vals else 10.0
 
+    # Detect dollar-mode per instrument
+    _dollar_modes = {
+        sym: float(np.max(np.abs(arr))) > 10.0
+        for sym, arr in returns_per_sym.items()
+    }
+
     for sim_idx in range(n_sims):
         eq   = starting_equity
         peak = eq
         max_dd = 0.0
+        blowup_mid = False
 
         n_steps = int(avg_tpm * months)
         for _ in range(n_steps):
             if eq <= 0:
-                blowups += 1
+                blowup_mid = True
                 break
 
             # Correlated sampling
@@ -397,7 +417,10 @@ def run_portfolio_mc(
                 u = float(min(0.9999, max(0.0001, 0.5 + 0.5 * math.tanh(z_corr[i] / 1.5))))
                 idx = int(u * len(arr))
                 ret = float(arr[np.argsort(arr)[idx]])
-                eq_delta += alloc * eq * ret * 0.25  # modest position sizing
+                if _dollar_modes.get(sym, False):
+                    eq_delta += alloc * ret * 0.25  # arithmetic for dollar P&L
+                else:
+                    eq_delta += alloc * eq * ret * 0.25  # geometric for fractional
 
             eq += eq_delta
             if eq > peak:
@@ -408,7 +431,7 @@ def run_portfolio_mc(
 
         final_equities[sim_idx] = max(0.0, eq)
         max_drawdowns[sim_idx]  = max_dd
-        if eq < starting_equity * 0.10:
+        if blowup_mid or eq < starting_equity * 0.10:
             blowups += 1
 
     blowup_rate = blowups / n_sims

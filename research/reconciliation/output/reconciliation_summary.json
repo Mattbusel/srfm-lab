@@ -1,0 +1,128 @@
+{
+  "generated_at": "2026-04-04 15:14:54 UTC",
+  "grade": "A",
+  "live": {
+    "source": "live",
+    "n_trades": 2,
+    "total_pnl": 0.0003799337189257379,
+    "win_rate": 0.5,
+    "profit_factor": 4.651095991747807,
+    "avg_pnl": 0.00018996685946286895,
+    "avg_win": 0.00048399390243897955,
+    "avg_loss": -0.00010406018351324166,
+    "max_drawdown": 0.0,
+    "sharpe": 7.252301309671457,
+    "sortino": NaN,
+    "calmar": NaN,
+    "cagr": NaN,
+    "avg_hold_hours": 15.5,
+    "best_trade": 0.00048399390243897955,
+    "worst_trade": -0.00010406018351324166,
+    "expectancy": 0.00018996685946286895,
+    "skewness": 0.0,
+    "kurtosis": 1.0
+  },
+  "backtest": {
+    "source": "backtest",
+    "n_trades": 500,
+    "total_pnl": -67694.61693226566,
+    "win_rate": 0.296,
+    "profit_factor": 0.5789313806608601,
+    "avg_pnl": -135.38923386453132,
+    "avg_win": 628.8783361360095,
+    "avg_loss": -456.72900761475864,
+    "max_drawdown": -100984.65886075624,
+    "sharpe": -2.819114918988215,
+    "sortino": -4.820256622959403,
+    "calmar": -9.902494213292938e-06,
+    "cagr": -1.0,
+    "avg_hold_hours": 5.211812627291242,
+    "best_trade": 6894.144522228183,
+    "worst_trade": -2787.229723669657,
+    "expectancy": -135.38923386453126,
+    "skewness": 2.087959839524537,
+    "kurtosis": 19.922017894677833
+  },
+  "slippage": {
+    "total_cost_usd": 0.0,
+    "n_trades": 502,
+    "avg_cost_per_trade_bps": 0.0,
+    "annualised_drag_bps": 0.0,
+    "annualised_drag_pct": 0.0
+  },
+  "leakage": {
+    "leakage_score": 0.0,
+    "lookahead_suspected": false,
+    "live_sharpe_in_period": NaN,
+    "bt_sharpe_in_period": NaN,
+    "sharpe_excess": NaN,
+    "n_purged": 481,
+    "purge_fraction": 0.962,
+    "deflated_sharpe": 1.0,
+    "overfitting_probability": 1.4493508377545086e-14,
+    "ac_adjusted_sharpe": 0.0,
+    "autocorrelation_score": 0.0,
+    "high_vif_factors": []
+  },
+  "attribution": {
+    "n_trades": 2,
+    "total_pnl": 0.0003799337189257379,
+    "selection_effect": 127.02282279250878,
+    "timing_effect": 0.0,
+    "sizing_effect": 0.0,
+    "regime_effect": 0.0,
+    "signal_effect": 0.0,
+    "interaction_effect": -0.0,
+    "unexplained": -127.02244285878984,
+    "icir": NaN
+  },
+  "parameter_stability": {
+    "window": 250,
+    "n_breakpoints": 2,
+    "breakpoints": [
+      30,
+      305
+    ],
+    "breakpoint_times": [
+      "None",
+      "None"
+    ],
+    "chow_p_values": [
+      0.0061444003543442705,
+      5.740696473743867e-09
+    ],
+    "is_stable": false
+  },
+  "drift": {
+    "delta_score": {
+      "ks_statistic": NaN,
+      "ks_p_value": NaN,
+      "live_mean": NaN,
+      "bt_mean": NaN,
+      "live_std": NaN,
+      "bt_std": NaN,
+      "distribution_shift": NaN,
+      "diverged": false
+    },
+    "tf_score": {
+      "ks_statistic": NaN,
+      "ks_p_value": NaN,
+      "live_mean": NaN,
+      "bt_mean": NaN,
+      "live_std": NaN,
+      "bt_std": NaN,
+      "distribution_shift": NaN,
+      "diverged": false
+    },
+    "ensemble_signal": {
+      "ks_statistic": NaN,
+      "ks_p_value": NaN,
+      "live_mean": NaN,
+      "bt_mean": NaN,
+      "live_std": NaN,
+      "bt_std": NaN,
+      "distribution_shift": NaN,
+      "diverged": false
+    }
+  }
+}
