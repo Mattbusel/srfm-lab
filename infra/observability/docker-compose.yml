@@ -1,0 +1,130 @@
+version: "3.9"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LARSA Observability Stack
+#
+# Services:
+#   influxdb  — InfluxDB v2  (port 8086)
+#   grafana   — Grafana      (port 3000)
+#   prometheus— Prometheus   (port 9091, scrapes larsa metrics_server at :9090)
+#
+# Quick start:
+#   docker-compose up -d
+#   open http://localhost:3000  (admin / larsa-admin-pass)
+# ──────────────────────────────────────────────────────────────────────────────
+
+networks:
+  larsa-obs:
+    driver: bridge
+
+volumes:
+  influxdb-data:
+  influxdb-config:
+  grafana-data:
+  prometheus-data:
+
+# Shared environment for InfluxDB connection details
+x-influx-env: &influx-env
+  DOCKER_INFLUXDB_INIT_MODE:        setup
+  DOCKER_INFLUXDB_INIT_USERNAME:    admin
+  DOCKER_INFLUXDB_INIT_PASSWORD:    larsa-influx-pass
+  DOCKER_INFLUXDB_INIT_ORG:         srfm
+  DOCKER_INFLUXDB_INIT_BUCKET:      larsa_metrics
+  DOCKER_INFLUXDB_INIT_RETENTION:   90d
+  DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: larsa-super-secret-token
+
+services:
+
+  # ── InfluxDB v2 ─────────────────────────────────────────────────────────────
+  influxdb:
+    image: influxdb:2.7
+    container_name: larsa-influxdb
+    restart: unless-stopped
+    networks:
+      - larsa-obs
+    ports:
+      - "8086:8086"
+    environment:
+      <<: *influx-env
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+      - ./influxdb/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    labels:
+      - "com.larsa.service=influxdb"
+
+  # ── Grafana ─────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana-oss:10.4.0
+    container_name: larsa-grafana
+    restart: unless-stopped
+    networks:
+      - larsa-obs
+    ports:
+      - "3000:3000"
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER:     admin
+      GF_SECURITY_ADMIN_PASSWORD: larsa-admin-pass
+      GF_USERS_ALLOW_SIGN_UP:     "false"
+      GF_AUTH_ANONYMOUS_ENABLED:  "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/live_trading.json
+      GF_FEATURE_TOGGLES_ENABLE:  publicDashboards
+      # Telemetry opt-out
+      GF_ANALYTICS_REPORTING_ENABLED:   "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES:   "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    labels:
+      - "com.larsa.service=grafana"
+
+  # ── Prometheus ───────────────────────────────────────────────────────────────
+  # Scrapes the metrics_server running on the host at :9090/metrics.
+  # Exposed on 9091 to avoid conflict with the metrics_server's own 9090.
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: larsa-prometheus
+    restart: unless-stopped
+    networks:
+      - larsa-obs
+    ports:
+      - "9091:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=90d"
+      - "--web.enable-lifecycle"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      # Allows Prometheus inside Docker to reach the metrics_server on the host
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    labels:
+      - "com.larsa.service=prometheus"

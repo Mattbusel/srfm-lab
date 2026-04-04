@@ -1,0 +1,519 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_INFLUXDB",
+      "label": "InfluxDB",
+      "description": "LARSA InfluxDB datasource",
+      "type": "datasource",
+      "pluginId": "influxdb",
+      "pluginName": "InfluxDB"
+    }
+  ],
+  "__requires": [
+    {"type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0"},
+    {"type": "datasource", "id": "influxdb", "name": "InfluxDB", "version": "1.0.0"},
+    {"type": "panel", "id": "timeseries", "name": "Time series", "version": ""},
+    {"type": "panel", "id": "stat", "name": "Stat", "version": ""},
+    {"type": "panel", "id": "barchart", "name": "Bar chart", "version": ""},
+    {"type": "panel", "id": "histogram", "name": "Histogram", "version": ""},
+    {"type": "panel", "id": "table", "name": "Table", "version": ""}
+  ],
+  "annotations": {"list": []},
+  "description": "LARSA Performance Analytics — equity curve, win rates, P&L distributions, trade stats",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 300,
+      "title": "Equity Curve",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"fixedColor": "green", "mode": "fixed"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "drawdown"},
+            "properties": [
+              {"id": "custom.axisPlacement", "value": "right"},
+              {"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}},
+              {"id": "custom.fillOpacity", "value": 30},
+              {"id": "unit", "value": "percentunit"},
+              {"id": "custom.transform", "value": "negative-Y"},
+              {"id": "displayName", "value": "Drawdown"}
+            ]
+          }
+        ]
+      },
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 1},
+      "id": 301,
+      "options": {
+        "legend": {"calcs": ["last", "max", "min"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "none"}
+      },
+      "title": "Equity Curve with Drawdown Overlay",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_account\" and (r[\"_field\"] == \"equity\" or r[\"_field\"] == \"drawdown\"))\n  |> aggregateWindow(every: $__interval, fn: last, createEmpty: false)\n  |> yield(name: \"equity_drawdown\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 11},
+      "id": 310,
+      "title": "Rolling Win Rates",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0.45},
+              {"color": "green", "value": 0.55}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+      "id": 311,
+      "options": {
+        "legend": {"calcs": ["last", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "none"}
+      },
+      "title": "Rolling Win Rate (20 / 50 / 100 trades)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_account\" and r[\"_field\"] == \"win_rate\")\n  |> aggregateWindow(every: $__interval, fn: last, createEmpty: false)\n  |> yield(name: \"win_rate_20\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 20},
+      "id": 320,
+      "title": "P&L Distributions",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "gradientMode": "none"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": -100},
+              {"color": "green", "value": 0}
+            ]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 21},
+      "id": 321,
+      "options": {
+        "bucketSize": "auto",
+        "combine": false,
+        "fillOpacity": 80,
+        "gradientMode": "none",
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "title": "P&L Distribution Histogram",
+      "type": "histogram",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_trade\" and r[\"_field\"] == \"pnl\")\n  |> yield(name: \"pnl_dist\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 1
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{"color": "blue", "value": null}]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 21},
+      "id": 322,
+      "options": {
+        "bucketSize": "auto",
+        "combine": false,
+        "fillOpacity": 80,
+        "gradientMode": "none",
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "title": "Trade Duration Distribution",
+      "type": "histogram",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_trade\" and r[\"_field\"] == \"trade_duration_s\")\n  |> yield(name: \"duration_dist\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 29},
+      "id": 330,
+      "title": "Best & Worst Trades",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "align": "auto",
+            "cellOptions": {"type": "auto"},
+            "inspect": false
+          },
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "pnl"},
+            "properties": [
+              {"id": "unit", "value": "currencyUSD"},
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "green", "value": 0}
+                  ]
+                }
+              },
+              {"id": "custom.cellOptions", "value": {"type": "color-background"}}
+            ]
+          }
+        ]
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30},
+      "id": 331,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": true},
+        "showHeader": true,
+        "sortBy": [{"desc": true, "displayName": "pnl"}]
+      },
+      "title": "Top 10 Best Trades",
+      "type": "table",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_trade\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> sort(columns: [\"pnl\"], desc: true)\n  |> limit(n: 10)",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "align": "auto",
+            "cellOptions": {"type": "auto"},
+            "inspect": false
+          },
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}]}
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "pnl"},
+            "properties": [
+              {"id": "unit", "value": "currencyUSD"},
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "green", "value": 0}
+                  ]
+                }
+              },
+              {"id": "custom.cellOptions", "value": {"type": "color-background"}}
+            ]
+          }
+        ]
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30},
+      "id": 332,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": true},
+        "showHeader": true,
+        "sortBy": [{"desc": false, "displayName": "pnl"}]
+      },
+      "title": "Top 10 Worst Trades",
+      "type": "table",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_trade\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> sort(columns: [\"pnl\"], desc: false)\n  |> limit(n: 10)",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 38},
+      "id": 340,
+      "title": "Sharpe by Time of Day / Day of Week",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisCenteredZero": true,
+            "fillOpacity": 80,
+            "lineWidth": 1
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 39},
+      "id": 341,
+      "options": {
+        "barRadius": 0.05,
+        "barWidth": 0.7,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false},
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {"mode": "single", "sort": "none"},
+        "xField": "hour"
+      },
+      "title": "Avg P&L by Hour of Day (UTC)",
+      "type": "barchart",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_trade\" and r[\"_field\"] == \"pnl\")\n  |> map(fn: (r) => ({r with hour: int(v: uint(v: r._time) / uint(v: 3600000000000) % uint(v: 24))}))\n  |> group(columns: [\"hour\"])\n  |> mean()\n  |> group()\n  |> yield(name: \"pnl_by_hour\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisCenteredZero": true,
+            "fillOpacity": 80,
+            "lineWidth": 1
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 39},
+      "id": 342,
+      "options": {
+        "barRadius": 0.05,
+        "barWidth": 0.7,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false},
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {"mode": "single", "sort": "none"},
+        "xField": "weekday"
+      },
+      "title": "Avg P&L by Day of Week",
+      "type": "barchart",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_trade\" and r[\"_field\"] == \"pnl\")\n  |> yield(name: \"pnl_by_dow\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 47},
+      "id": 350,
+      "title": "P&L by Symbol",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "axisCenteredZero": true,
+            "fillOpacity": 80,
+            "lineWidth": 1
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": -500},
+              {"color": "green", "value": 0}
+            ]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 48},
+      "id": 351,
+      "options": {
+        "barRadius": 0.05,
+        "barWidth": 0.7,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false},
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {"mode": "single", "sort": "desc"}
+      },
+      "title": "Total P&L by Symbol",
+      "type": "barchart",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_trade\" and r[\"_field\"] == \"pnl\")\n  |> group(columns: [\"symbol\"])\n  |> sum()\n  |> group()\n  |> yield(name: \"pnl_by_symbol\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 56},
+      "id": 352,
+      "options": {
+        "legend": {"calcs": ["last", "mean"], "displayMode": "table", "placement": "right", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "title": "Rolling P&L over Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_account\" and r[\"_field\"] == \"rolling_pnl\")\n  |> aggregateWindow(every: $__interval, fn: mean, createEmpty: false)\n  |> yield(name: \"rolling_pnl\")",
+          "refId": "A"
+        }
+      ]
+    }
+
+  ],
+  "refresh": "5m",
+  "schemaVersion": 38,
+  "tags": ["larsa", "performance"],
+  "templating": {"list": []},
+  "time": {"from": "now-7d", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "LARSA Performance Analytics",
+  "uid": "larsa-performance",
+  "version": 1
+}

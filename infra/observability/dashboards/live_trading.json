@@ -1,0 +1,768 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_INFLUXDB",
+      "label": "InfluxDB",
+      "description": "LARSA InfluxDB datasource",
+      "type": "datasource",
+      "pluginId": "influxdb",
+      "pluginName": "InfluxDB"
+    }
+  ],
+  "__requires": [
+    {"type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0"},
+    {"type": "datasource", "id": "influxdb", "name": "InfluxDB", "version": "1.0.0"},
+    {"type": "panel", "id": "timeseries", "name": "Time series", "version": ""},
+    {"type": "panel", "id": "gauge", "name": "Gauge", "version": ""},
+    {"type": "panel", "id": "stat", "name": "Stat", "version": ""},
+    {"type": "panel", "id": "barchart", "name": "Bar chart", "version": ""},
+    {"type": "panel", "id": "table", "name": "Table", "version": ""},
+    {"type": "panel", "id": "heatmap", "name": "Heatmap", "version": ""}
+  ],
+  "annotations": {"list": []},
+  "description": "LARSA Live Trading — main dashboard",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 100,
+      "title": "Account Overview",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 80}]},
+          "unit": "currencyUSD",
+          "displayName": "Equity"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 1},
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "sparkline": {"fillOpacity": 10, "lineWidth": 2, "show": true, "yMin": null, "yMax": null},
+        "textMode": "auto"
+      },
+      "title": "Total Equity",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_account\" and r[\"_field\"] == \"equity\")\n  |> aggregateWindow(every: 1m, fn: last, createEmpty: false)\n  |> yield(name: \"equity\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0},
+              {"color": "green", "value": 1000}
+            ]
+          },
+          "unit": "currencyUSD",
+          "displayName": "Daily P&L"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 4, "x": 6, "y": 1},
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "title": "Daily P&L",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_account\" and r[\"_field\"] == \"equity\")\n  |> first()\n  |> map(fn: (r) => ({r with _field: \"equity_open\"}))\n  |> yield(name: \"open\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.05},
+              {"color": "red", "value": 0.15}
+            ]
+          },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 0.5,
+          "displayName": "Drawdown"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 4, "x": 10, "y": 1},
+      "id": 3,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "title": "Current Drawdown",
+      "type": "gauge",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_account\" and r[\"_field\"] == \"drawdown\")\n  |> last()\n  |> yield(name: \"drawdown\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0.45},
+              {"color": "green", "value": 0.55}
+            ]
+          },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "displayName": "Win Rate"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 4, "x": 14, "y": 1},
+      "id": 4,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "title": "Rolling Win Rate (20)",
+      "type": "gauge",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_account\" and r[\"_field\"] == \"win_rate\")\n  |> last()\n  |> yield(name: \"win_rate\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0},
+              {"color": "green", "value": 0.5}
+            ]
+          },
+          "displayName": "Sharpe",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 1},
+      "id": 5,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "title": "Rolling Sharpe (20 trades)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_account\" and r[\"_field\"] == \"rolling_sharpe\")\n  |> aggregateWindow(every: 5m, fn: last, createEmpty: false)\n  |> yield(name: \"sharpe\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 7},
+      "id": 101,
+      "title": "Positions",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+            "lineWidth": 1,
+            "scaleDistribution": {"type": "linear"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 8},
+      "id": 6,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
+        "orientation": "auto",
+        "showValue": "never",
+        "stacking": "normal",
+        "tooltip": {"mode": "multi", "sort": "none"},
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "title": "Position Fractions by Symbol (stacked)",
+      "type": "barchart",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_symbol\" and r[\"_field\"] == \"position_frac\")\n  |> last()\n  |> group(columns: [\"symbol\"])\n  |> yield(name: \"position_frac\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "axisCenteredZero": true,
+            "fillOpacity": 80,
+            "lineWidth": 1
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": -100},
+              {"color": "green", "value": 0}
+            ]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 8},
+      "id": 7,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
+        "orientation": "auto",
+        "showValue": "never",
+        "stacking": "none",
+        "tooltip": {"mode": "multi", "sort": "desc"},
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "title": "Unrealised P&L per Position",
+      "type": "barchart",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_symbol\" and r[\"_field\"] == \"position_pnl\")\n  |> last()\n  |> yield(name: \"position_pnl\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 15},
+      "id": 102,
+      "title": "Delta Scores & BH Mass",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "delta score",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 8,
+      "options": {
+        "legend": {"calcs": ["last", "max"], "displayMode": "table", "placement": "right", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "title": "Delta Scores per Symbol",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_symbol\" and r[\"_field\"] == \"delta_score\")\n  |> aggregateWindow(every: $__interval, fn: mean, createEmpty: false)\n  |> yield(name: \"delta_score\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 9,
+      "options": {
+        "legend": {"calcs": ["last", "max"], "displayMode": "table", "placement": "right", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "title": "BH Mass — Daily per Symbol",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_symbol\" and r[\"_field\"] == \"bh_mass_daily\")\n  |> aggregateWindow(every: $__interval, fn: mean, createEmpty: false)\n  |> yield(name: \"bh_mass_daily\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 24},
+      "id": 103,
+      "title": "TF Scores & BH Active Flags",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 5,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "pointSize": 6,
+            "spanNulls": true
+          },
+          "unit": "short",
+          "min": 0,
+          "max": 7,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 3},
+              {"color": "green", "value": 6}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 25},
+      "id": 10,
+      "options": {
+        "legend": {"calcs": ["last"], "displayMode": "table", "placement": "right", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "title": "TF Score per Symbol (0-7)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_symbol\" and r[\"_field\"] == \"tf_score\")\n  |> aggregateWindow(every: $__interval, fn: last, createEmpty: false)\n  |> yield(name: \"tf_score\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {"group": "A", "mode": "none"}
+          },
+          "unit": "short",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 25},
+      "id": 11,
+      "options": {
+        "legend": {"calcs": ["last"], "displayMode": "table", "placement": "right", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "none"}
+      },
+      "title": "BH Active — Daily (0/1) per Symbol",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_symbol\" and r[\"_field\"] == \"bh_active_daily\")\n  |> aggregateWindow(every: $__interval, fn: last, createEmpty: false)\n  |> yield(name: \"bh_active_daily\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 33},
+      "id": 104,
+      "title": "Volatility — ATR & GARCH",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 34},
+      "id": 12,
+      "options": {
+        "legend": {"calcs": ["last"], "displayMode": "table", "placement": "right", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "title": "ATR per Symbol",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_symbol\" and r[\"_field\"] == \"atr\")\n  |> aggregateWindow(every: $__interval, fn: mean, createEmpty: false)\n  |> yield(name: \"atr\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "percentunit",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 34},
+      "id": 13,
+      "options": {
+        "legend": {"calcs": ["last"], "displayMode": "table", "placement": "right", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "title": "GARCH Vol Forecast per Symbol",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_symbol\" and r[\"_field\"] == \"garch_vol\")\n  |> aggregateWindow(every: $__interval, fn: mean, createEmpty: false)\n  |> yield(name: \"garch_vol\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 41},
+      "id": 105,
+      "title": "PID Controller State",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 42},
+      "id": 14,
+      "options": {
+        "legend": {"calcs": ["last"], "displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "none"}
+      },
+      "title": "PID — Stale Move Threshold",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_account\" and r[\"_field\"] == \"pid_stale_threshold\")\n  |> aggregateWindow(every: $__interval, fn: mean, createEmpty: false)\n  |> yield(name: \"pid_stale\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": true
+          },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 42},
+      "id": 15,
+      "options": {
+        "legend": {"calcs": ["last"], "displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "none"}
+      },
+      "title": "PID — Max Delta Fraction Cap",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: $__timeFrom, stop: $__timeTo)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_account\" and r[\"_field\"] == \"pid_max_frac\")\n  |> aggregateWindow(every: $__interval, fn: mean, createEmpty: false)\n  |> yield(name: \"pid_max_frac\")",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 49},
+      "id": 106,
+      "title": "Trade Log",
+      "type": "row"
+    },
+
+    {
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "align": "auto",
+            "cellOptions": {"type": "auto"},
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "pnl"},
+            "properties": [
+              {"id": "unit", "value": "currencyUSD"},
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "yellow", "value": -50},
+                    {"color": "green", "value": 0}
+                  ]
+                }
+              },
+              {"id": "custom.cellOptions", "value": {"type": "color-background"}}
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "side"},
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {"type": "value", "options": {"buy": {"color": "green", "index": 0, "text": "BUY"}}},
+                  {"type": "value", "options": {"sell": {"color": "red", "index": 1, "text": "SELL"}}}
+                ]
+              },
+              {"id": "custom.cellOptions", "value": {"type": "color-text"}}
+            ]
+          }
+        ]
+      },
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 50},
+      "id": 16,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": false},
+        "showHeader": true,
+        "sortBy": [{"desc": true, "displayName": "ts"}]
+      },
+      "title": "Last 50 Trades",
+      "type": "table",
+      "targets": [
+        {
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "query": "from(bucket: \"larsa_metrics\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_trade\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 50)",
+          "refId": "A"
+        }
+      ]
+    }
+
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["larsa", "live-trading"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+        "definition": "from(bucket: \"larsa_metrics\") |> range(start: -24h) |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_symbol\") |> group() |> distinct(column: \"symbol\") |> keep(columns: [\"_value\"])",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "symbol",
+        "options": [],
+        "query": "from(bucket: \"larsa_metrics\") |> range(start: -24h) |> filter(fn: (r) => r[\"_measurement\"] == \"larsa_symbol\") |> group() |> distinct(column: \"symbol\") |> keep(columns: [\"_value\"])",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query",
+        "label": "Symbol"
+      }
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "LARSA Live Trading",
+  "uid": "larsa-live-trading",
+  "version": 1
+}
