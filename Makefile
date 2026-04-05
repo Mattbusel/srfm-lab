@@ -428,6 +428,53 @@ docker-build: ## Rebuild all docker images
 	docker-compose build
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Live trading stack (Docker + local supervisor)
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: up
+up: ## Start all 5 trading services via docker compose
+	docker compose up -d
+	@echo ""
+	@echo "Services running:"
+	@echo "  market-data      http://localhost:8780"
+	@echo "  coordination     http://localhost:8781"
+	@echo "  bridge           http://localhost:8783"
+	@echo "  autonomous-loop  (no HTTP)"
+	@echo "  live-trader      (no HTTP)"
+	@echo "  supervisor API   http://localhost:8790/status"
+
+.PHONY: down
+down: ## Stop all docker compose services
+	docker compose down
+
+.PHONY: logs
+logs: ## Tail logs from all docker compose services
+	docker compose logs -f
+
+.PHONY: restart-trader
+restart-trader: ## Hot-restart the live-trader container
+	docker compose restart live-trader
+	@echo "live-trader restarted."
+
+.PHONY: dev
+dev: ## Run supervisor.py locally (no Docker) — starts all 5 services natively
+	@if [ -f tools/.env ]; then \
+		set -a && source tools/.env && set +a; \
+	fi; \
+	$(PYTHON) scripts/supervisor.py
+
+.PHONY: start
+start: ## Start all services locally (bash, with health-check loop)
+	bash scripts/start_all.sh start
+
+.PHONY: stop
+stop: ## Stop all locally managed services (kills PIDs from logs/*.pid)
+	bash scripts/stop_all.sh
+
+.PHONY: status
+status: ## One-shot health report for all services
+	bash scripts/health_check.sh
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Advanced analytics tools
 # ─────────────────────────────────────────────────────────────────────────────
 .PHONY: stress

@@ -1,0 +1,51 @@
+# Dockerfile.python — Shared Python base image for SRFM Lab services
+# Multi-stage: builder installs deps, final image is slim.
+#
+# All Python services (bridge, autonomous-loop, live-trader) use this image.
+# Build context is always the repo root so requirements.txt is available.
+
+# ── Stage 1: builder ──────────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+# System deps needed to compile some Python packages (numpy, polars, etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        g++ \
+        libffi-dev \
+        libssl-dev \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install Python dependencies
+COPY requirements.txt .
+RUN pip install --upgrade pip \
+ && pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ── Stage 2: final ────────────────────────────────────────────────────────────
+FROM python:3.11-slim AS final
+
+LABEL org.opencontainers.image.title="srfm-lab-python"
+LABEL org.opencontainers.image.description="SRFM Lab shared Python runtime"
+
+# Runtime system libs only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages from builder
+COPY --from=builder /install /usr/local
+
+WORKDIR /app
+
+# Copy entire repo (docker-compose will override specific dirs via volume mounts)
+COPY . .
+
+# Non-root user for security
+RUN useradd -m -u 1000 srfm
+USER srfm
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app

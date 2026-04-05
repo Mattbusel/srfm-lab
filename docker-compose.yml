@@ -1,19 +1,169 @@
-version: "3.8"
+version: "3.9"
 
-# SRFM Lab — Docker Compose for parallel backtesting
+# SRFM Lab — Production Docker Compose
 #
-# Usage:
-#   docker-compose up --scale worker=4   # run 4 parallel workers
-#   docker-compose run backtest lean backtest strategies/larsa-v1
+# Quick start:
+#   make up                      # start all services
+#   make logs                    # tail logs
+#   make down                    # stop everything
+#   make restart-trader          # hot-restart live-trader only
 #
-# Workers read from the shared ./strategies and ./data volumes.
-# Results are written to ./results.
+# Environment:
+#   Copy tools/.env.example → tools/.env and fill in API keys.
+#   All services receive the same env file.
+#
+# Legacy backtest/research targets are preserved at the bottom of this file.
 
+# ── Shared Python service defaults ────────────────────────────────────────────
+x-python-defaults: &python-defaults
+  build:
+    context: .
+    dockerfile: Dockerfile.python
+  env_file:
+    - tools/.env
+  volumes:
+    - ./logs:/app/logs
+    - ./execution:/app/execution
+    - ./bridge:/app/bridge
+  networks:
+    - srfm-net
+  restart: unless-stopped
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+# ── Services ──────────────────────────────────────────────────────────────────
 services:
 
-  # ── Single backtest ──────────────────────────────────────────────────────────
+  # ── market-data (Go, port 8780) ─────────────────────────────────────────────
+  market-data:
+    build:
+      context: ./market-data
+      dockerfile: Dockerfile
+    image: srfm-market-data:latest
+    container_name: srfm-market-data
+    ports:
+      - "8780:8780"
+    env_file:
+      - tools/.env
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - srfm-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8780/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ── coordination (Elixir OTP, port 8781) ────────────────────────────────────
+  coordination:
+    build:
+      context: ./coordination
+    image: srfm-coordination:latest
+    container_name: srfm-coordination
+    ports:
+      - "8781:8781"
+    env_file:
+      - tools/.env
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - srfm-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8781/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ── bridge / heartbeat (Python, port 8783) ──────────────────────────────────
+  bridge:
+    <<: *python-defaults
+    image: srfm-python:latest
+    container_name: srfm-bridge
+    ports:
+      - "8783:8783"
+    command: ["python", "bridge/heartbeat.py"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8783/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      market-data:
+        condition: service_healthy
+
+  # ── autonomous-loop / idea engine (Python) ──────────────────────────────────
+  autonomous-loop:
+    <<: *python-defaults
+    image: srfm-python:latest
+    container_name: srfm-autonomous-loop
+    command: ["python", "-m", "idea_engine.autonomous_loop.orchestrator"]
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "orchestrator"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      bridge:
+        condition: service_healthy
+
+  # ── live-trader (Python) ─────────────────────────────────────────────────────
+  live-trader:
+    <<: *python-defaults
+    image: srfm-python:latest
+    container_name: srfm-live-trader
+    command: ["python", "tools/live_trader_alpaca.py"]
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "live_trader_alpaca"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      market-data:
+        condition: service_healthy
+      bridge:
+        condition: service_healthy
+
+  # ── supervisor HTTP API (port 8790) ──────────────────────────────────────────
+  supervisor:
+    <<: *python-defaults
+    image: srfm-python:latest
+    container_name: srfm-supervisor
+    ports:
+      - "8790:8790"
+    command: ["python", "scripts/supervisor.py", "--port", "8790"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8790/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── Legacy: single LEAN backtest (run via: docker compose run backtest ...) ──
   backtest:
     image: quantconnect/lean:latest
+    profiles:
+      - backtest
     volumes:
       - ./strategies:/workspace/strategies
       - ./data:/workspace/data
@@ -23,10 +173,14 @@ services:
     environment:
       - LEAN_WORKSPACE=/workspace
     command: ["lean", "backtest", "strategies/larsa-v1", "--output", "results/larsa-v1/docker"]
+    networks:
+      - srfm-net
 
-  # ── Parallel batch worker ────────────────────────────────────────────────────
+  # ── Legacy: parallel LEAN worker ──────────────────────────────────────────
   worker:
     image: quantconnect/lean:latest
+    profiles:
+      - backtest
     volumes:
       - ./strategies:/workspace/strategies
       - ./data:/workspace/data
@@ -35,12 +189,15 @@ services:
     working_dir: /workspace
     environment:
       - LEAN_WORKSPACE=/workspace
-    # Overridden at runtime: docker-compose run worker lean backtest strategies/experiment-1
     command: ["sleep", "infinity"]
+    networks:
+      - srfm-net
 
-  # ── Jupyter research ─────────────────────────────────────────────────────────
+  # ── Legacy: Jupyter research ───────────────────────────────────────────────
   research:
     image: quantconnect/research:latest
+    profiles:
+      - research
     ports:
       - "8888:8888"
     volumes:
@@ -50,3 +207,18 @@ services:
       - ./results:/workspace/results
     working_dir: /workspace
     command: ["jupyter", "notebook", "--ip=0.0.0.0", "--allow-root", "--no-browser"]
+    networks:
+      - srfm-net
+
+# ── Named volumes ─────────────────────────────────────────────────────────────
+volumes:
+  logs:
+    driver: local
+  execution:
+    driver: local
+
+# ── Network ───────────────────────────────────────────────────────────────────
+networks:
+  srfm-net:
+    driver: bridge
+    name: srfm-net
