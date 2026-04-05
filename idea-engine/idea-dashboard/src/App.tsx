@@ -10,6 +10,10 @@ import AcademicPage from './pages/AcademicPage'
 import SerendipityPage from './pages/SerendipityPage'
 import GenealogyPage from './pages/GenealogyPage'
 import NarrativesPage from './pages/NarrativesPage'
+import DebateChamber from './pages/DebateChamber'
+import MacroRegime from './pages/MacroRegime'
+import SentimentFeed from './pages/SentimentFeed'
+import MicrostructureHealth from './pages/MicrostructureHealth'
 import AlertBanner from './components/AlertBanner'
 import ErrorBoundary from './components/ErrorBoundary'
 import { useWebSocket } from './hooks/useWebSocket'
@@ -29,6 +33,10 @@ type RouteId =
   | 'serendipity'
   | 'genealogy'
   | 'narratives'
+  | 'debate'
+  | 'macro'
+  | 'sentiment'
+  | 'microstructure'
 
 interface NavItem {
   id: RouteId
@@ -265,6 +273,10 @@ const ROUTE_TITLES: Record<RouteId, string> = {
   serendipity:      'Serendipity Engine',
   genealogy:        'Genealogy',
   narratives:       'Research Narratives',
+  debate:           'Debate Chamber',
+  macro:            'Macro Regime',
+  sentiment:        'Sentiment Feed',
+  microstructure:   'Microstructure Health',
 }
 
 const Header: React.FC<HeaderProps> = ({ activeRoute, wsStatus, retryCount }) => {
@@ -365,15 +377,19 @@ const App: React.FC = () => {
   })
 
   const NAV_ITEMS: NavItem[] = [
-    { id: 'dashboard',       label: 'Dashboard',        icon: '⊞' },
-    { id: 'genomes',         label: 'Genomes',           icon: '⬡' },
-    { id: 'hypotheses',      label: 'Hypotheses',        icon: '⧖', badge: hypothesesData },
-    { id: 'shadows',         label: 'Shadow Runners',    icon: '◎' },
-    { id: 'counterfactuals', label: 'Counterfactuals',   icon: '⊿' },
-    { id: 'academic',        label: 'Academic',          icon: '⚘' },
-    { id: 'serendipity',     label: 'Serendipity',       icon: '✦' },
-    { id: 'genealogy',       label: 'Genealogy',         icon: '⟠' },
-    { id: 'narratives',      label: 'Narratives',        icon: '≡', badge: alertData },
+    { id: 'dashboard',       label: 'Dashboard',           icon: '⊞' },
+    { id: 'genomes',         label: 'Genomes',              icon: '⬡' },
+    { id: 'hypotheses',      label: 'Hypotheses',           icon: '⧖', badge: hypothesesData },
+    { id: 'debate',          label: 'Debate Chamber',       icon: '⚖' },
+    { id: 'shadows',         label: 'Shadow Runners',       icon: '◎' },
+    { id: 'counterfactuals', label: 'Counterfactuals',      icon: '⊿' },
+    { id: 'academic',        label: 'Academic',             icon: '⚘' },
+    { id: 'serendipity',     label: 'Serendipity',          icon: '✦' },
+    { id: 'genealogy',       label: 'Genealogy',            icon: '⟠' },
+    { id: 'narratives',      label: 'Narratives',           icon: '≡', badge: alertData },
+    { id: 'macro',           label: 'Macro Regime',         icon: '◈' },
+    { id: 'sentiment',       label: 'Sentiment Feed',       icon: '◉' },
+    { id: 'microstructure',  label: 'Microstructure',       icon: '⊙' },
   ]
 
   const renderPage = () => {
@@ -381,12 +397,16 @@ const App: React.FC = () => {
       case 'dashboard':       return <DashboardPage />
       case 'genomes':         return <GenomesPage />
       case 'hypotheses':      return <HypothesesPage />
+      case 'debate':          return <DebateChamber />
       case 'shadows':         return <ShadowsPage />
       case 'counterfactuals': return <CounterfactualsPage />
       case 'academic':        return <AcademicPage />
       case 'serendipity':     return <SerendipityPage />
       case 'genealogy':       return <GenealogyPage />
       case 'narratives':      return <NarrativesPage />
+      case 'macro':           return <MacroRegime />
+      case 'sentiment':       return <SentimentFeed />
+      case 'microstructure':  return <MicrostructureHealth />
       default:                return <DashboardPage />
     }
   }
