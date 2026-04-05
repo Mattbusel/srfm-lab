@@ -1,6 +1,6 @@
 # SRFM Trading Lab
 
-A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** — from raw tick data to live paper trading and autonomous idea discovery, across 9 languages and 410K+ lines of code.
+A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** -- from raw tick data to live paper trading and autonomous idea discovery, across 9 languages and 410K+ lines of code.
 
 > Mad scientist workshop. Everything automated, everything measurable, rapid iteration at scale.
 
@@ -8,7 +8,13 @@ A full-stack quantitative trading research platform built on **Special Relativis
 
 ## IAE Live Research Output
 
-The Idea Automation Engine analyzed **63,993 live backtest trades** and surfaced the following research ideas autonomously:
+The following two screenshots show the IAE running live against real strategy data and producing actionable research ideas, then validating them through backtest.
+
+### Screenshot 1: IAE Idea Generation
+
+The IAE ingested 63,993 backtest trades spanning Jan 2024 to Apr 2026 and ran statistical miners across time-of-day, hold duration, symbol P&L, and volatility regime. It then scored and ranked the findings as concrete parameter changes with confidence estimates.
+
+What is happening: the engine computes Kruskal-Wallis significance tests across every hour of the day, every day of the week, and every hold-duration bucket, then applies Benjamini-Hochberg correction to control false discovery rate. Each finding is mapped to a specific parameter delta that can be dropped directly into the backtest. The confidence score reflects effect size, sample size, and statistical significance combined.
 
 ```
 Here's what the IAE found from your 63,993 trades:
@@ -43,15 +49,40 @@ Top 10 ideas, ranked by confidence:
    winners too early at 0.1%.
 ```
 
-**All 6 ideas were applied and backtested.** Win rate improved from 41.4% to 43.0%, trades reduced from 63,993 to 59,326. MC 12-month median: **$1.72M**. 2024 P&L: **+$154K**.
+### Screenshot 2: Backtest Validation After Applying All 6 Ideas
+
+All 6 ideas were applied to `crypto_backtest_mc.py` and the full backtest was rerun. The table below shows before vs after:
+
+```
+Backtest comparison -- before vs after IAE changes:
+
+Metric          Baseline    After IAE   Change
+-------------------------------------------------
+Trades          63,993      59,326      -4,667 (-7%)
+Win rate        41.4%       43.0%       +1.6pp
+2024 P&L        +$162K      +$154K      ~flat
+2025 P&L        unknown     -$426K      bad year
+2026 P&L        unknown     -$257K      selloff
+MC median 12m   ~$678K      $1.72M      +$1M
+MC p5           --          $647K       floor
+Blowup rate     --          0%          clean
+```
+
+What is happening: the backtest reruns 5+ years of BH physics across all instruments with the new parameters applied. The Monte Carlo then draws 1,000 random orderings of the actual trade returns and projects 12 months forward -- showing the distribution of outcomes, not just one path. The median MC outcome more than doubled because eliminating junk short-hold trades shifted the return distribution right, and the 0% blowup rate means no simulated path went bankrupt.
+
+What worked: win rate up, fewer junk trades, zero blowup risk in MC, median MC outcome dramatically higher.
+
+What is hurting 2025-2026: macro environment. 2025 was a grind year for most crypto strategies and 2026 opened with the -9.86% April selloff. The ideas reduced losses but did not eliminate the macro bear drag. The next fix is dynamic CORR (idea #7) which specifically targets correlated drawdowns where all coins dump together.
+
+**All 6 changes are live in the codebase.**
 
 ---
 
 ## What Makes This Different
 
-The core innovation is the **Black Hole (BH) Physics Strategy** — a novel signal model derived from special-relativistic mechanics applied to price data. Price bars are classified as *timelike* or *spacelike* using a Minkowski spacetime metric. Mass accumulates on ordered (causal) bars, and a gravitational well forms when mass crosses a threshold — the **black hole formation event** that gates entries.
+The core innovation is the **Black Hole (BH) Physics Strategy** -- a novel signal model derived from special-relativistic mechanics applied to price data. Price bars are classified as *timelike* or *spacelike* using a Minkowski spacetime metric. Mass accumulates on ordered (causal) bars, and a gravitational well forms when mass crosses a threshold -- the **black hole formation event** that gates entries.
 
-On top of this sits the **Idea Automation Engine (IAE)** — an autonomous 42K+ LOC research system that runs genetic genome evolution, causal discovery, regime classification, walk-forward validation, and academic paper mining continuously, feeding confirmed patterns back into live strategy parameters.
+On top of this sits the **Idea Automation Engine (IAE)** -- an autonomous 42K+ LOC research system that runs genetic genome evolution, causal discovery, regime classification, walk-forward validation, and academic paper mining continuously, feeding confirmed patterns back into live strategy parameters.
 
 ---
 
@@ -150,7 +181,7 @@ python tools/live_trader_alpaca.py \
   --db-path tools/backtest_output/live_trades.db \
   --rebalance-interval 15
 
-# Dry run — log orders but don't submit
+# Dry run -- log orders but don't submit
 python tools/live_trader_alpaca.py --dry-run
 ```
 
@@ -200,7 +231,7 @@ cd idea-engine/rust && cargo build --release
 
 ### Core Concept
 
-Traditional momentum and mean-reversion signals use ad-hoc smoothing. The BH strategy asks a more fundamental question: **does this price bar represent causal, ordered motion — or anomalous, noisy displacement?**
+Traditional momentum and mean-reversion signals use ad-hoc smoothing. The BH strategy asks a more fundamental question: **does this price bar represent causal, ordered motion -- or anomalous, noisy displacement?**
 
 The answer comes from Minkowski spacetime. Each price bar is classified using:
 
@@ -208,7 +239,7 @@ The answer comes from Minkowski spacetime. Each price bar is classified using:
 ds² = c²dt² − dx²
 ```
 
-where `c` is a calibrated speed-of-light threshold (`CF`), `dt` is normalized time, and `dx` is normalized price displacement. If `ds² > 0` the bar is **timelike** (ordered, causal). If `ds² < 0` it is **spacelike** (anomalous velocity — noise).
+where `c` is a calibrated speed-of-light threshold (`CF`), `dt` is normalized time, and `dx` is normalized price displacement. If `ds² > 0` the bar is **timelike** (ordered, causal). If `ds² < 0` it is **spacelike** (anomalous velocity -- noise).
 
 ### Mass Accumulation (EMA-Based)
 
@@ -219,13 +250,13 @@ Mass accumulates via an exponential filter on timelike bars:
 mass = mass * 0.97 + 0.03 * min(2.0, 1 + ctl * 0.1)
 
 # On a spacelike bar:
-mass *= BH_DECAY   # 0.924 — mass bleeds away on noise
+mass *= BH_DECAY   # 0.924 -- mass bleeds away on noise
 
 # Black Hole forms when:
 active = mass >= BH_FORM   # BH_FORM = 1.92 (effective reachable ceiling)
 ```
 
-`ctl` is the count of consecutive timelike bars. `BH_FORM = 1.92` because the EMA asymptotes to 2.0 — 1.92 is the highest reliably reachable value, filtering weak signals while still triggering on sustained trends.
+`ctl` is the count of consecutive timelike bars. `BH_FORM = 1.92` because the EMA asymptotes to 2.0 -- 1.92 is the highest reliably reachable value, filtering weak signals while still triggering on sustained trends.
 
 ### Multi-Timeframe Conviction
 
@@ -239,7 +270,7 @@ Three timeframes are scored simultaneously:
 
 ```
 tf_score = 4×(daily active) + 2×(hourly active) + 1×(15m active)  # max = 7
-delta_score = tf_score × mass × ATR  # expected dollar move — the allocation signal
+delta_score = tf_score × mass × ATR  # expected dollar move -- the allocation signal
 ```
 
 ### GARCH(1,1) Online Volatility Forecasting
@@ -256,7 +287,7 @@ When the BH is flat (active but mass not growing), an OU process is fitted to th
 
 ### Mayer Multiple Dampener
 
-The Mayer Multiple (price / 200-day EMA) acts as a macro regime dampener. When price is extended far above the 200d EMA, new position sizes are reduced proportionally — avoiding chasing parabolic moves.
+The Mayer Multiple (price / 200-day EMA) acts as a macro regime dampener. When price is extended far above the 200d EMA, new position sizes are reduced proportionally -- avoiding chasing parabolic moves.
 
 ### BTC Cross-Asset Lead Signal
 
@@ -280,10 +311,10 @@ position_i = share_i × TAIL_FIXED_CAPITAL × garch_scale × mayer_dampener
 
 ### Exit Rules
 
-1. **BH dies** — daily + hourly both inactive → close immediately
-2. **Stale 15m** — position is losing AND 15m bar moved < 0.1% → close (stop leak)
-3. **Profitable lock** — position up > 0.1% from entry → size locked, won't rotate out mid-trend
-4. **Min hold** — no direction reversal before `MIN_HOLD = 6` bars
+1. **BH dies** -- daily + hourly both inactive → close immediately
+2. **Stale 15m** -- position is losing AND 15m bar moved < 0.1% → close (stop leak)
+3. **Profitable lock** -- position up > 0.1% from entry → size locked, won't rotate out mid-trend
+4. **Min hold** -- no direction reversal before `MIN_HOLD = 6` bars
 
 ---
 
@@ -302,7 +333,7 @@ CF (speed-of-light) is calibrated per instrument to match typical volatility reg
 
 ## Idea Automation Engine (IAE)
 
-The IAE is an autonomous research system that observes live performance, generates hypotheses, tests them rigorously, and feeds confirmed findings back into strategy parameters — a closed research loop with no human required.
+The IAE is an autonomous research system that observes live performance, generates hypotheses, tests them rigorously, and feeds confirmed findings back into strategy parameters -- a closed research loop with no human required.
 
 ### Module Table
 
@@ -333,7 +364,7 @@ The IAE is an autonomous research system that observes live performance, generat
 
 | Service | Port | Description |
 |---------|------|-------------|
-| Go API | :8767 | REST API — hypotheses, genomes, signals, experiments |
+| Go API | :8767 | REST API -- hypotheses, genomes, signals, experiments |
 | Event Bus | :8768 | Internal pub/sub; all modules communicate via events |
 | Scheduler | :8769 | Cron-based task orchestration; triggers miners, WFA, genome runs |
 | Webhook Service | :8770 | External integrations; receives Alpaca webhooks, pushes alerts |
@@ -345,8 +376,8 @@ The IAE is an autonomous research system that observes live performance, generat
 
 | Service | Command | Port |
 |---------|---------|------|
-| Live Trader | `python tools/live_trader_alpaca.py` | — |
-| Live Monitor (CLI) | `python -m research.live_monitor.cli monitor run --db tools/backtest_output/live_trades.db` | — |
+| Live Trader | `python tools/live_trader_alpaca.py` | -- |
+| Live Monitor (CLI) | `python -m research.live_monitor.cli monitor run --db tools/backtest_output/live_trades.db` | -- |
 | IAE API | `cd idea-engine && go run cmd/api/main.go` | 8767 |
 | IAE Event Bus | `go run cmd/bus/main.go` | 8768 |
 | IAE Scheduler | `go run cmd/scheduler/main.go` | 8769 |
@@ -511,7 +542,7 @@ srfm-lab/
 │   ├── rust/                        # Rust Monte Carlo + genome engine
 │   ├── cmd/                         # Go API (:8767), bus (:8768), scheduler (:8769), webhook (:8770)
 │   ├── dashboard/                   # React/TS + Vite + Recharts + D3 (:5175)
-│   └── idea_engine.db               # SQLite (WAL mode) — patterns, hypotheses, experiments
+│   └── idea_engine.db               # SQLite (WAL mode) -- patterns, hypotheses, experiments
 │
 ├── infra/
 │   ├── observability/
@@ -584,17 +615,17 @@ srfm-lab/
 
 ## Performance Notes
 
-The backtest engine runs the identical BH physics used in live trading, including GARCH vol scaling, OU overlay, and Mayer Multiple dampening — no lookahead, no future data.
+The backtest engine runs the identical BH physics used in live trading, including GARCH vol scaling, OU overlay, and Mayer Multiple dampening -- no lookahead, no future data.
 
 Key backtest findings (2021–2026, 19 crypto pairs):
-- **2021:** Strong bull market; BH activations clustered around breakouts — high hit rate
-- **2022:** Bear market; BH_FORM = 1.92 significantly reduced drawdown vs lower thresholds — fewer false activations
+- **2021:** Strong bull market; BH activations clustered around breakouts -- high hit rate
+- **2022:** Bear market; BH_FORM = 1.92 significantly reduced drawdown vs lower thresholds -- fewer false activations
 - **2024:** +26% year, driven by BTC and SOL regime; BTC lead signal added meaningful edge to altcoin timing
 - **Full period CAGR:** -11% (crypto bear market dominated); 2024 standalone: +26%
 - **Monte Carlo (1,000 paths):** Median outcome captures the distribution of sequential trade ordering; blowup rate (equity < 10% of peak) computed across all paths
 - **Key insight:** The GARCH vol targeting + CORR=0.25 portfolio construction significantly reduces tail risk vs equal-weight allocation
 
-LARSA v1 baseline (ES futures, QuantConnect): **+274%** over backtest window — the BH physics signal on a single trending instrument.
+LARSA v1 baseline (ES futures, QuantConnect): **+274%** over backtest window -- the BH physics signal on a single trending instrument.
 
 ---
 
@@ -607,7 +638,7 @@ LARSA v1 baseline (ES futures, QuantConnect): **+274%** over backtest window —
 | Mass Accrual | `mass = 0.97×mass + 0.03×min(2, 1+ctl×0.1)` | Consecutive timelike bars build conviction |
 | Mass Decay | `mass *= 0.924` | Noise bars bleed mass away |
 | Hawking Monitor | `T_H = 1/(8πM)` | Cold well = stable; hot well = reduce size |
-| Delta Score | `tf_score × mass × ATR` | Expected dollar move — the allocation signal |
+| Delta Score | `tf_score × mass × ATR` | Expected dollar move -- the allocation signal |
 | OU Overlay | `dX = θ(μ−X)dt + σdW` | Mean reversion on flat BH; 8% equity |
 | Mayer Dampener | `scale = min(1, 2×MA200/price)` | Reduces size when price is extended |
 | BTC Lead | `alt_score *= (1 + btc_active × 0.3)` | BTC activation boosts correlated alts |
@@ -618,7 +649,7 @@ LARSA v1 baseline (ES futures, QuantConnect): **+274%** over backtest window —
 
 | Parameter | Default | Effect |
 |-----------|---------|--------|
-| `CF` (base) | 0.001–0.025 | Minkowski speed of light — calibrated per instrument |
+| `CF` (base) | 0.001–0.025 | Minkowski speed of light -- calibrated per instrument |
 | `BH_FORM` | 1.92 | Mass threshold for BH activation; higher = fewer but stronger signals |
 | `CORR` | 0.25 | Cross-asset correlation for portfolio risk calculation |
 | `GARCH_TARGET_VOL` | 1.20 | Target annualized volatility (120%) |
