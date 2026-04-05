@@ -332,6 +332,17 @@ def run_backtest(data):
     trades = []
     pid = PIDController()
 
+    # IAE idea #9: dynamic CORR -- rolling 30-day realized correlation
+    # When avg pair-corr > 0.6 (stress regime), use CORR=0.60 to reduce per-instrument risk
+    CORR_DYNAMIC_WINDOW = 30
+    CORR_STRESS_THRESHOLD = 0.60
+    CORR_STRESS = 0.60
+    CORR_NORMAL = CORR  # 0.25
+    _daily_returns = {s: [] for s in syms}  # rolling daily log-returns
+    _dynamic_corr = CORR_NORMAL
+    _dynamic_corr_factor = CORR_FACTOR
+    _dynamic_per_inst_risk = PER_INST_RISK
+
     # All daily timestamps as spine
     all_days = data["BTC"]["1d"].index
     warmup_done = {s: False for s in syms}
@@ -356,7 +367,12 @@ def run_backtest(data):
             # GARCH update on daily return
             if len(d_bh[s].prices) >= 2:
                 px = list(d_bh[s].prices)
-                garch[s].update((px[-1] - px[-2]) / (px[-2] + 1e-9))
+                ret = (px[-1] - px[-2]) / (px[-2] + 1e-9)
+                garch[s].update(ret)
+                # Track rolling returns for dynamic CORR
+                _daily_returns[s].append(ret)
+                if len(_daily_returns[s]) > CORR_DYNAMIC_WINDOW:
+                    _daily_returns[s].pop(0)
             # OU update on daily close
             ou[s].update(row["Close"])
             # Mayer Multiple: track BTC EMA200
@@ -366,6 +382,22 @@ def run_backtest(data):
         if not all(warmup_done.values()):
             equity_curve.append((day.date(), equity))
             continue
+
+        # IAE idea #9: recompute dynamic CORR every day once we have 30-day returns
+        _active_syms_returns = [_daily_returns[s] for s in syms
+                                 if len(_daily_returns[s]) >= CORR_DYNAMIC_WINDOW]
+        if len(_active_syms_returns) >= 2:
+            _ret_matrix = np.array(_active_syms_returns)
+            _corr_matrix = np.corrcoef(_ret_matrix)
+            n = _corr_matrix.shape[0]
+            # average of off-diagonal elements (pairwise correlations)
+            _avg_pair_corr = (np.sum(_corr_matrix) - n) / (n * (n - 1)) if n > 1 else 0.0
+            _dynamic_corr = CORR_STRESS if _avg_pair_corr > CORR_STRESS_THRESHOLD else CORR_NORMAL
+        else:
+            _dynamic_corr = CORR_NORMAL
+        n_eff = N_INST
+        _dynamic_corr_factor = math.sqrt(n_eff + n_eff * (n_eff - 1) * _dynamic_corr)
+        _dynamic_per_inst_risk = DAILY_RISK / _dynamic_corr_factor
 
         # Get hourly bars for this day
         h1_bars = {}
@@ -453,7 +485,7 @@ def run_backtest(data):
                 atr = h_atr[s].atr or d_atr[s].atr
                 cp  = curr_price[s]
                 vol = (atr / cp * math.sqrt(6.5)) if (atr and cp > 0) else 0.01
-                base = min(PER_INST_RISK / (vol + 1e-9), min(ceiling, pid_max_frac))
+                base = min(_dynamic_per_inst_risk / (vol + 1e-9), min(ceiling, pid_max_frac))
                 # GARCH vol scaling: compress when vol elevated, expand when compressed
                 raw[s] = base * garch[s].vol_scale
 
