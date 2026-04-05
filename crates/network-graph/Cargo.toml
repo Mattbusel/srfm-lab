@@ -21,6 +21,7 @@ statrs = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 csv = "1"
+clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
 approx = "0.5"

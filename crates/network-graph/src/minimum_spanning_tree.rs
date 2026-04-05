@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn test_mantegna_distance_range() {
         // For rho in [-1,1]: d = sqrt(2*(1-rho)) in [0, 2].
-        let rho_vals = [-1.0, -0.5, 0.0, 0.5, 1.0];
+        let rho_vals = [-1.0_f64, -0.5, 0.0, 0.5, 1.0];
         for rho in rho_vals {
             let d = (2.0 * (1.0 - rho)).sqrt();
             assert!(d >= 0.0 && d <= 2.0 + 1e-9, "d={} for rho={}", d, rho);

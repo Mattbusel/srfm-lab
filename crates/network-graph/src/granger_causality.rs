@@ -281,12 +281,11 @@ fn continued_fraction_beta(x: f64, a: f64, b: f64) -> f64 {
     let eps = 3e-7;
     let fpmin = 1e-30;
 
-    let mut h = 1.0_f64;
     let mut c = 1.0_f64;
     let mut d = 1.0 - (a + b) * x / (a + 1.0);
     if d.abs() < fpmin { d = fpmin; }
     d = 1.0 / d;
-    h = d;
+    let mut h = d;
 
     for m in 1..=max_iter {
         let m = m as f64;
@@ -331,7 +330,7 @@ fn lgamma(x: f64) -> f64 {
         0.1208650973866179e-2,
         -0.5395239384953e-5,
     ];
-    let mut x = x;
+    let x = x;
     let mut y = x;
     let tmp = x + 5.5;
     let tmp2 = tmp - (x + 0.5) * tmp.ln();

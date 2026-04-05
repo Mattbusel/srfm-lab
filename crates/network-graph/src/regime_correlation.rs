@@ -1,4 +1,4 @@
-use crate::correlation_matrix::{pearson_stable, CorrelationMatrix};
+use crate::correlation_matrix::pearson_stable;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

@@ -219,7 +219,7 @@ static void test_egarch_leverage_effect() {
     section("EGARCH leverage effect (asymmetry)");
 
     // gamma < 0 means negative returns increase variance more than positive
-    EGARCHTracker eg(−0.1, 0.1, -0.05, 0.85);
+    EGARCHTracker eg(-0.1, 0.1, -0.05, 0.85);
 
     // Start from equilibrium
     for (int i = 0; i < 30; ++i) eg.update(0.0);

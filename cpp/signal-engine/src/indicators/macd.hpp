@@ -37,4 +37,12 @@ private:
     double histogram_;
 };
 
+// ============================================================
+// MACD signal helpers (free functions)
+// ============================================================
+
+int macd_crossover(double prev_hist, double curr_hist) noexcept;
+int macd_zero_cross(double prev_macd, double curr_macd) noexcept;
+int macd_price_divergence(double price_change, double macd_change) noexcept;
+
 } // namespace srfm

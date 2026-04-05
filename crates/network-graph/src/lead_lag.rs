@@ -91,7 +91,7 @@ pub fn find_lead_lag(
     max_lag: usize,
 ) -> LeadLagResult {
     let xcorr = cross_correlation(x, y, max_lag);
-    let total = xcorr.len();
+    let _total = xcorr.len();
 
     let (best_idx, &best_corr) = xcorr
         .iter()
@@ -195,10 +195,16 @@ pub fn build_lead_lag_network(
 mod tests {
     use super::*;
 
+    /// Build x and y such that x leads y by `lag` bars.
+    /// y[t] = x[t - lag] => y is a delayed copy of x => x precedes y.
     fn lagged_series(n: usize, lag: usize) -> (Vec<f64>, Vec<f64>) {
-        let x: Vec<f64> = (0..n + lag).map(|i| (i as f64 * 0.3).sin()).collect();
-        let y: Vec<f64> = x[lag..].to_vec();
-        let x = x[..n].to_vec();
+        let signal: Vec<f64> = (0..n + lag).map(|i| (i as f64 * 0.3).sin()).collect();
+        // x = signal[lag..lag+n]  (the "early" part)
+        // y = signal[0..n]        (delayed by lag relative to x)
+        // => x[t] = signal[t + lag], y[t] = signal[t]
+        // => x[t] = y[t + lag], so x is ahead of y by `lag` bars (x leads y)
+        let x: Vec<f64> = signal[lag..lag + n].to_vec();
+        let y: Vec<f64> = signal[..n].to_vec();
         (x, y)
     }
 
@@ -214,8 +220,9 @@ mod tests {
     fn test_find_lead_lag_detects_x_leads() {
         let (x, y) = lagged_series(80, 2);
         let result = find_lead_lag("X", "Y", &x, &y, 5);
-        // x leads y by 2 bars, so lag should be positive.
-        assert_eq!(result.direction, LeadLagDirection::XLeads);
+        // x leads y by 2 bars, so lag should be positive (XLeads direction).
+        assert_eq!(result.direction, LeadLagDirection::XLeads,
+            "expected XLeads, got {:?}, lag={}", result.direction, result.lag);
         assert!(result.lag > 0, "expected positive lag, got {}", result.lag);
     }
 

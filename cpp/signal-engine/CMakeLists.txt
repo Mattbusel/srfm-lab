@@ -59,18 +59,27 @@ target_include_directories(signal_engine_lib PUBLIC include)
 add_executable(signal_engine_cli src/main.cpp)
 target_link_libraries(signal_engine_cli PRIVATE signal_engine_lib)
 
-# Test sources
-set(TEST_SOURCES
-    tests/test_bh_physics.cpp
-    tests/test_indicators.cpp
-    tests/test_garch.cpp
-    tests/test_ring_buffer.cpp
-    tests/test_performance.cpp
-)
+# Individual test executables (each has its own main())
+add_executable(test_bh_physics    tests/test_bh_physics.cpp)
+add_executable(test_indicators    tests/test_indicators.cpp)
+add_executable(test_garch         tests/test_garch.cpp)
+add_executable(test_ring_buffer   tests/test_ring_buffer.cpp)
+add_executable(test_performance   tests/test_performance.cpp)
 
-# Test executable
-add_executable(signal_engine_tests ${TEST_SOURCES})
-target_link_libraries(signal_engine_tests PRIVATE signal_engine_lib)
+foreach(t test_bh_physics test_indicators test_garch test_ring_buffer test_performance)
+    target_link_libraries(${t} PRIVATE signal_engine_lib)
+endforeach()
+
+# Convenience alias that runs all tests
+add_custom_target(signal_engine_tests
+    COMMAND test_bh_physics
+    COMMAND test_indicators
+    COMMAND test_garch
+    COMMAND test_ring_buffer
+    COMMAND test_performance
+    DEPENDS test_bh_physics test_indicators test_garch test_ring_buffer test_performance
+    COMMENT "Running all SRFM signal engine tests"
+)
 
 # Benchmark executable
 add_executable(signal_engine_bench benchmarks/bench_signal_throughput.cpp)

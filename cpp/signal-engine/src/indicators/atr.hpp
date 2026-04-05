@@ -31,4 +31,9 @@ private:
     bool   has_prev_;
 };
 
+// Standalone helpers
+double true_range(double high, double low, double prev_close) noexcept;
+void   atr_batch(const OHLCVBar* bars, std::size_t n, int period,
+                 double* out_atr) noexcept;
+
 } // namespace srfm
