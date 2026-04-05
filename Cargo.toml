@@ -13,6 +13,10 @@ members = [
     "crates/idea-genome-engine",
     "crates/counterfactual-engine",
     "crates/monte-carlo-engine",
+    "crates/signal-evolution",
+    "crates/fractal-engine",
+    "crates/rl-exit-optimizer",
+    "crates/order-flow-engine",
 ]
 resolver = "2"
 
