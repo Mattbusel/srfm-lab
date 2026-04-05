@@ -62,3 +62,23 @@ idea-engine/.pids/
 # Rust build artifacts (already in .gitignore via build/ but be explicit)
 target/
 research/reports/
+
+# Node modules (should never be committed)
+node_modules/
+**/node_modules/
+
+# Python cache in subdirs
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Backtest output (generated files)
+tools/backtest_output/*.csv
+tools/backtest_output/*.png
+tools/backtest_output/*.pkl
+
+# IAE generated
+idea-engine/**/*.db
+idea-engine/**/*.log
+tools/.env
+**/.env
