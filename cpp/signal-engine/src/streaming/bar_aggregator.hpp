@@ -13,9 +13,15 @@ using BarCallback = std::function<void(const OHLCVBar&)>;
 /// Proper timestamp alignment (floor to timeframe boundary).
 class BarAggregator {
 public:
+    /// Default constructor (callback must be set before use via set_callback).
+    BarAggregator() noexcept;
+
     /// Construct with a callback invoked when a bar completes.
     explicit BarAggregator(BarCallback callback,
                            int symbol_id = 0) noexcept;
+
+    void set_callback(BarCallback cb) noexcept { callback_ = std::move(cb); }
+    void set_symbol_id(int id) noexcept { symbol_id_ = id; }
 
     /// Feed a 1-minute bar. May trigger callbacks for completed multi-TF bars.
     void on_1m_bar(const OHLCVBar& bar) noexcept;

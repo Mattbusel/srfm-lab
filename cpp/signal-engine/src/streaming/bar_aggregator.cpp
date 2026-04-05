@@ -39,6 +39,17 @@ bool BarAggregator::AggState::should_complete(int64_t ts_ns) const noexcept {
 
 constexpr TimeFrame BarAggregator::TIMEFRAMES[N_TF];
 
+BarAggregator::BarAggregator() noexcept
+    : callback_(nullptr)
+    , symbol_id_(0)
+{
+    for (int i = 0; i < N_TF; ++i) {
+        std::memset(&states_[i], 0, sizeof(AggState));
+        states_[i].target_ticks      = static_cast<int>(TIMEFRAMES[i]) / 60;
+        states_[i].bar.timeframe_sec = static_cast<int>(TIMEFRAMES[i]);
+    }
+}
+
 BarAggregator::BarAggregator(BarCallback callback, int symbol_id) noexcept
     : callback_(std::move(callback))
     , symbol_id_(symbol_id)
@@ -106,13 +117,11 @@ MultiSymbolAggregator::MultiSymbolAggregator(int n_symbols,
                                                BarCallback callback) noexcept
     : n_symbols_(std::min(n_symbols, MAX_INSTRUMENTS))
     , callback_(std::move(callback))
-    , pool_{ }  // default-construct all
+    // pool_ uses default BarAggregator() constructor
 {
-    // Can't pass callback to pool default constructors, so reinitialize
     for (int i = 0; i < n_symbols_; ++i) {
-        // Reconstruct in place with proper callback and symbol_id
-        pool_[i].~BarAggregator();
-        new (&pool_[i]) BarAggregator(callback_, i);
+        pool_[i].set_callback(callback_);
+        pool_[i].set_symbol_id(i);
         aggs_[i] = &pool_[i];
     }
 }

@@ -181,7 +181,10 @@ static void bench_full_pipeline_N_instruments(int n_instruments, long long n_bar
     }
 
     auto stats = BenchStats::compute(latencies, total);
-    stats.print(std::to_string(n_instruments) + " instruments");
+    {
+        std::string lbl = std::to_string(n_instruments) + " instruments";
+        stats.print(lbl.c_str());
+    }
     (void)stats;
 
     // Print throughput

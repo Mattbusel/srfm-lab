@@ -249,10 +249,13 @@ mod tests {
     #[test]
     fn test_out_degree_leader() {
         let mut returns = HashMap::new();
-        // BTC leads ETH and SOL.
-        let btc: Vec<f64> = (0..100).map(|i| (i as f64 * 0.2).sin()).collect();
-        let eth: Vec<f64> = btc[1..].iter().chain(std::iter::once(&0.0_f64)).cloned().collect();
-        let sol: Vec<f64> = btc[2..].iter().chain([0.0_f64, 0.0_f64].iter()).cloned().collect();
+        // BTC leads ETH and SOL: ETH and SOL are delayed copies of BTC.
+        // signal[0..102] is the base. BTC = signal[2..102] (leads by 2).
+        // ETH = signal[1..101], SOL = signal[0..100].
+        let signal: Vec<f64> = (0..110).map(|i| (i as f64 * 0.2).sin()).collect();
+        let btc: Vec<f64> = signal[2..102].to_vec(); // early
+        let eth: Vec<f64> = signal[1..101].to_vec(); // 1-bar delayed
+        let sol: Vec<f64> = signal[0..100].to_vec(); // 2-bar delayed
         returns.insert("BTC".to_string(), btc);
         returns.insert("ETH".to_string(), eth);
         returns.insert("SOL".to_string(), sol);

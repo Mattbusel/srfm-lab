@@ -1,5 +1,6 @@
 #include "feed_processor.hpp"
 #include <cstring>
+#include <cmath>
 #include <algorithm>
 #include <new>
 
