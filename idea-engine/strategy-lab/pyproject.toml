@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "strategy-lab"
+version = "0.1.0"
+description = "Strategy versioning and A/B testing framework for the SRFM trading lab"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["strategy_lab*"]
+
+[tool.setuptools.package-dir]
+"strategy_lab" = "."

@@ -50,24 +50,26 @@ impl StrategyParams {
     /// Produce a neighbour by perturbing each numeric parameter by a small random delta.
     /// Used in simulated-annealing / local search.
     pub fn random_neighbor<R: Rng>(&self, rng: &mut R, temperature: f64) -> Self {
-        let perturb = |v: f64, scale: f64| -> f64 {
+        let mut neighbor = self.clone();
+
+        let perturb = |rng: &mut R, v: f64, scale: f64| -> f64 {
             let delta: f64 = rng.gen_range(-1.0..=1.0) * scale * temperature;
             v + delta
         };
 
-        let mut neighbor = self.clone();
         neighbor.min_hold_bars =
             (self.min_hold_bars as i64 + rng.gen_range(-2..=2_i64)).clamp(1, 20) as u32;
-        neighbor.stale_15m_move = perturb(self.stale_15m_move, 0.001).clamp(0.0001, 0.02);
+        neighbor.stale_15m_move = perturb(rng, self.stale_15m_move, 0.001).clamp(0.0001, 0.02);
         neighbor.winner_protection_pct =
-            perturb(self.winner_protection_pct, 0.05).clamp(0.05, 0.90);
-        neighbor.garch_target_vol = perturb(self.garch_target_vol, 0.05).clamp(0.05, 2.0);
-        neighbor.corr_normal = perturb(self.corr_normal, 0.05).clamp(0.0, 0.99);
-        neighbor.corr_stress = perturb(self.corr_stress, 0.03).clamp(neighbor.corr_normal, 0.99);
+            perturb(rng, self.winner_protection_pct, 0.05).clamp(0.05, 0.90);
+        neighbor.garch_target_vol = perturb(rng, self.garch_target_vol, 0.05).clamp(0.05, 2.0);
+        neighbor.corr_normal = perturb(rng, self.corr_normal, 0.05).clamp(0.0, 0.99);
+        let cn = neighbor.corr_normal;
+        neighbor.corr_stress = perturb(rng, self.corr_stress, 0.03).clamp(cn, 0.99);
         neighbor.corr_stress_threshold =
-            perturb(self.corr_stress_threshold, 0.005).clamp(0.005, 0.10);
+            perturb(rng, self.corr_stress_threshold, 0.005).clamp(0.005, 0.10);
         neighbor.hour_boost_multiplier =
-            perturb(self.hour_boost_multiplier, 0.1).clamp(1.0, 3.0);
+            perturb(rng, self.hour_boost_multiplier, 0.1).clamp(1.0, 3.0);
         neighbor
     }
 

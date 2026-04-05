@@ -3,7 +3,6 @@ use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::BufRead;
 use std::path::Path;
 
 /// A single OHLCV bar for one symbol.
