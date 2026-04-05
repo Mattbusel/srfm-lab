@@ -589,4 +589,4 @@ LARSA v1 baseline (ES futures, QuantConnect): **+274%** over backtest window —
 
 ---
 
-*License: Proprietary. All rights reserved. This repository contains unpublished research and strategy IP. Do not distribute.*
+
