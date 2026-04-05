@@ -851,4 +851,294 @@ function synthetic_trading_day(n_minutes::Int=1440; seed::Int=42,
     return (prices=prices, volumes=volumes, funding=funding_8h)
 end
 
+
+# ── Extension: Advanced Trading Infrastructure ───────────────────────────────
+
+"""
+    OrderRouter
+
+Routes orders across multiple venues to minimize total execution cost.
+Implements smart order routing (SOR) logic.
+"""
+struct OrderRouter
+    venues::Vector{String}
+    taker_fees::Vector{Float64}   # per venue
+    maker_fees::Vector{Float64}   # per venue (negative = rebate)
+    latencies_ms::Vector{Float64}
+    fill_rate::Vector{Float64}    # probability of fill at maker price
+end
+
+function binance_bybit_okx_router()
+    return OrderRouter(
+        ["Binance", "Bybit", "OKX"],
+        [0.00040, 0.00060, 0.00050],
+        [0.00020, 0.00010, 0.00020],
+        [3.0, 8.0, 5.0],
+        [0.70, 0.65, 0.68],
+    )
+end
+
+"""
+    route_order(router, qty, urgency)
+
+Determine optimal routing of an order given urgency (0=patient, 1=urgent).
+Returns vector of (venue, qty, is_maker) allocations.
+"""
+function route_order(router::OrderRouter, qty::Float64, urgency::Float64)
+    n = length(router.venues)
+    allocations = []
+
+    if urgency >= 0.8
+        # Fully taker: route to lowest taker fee
+        best_idx = argmin(router.taker_fees)
+        push!(allocations, (venue=router.venues[best_idx], qty=qty, is_maker=false,
+                             fee=router.taker_fees[best_idx]*qty))
+    elseif urgency <= 0.2
+        # Fully maker: route to highest rebate (most negative fee) for fill
+        # with fallback to best fill rate
+        scores = router.fill_rate ./ (1 .+ abs.(router.maker_fees))
+        best_idx = argmax(scores)
+        push!(allocations, (venue=router.venues[best_idx], qty=qty, is_maker=true,
+                             fee=-router.maker_fees[best_idx]*qty))
+    else
+        # Split: maker portion at best fill rate venue, taker at lowest fee
+        maker_frac = 1 - urgency
+        taker_frac = urgency
+        maker_idx = argmax(router.fill_rate)
+        taker_idx = argmin(router.taker_fees)
+        push!(allocations, (venue=router.venues[maker_idx], qty=qty*maker_frac, is_maker=true,
+                             fee=-router.maker_fees[maker_idx]*qty*maker_frac))
+        push!(allocations, (venue=router.venues[taker_idx], qty=qty*taker_frac, is_maker=false,
+                             fee=router.taker_fees[taker_idx]*qty*taker_frac))
+    end
+    return allocations
+end
+
+"""
+    expected_fill_cost(router, qty, urgency, notional_usd)
+
+Compute expected total execution cost including fees and latency risk.
+"""
+function expected_fill_cost(router::OrderRouter, qty::Float64, urgency::Float64, notional_usd::Float64)
+    allocs = route_order(router, qty, urgency)
+    total_fee = sum(a.fee for a in allocs) * notional_usd
+    # Latency risk: price may move during execution
+    max_latency = maximum(router.latencies_ms[i] for (i, v) in enumerate(router.venues)
+                          if any(a.venue == v for a in allocs))
+    latency_risk = 0.03 / 1000 * max_latency / 1000 * notional_usd  # daily vol / ms
+    return total_fee + latency_risk
+end
+
+"""
+    TWAPExecutor
+
+Implements a TWAP (Time-Weighted Average Price) execution algorithm.
+Splits a large order into equal-size child orders over a time horizon.
+"""
+mutable struct TWAPExecutor
+    total_qty::Float64
+    total_periods::Int
+    executed_qty::Float64
+    executed_periods::Int
+    fills::Vector{NamedTuple}
+    participation_cap::Float64  # max fraction of volume per period
+end
+
+function TWAPExecutor(qty, periods; participation_cap=0.10)
+    TWAPExecutor(qty, periods, 0.0, 0, [], participation_cap)
+end
+
+"""
+    next_twap_slice(exec, current_volume, current_price)
+
+Compute next child order size for TWAP execution.
+"""
+function next_twap_slice(exec::TWAPExecutor, current_volume::Float64, current_price::Float64)
+    exec.executed_periods >= exec.total_periods && return 0.0
+    remaining_qty     = exec.total_qty - exec.executed_qty
+    remaining_periods = exec.total_periods - exec.executed_periods
+    target_slice = remaining_qty / remaining_periods
+    # Apply participation cap
+    max_slice = current_volume * exec.participation_cap
+    actual_slice = min(target_slice, max_slice)
+    push!(exec.fills, (period=exec.executed_periods+1, qty=actual_slice, price=current_price))
+    exec.executed_qty     += actual_slice
+    exec.executed_periods += 1
+    return actual_slice
+end
+
+"""
+    twap_vwap_comparison(prices, volumes, total_qty, n_periods)
+
+Compare TWAP vs VWAP vs naive single-fill execution.
+"""
+function twap_vwap_comparison(prices::Vector{Float64}, volumes::Vector{Float64},
+                               total_qty::Float64, n_periods::Int)
+    n = min(length(prices), length(volumes), n_periods)
+
+    # TWAP: equal time slices
+    twap_qty_per_period = total_qty / n
+    twap_avg_price = mean(prices[1:n])
+
+    # VWAP: volume-proportional slices
+    total_vol = sum(volumes[1:n])
+    vwap_weights = volumes[1:n] ./ total_vol
+    vwap_avg_price = dot(vwap_weights, prices[1:n])
+
+    # Naive: execute all at first price
+    naive_price = prices[1]
+
+    return (twap_price=twap_avg_price, vwap_price=vwap_avg_price, naive_price=naive_price,
+            twap_slippage=twap_avg_price - prices[1],
+            vwap_slippage=vwap_avg_price - prices[1])
+end
+
+"""
+    VenueSelector
+
+Selects the best trading venue for a given order based on real-time
+cost, liquidity, and counterparty risk scoring.
+"""
+struct VenueSelector
+    venues::Vector{String}
+    trust_scores::Vector{Float64}    # 0-1, higher = more trusted
+    liquidity_scores::Vector{Float64}
+    cost_weights::Vector{Float64}
+    regulatory_scores::Vector{Float64}
+end
+
+function default_venue_selector()
+    VenueSelector(
+        ["Binance", "Bybit", "OKX", "Deribit", "Kraken"],
+        [0.90, 0.85, 0.82, 0.92, 0.95],  # trust (Kraken highest, legacy)
+        [1.00, 0.80, 0.85, 0.60, 0.40],  # liquidity (Binance = 1.0)
+        [0.00040, 0.00060, 0.00050, 0.00030, 0.00050],  # taker fees
+        [0.80, 0.75, 0.70, 0.95, 0.98],  # regulatory compliance
+    )
+end
+
+"""
+    score_venue(vs, order_type, risk_aversion)
+
+Score each venue for a given order type. Returns (venue, score) pairs.
+"""
+function score_venue(vs::VenueSelector, order_type::Symbol, risk_aversion::Float64)
+    n = length(vs.venues)
+    scores = zeros(n)
+    for i in 1:n
+        cost_score      = 1 - vs.cost_weights[i] * 10  # normalize
+        liquidity_score = vs.liquidity_scores[i]
+        trust_score     = vs.trust_scores[i]
+        reg_score       = vs.regulatory_scores[i]
+        # Weighted combination
+        scores[i] = (0.30 * liquidity_score +
+                     0.25 * (1 - vs.cost_weights[i] * 2000) +
+                     0.25 * trust_score * risk_aversion +
+                     0.20 * reg_score * risk_aversion)
+    end
+    order = sortperm(scores, rev=true)
+    return [(venue=vs.venues[i], score=scores[i]) for i in order]
+end
+
+"""
+    PortfolioMarginEngine
+
+Cross-asset portfolio margin calculation that considers correlations
+between positions to reduce initial margin requirements.
+"""
+struct PortfolioMarginEngine
+    assets::Vector{String}
+    positions::Dict{String,Float64}   # symbol => notional USD
+    corr_matrix::Matrix{Float64}
+    vol_matrix::Vector{Float64}       # daily vol per asset
+    imr_base::Float64
+    mmr_base::Float64
+end
+
+function PortfolioMarginEngine(assets, positions, corr_matrix, vols; imr=0.05, mmr=0.025)
+    PortfolioMarginEngine(assets, positions, corr_matrix, vols, imr, mmr)
+end
+
+"""
+    portfolio_var(engine, conf, T_days)
+
+Compute parametric portfolio VaR over T_days horizon.
+"""
+function portfolio_var(engine::PortfolioMarginEngine, conf=0.99, T_days=1)
+    n = length(engine.assets)
+    w = [get(engine.positions, a, 0.0) for a in engine.assets]
+    total_notional = sum(abs.(w))
+    total_notional == 0 && return 0.0
+    w_norm = w ./ total_notional
+    # Portfolio variance = w'Σw where Σ_ij = ρ_ij σ_i σ_j
+    Sigma = [engine.corr_matrix[i,j] * engine.vol_matrix[i] * engine.vol_matrix[j]
+             for i in 1:n, j in 1:n]
+    port_var = w_norm' * Sigma * w_norm
+    port_vol = sqrt(port_var * T_days)
+    # Normal quantile
+    z = sqrt(2) * 0.906  # approximate 99% z-score
+    return total_notional * z * port_vol
+end
+
+"""
+    portfolio_margin_requirement(engine)
+
+Compute cross-portfolio margin: stand-alone IM minus diversification benefit.
+"""
+function portfolio_margin_requirement(engine::PortfolioMarginEngine)
+    var_portfolio = portfolio_var(engine, 0.99, 1)
+    # Standalone IM
+    standalone_im = sum(abs(v) * engine.imr_base for v in values(engine.positions))
+    # Portfolio IM = max(portfolio VaR * scale, sum of standalone * diversification_factor)
+    div_factor = var_portfolio / max(standalone_im, 1)  # 0-1: lower = more diversified
+    portfolio_im = max(var_portfolio * 1.5, standalone_im * div_factor)
+    portfolio_mm = portfolio_im * (engine.mmr_base / engine.imr_base)
+
+    return (
+        standalone_im  = standalone_im,
+        portfolio_im   = portfolio_im,
+        portfolio_mm   = portfolio_mm,
+        diversification_benefit = standalone_im - portfolio_im,
+        benefit_pct    = (standalone_im - portfolio_im) / max(standalone_im, 1),
+    )
+end
+
+"""
+    simulate_liquidation_queue(cascade_params)
+
+Model the order in which positions are liquidated during a price cascade,
+accounting for exchange liquidation engine priorities.
+"""
+function simulate_liquidation_queue(price_path::Vector{Float64}, positions::Vector{NamedTuple})
+    liquidation_events = []
+    remaining = copy(positions)
+
+    for (t, price) in enumerate(price_path)
+        newly_liquidated = []
+        for (i, pos) in enumerate(remaining)
+            # Check if maintenance margin breached
+            pnl_pct = (price - pos.entry_price) / pos.entry_price * pos.leverage
+            if pos.direction == :long && pnl_pct < -(1/pos.leverage - 0.005)
+                push!(liquidation_events, (
+                    time=t, price=price, notional=pos.notional,
+                    entry=pos.entry_price, leverage=pos.leverage,
+                    shortfall=max(0, (pos.liq_price - price) / price * pos.notional)
+                ))
+                push!(newly_liquidated, i)
+            end
+        end
+        # Remove liquidated positions (in reverse order to maintain indices)
+        for i in sort(newly_liquidated, rev=true)
+            deleteat!(remaining, i)
+        end
+    end
+    return liquidation_events
+end
+
+export OrderRouter, binance_bybit_okx_router, route_order, expected_fill_cost
+export TWAPExecutor, next_twap_slice, twap_vwap_comparison
+export VenueSelector, default_venue_selector, score_venue
+export PortfolioMarginEngine, portfolio_var, portfolio_margin_requirement
+export simulate_liquidation_queue
+
 end  # module CryptoMarketMechanics

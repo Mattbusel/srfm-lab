@@ -416,3 +416,92 @@ vol_cone <- function(returns, windows = c(5, 10, 21, 63, 126, 252),
   })
   do.call(rbind, lapply(res, as.data.frame))
 }
+
+# ============================================================
+# ADDITIONAL: GREEKS AND SENSITIVITIES
+# ============================================================
+bs_greeks <- function(S, K, r, q=0, sigma, T_, type="call") {
+  d1  <- (log(S/K)+(r-q+sigma^2/2)*T_)/(sigma*sqrt(T_)+1e-12)
+  d2  <- d1-sigma*sqrt(T_)
+  phi <- dnorm(d1)
+  if (type=="call") {
+    delta <- exp(-q*T_)*pnorm(d1)
+    theta <- (-S*exp(-q*T_)*phi*sigma/(2*sqrt(T_)) -
+              r*K*exp(-r*T_)*pnorm(d2) + q*S*exp(-q*T_)*pnorm(d1))/252
+  } else {
+    delta <- exp(-q*T_)*(pnorm(d1)-1)
+    theta <- (-S*exp(-q*T_)*phi*sigma/(2*sqrt(T_)) +
+              r*K*exp(-r*T_)*pnorm(-d2) - q*S*exp(-q*T_)*pnorm(-d1))/252
+  }
+  gamma <- exp(-q*T_)*phi/(S*sigma*sqrt(T_)+1e-12)
+  vega  <- S*exp(-q*T_)*phi*sqrt(T_)/100
+  rho   <- if(type=="call") K*T_*exp(-r*T_)*pnorm(d2)/100 else -K*T_*exp(-r*T_)*pnorm(-d2)/100
+  vanna <- -exp(-q*T_)*phi*d2/(sigma+1e-12)
+  volga <- S*exp(-q*T_)*phi*sqrt(T_)*d1*d2/(sigma+1e-12)
+  list(delta=delta, gamma=gamma, vega=vega, theta=theta, rho=rho,
+       vanna=vanna, volga=volga)
+}
+
+delta_hedge_pnl <- function(option_pnl, delta, spot_moves) {
+  hedge_pnl <- -delta * spot_moves
+  list(option=option_pnl, hedge=hedge_pnl, net=option_pnl+hedge_pnl)
+}
+
+gamma_scalping_pnl <- function(gamma, spot_moves, theta_daily) {
+  realized_pnl <- 0.5 * gamma * spot_moves^2 - theta_daily
+  list(gamma_income=0.5*gamma*spot_moves^2,
+       theta_cost=theta_daily, net=realized_pnl)
+}
+
+# ============================================================
+# ADDITIONAL: EXOTIC VOL PRODUCTS
+# ============================================================
+corridor_variance_swap <- function(lower_barrier, upper_barrier,
+                                    realized_returns, implied_corridor_var) {
+  in_corridor <- realized_returns >= lower_barrier &
+                 realized_returns <= upper_barrier
+  realized_cv <- mean(realized_returns[in_corridor]^2, na.rm=TRUE) * 252
+  pnl         <- realized_cv - implied_corridor_var
+  list(realized_corridor_var=realized_cv, implied=implied_corridor_var,
+       pnl=pnl, pct_in_corridor=mean(in_corridor))
+}
+
+vol_targeting_strategy <- function(target_vol, realized_vols, returns,
+                                    max_leverage=2) {
+  n   <- length(returns)
+  lev <- pmin(target_vol / (realized_vols + 1e-8), max_leverage)
+  strat_ret <- lev[-length(lev)] * returns[-1]
+  list(leverage=lev, strategy_returns=strat_ret,
+       mean_leverage=mean(lev,na.rm=TRUE),
+       sr=mean(strat_ret,na.rm=TRUE)/(sd(strat_ret,na.rm=TRUE)+1e-8)*sqrt(252))
+}
+
+vol_arb_strategy <- function(implied_vol, realized_vol, threshold=0.02) {
+  signal <- ifelse(implied_vol - realized_vol > threshold, -1,
+             ifelse(realized_vol - implied_vol > threshold, 1, 0))
+  list(signal=signal, iv=implied_vol, rv=realized_vol,
+       spread=implied_vol-realized_vol)
+}
+
+# ============================================================
+# ADDITIONAL: CRYPTO VOL DYNAMICS
+# ============================================================
+perpetual_funding_implied_vol <- function(funding_rates, T_=1/12) {
+  # Implied vol from funding rate distribution
+  sigma_funding <- sd(funding_rates) * sqrt(3*365)  # annualize 8h periods
+  list(sigma_from_funding=sigma_funding,
+       funding_vol_ratio=sigma_funding)
+}
+
+crypto_options_flow_summary <- function(strikes, call_iv, put_iv, F, T_) {
+  k   <- log(strikes/F)
+  atm_idx  <- which.min(abs(k))
+  atm_iv   <- (call_iv[atm_idx]+put_iv[atm_idx])/2
+  rr_25    <- approx(k,call_iv,xout=.1,rule=2)$y -
+               approx(k,put_iv,xout=-.1,rule=2)$y
+  fly_25   <- (approx(k,call_iv,xout=.1,rule=2)$y +
+                approx(k,put_iv,xout=-.1,rule=2)$y)/2 - atm_iv
+  list(atm_iv=atm_iv, rr_25d=rr_25, fly_25d=fly_25,
+       put_skew=atm_iv-approx(k,put_iv,xout=-.2,rule=2)$y,
+       call_skew=approx(k,call_iv,xout=.2,rule=2)$y-atm_iv)
+}

@@ -397,3 +397,105 @@ multi_venue_routing <- function(qty, venues, ask_prices, bid_prices,
        best_single_price = prices[order_venues[1]],
        routing_benefit   = (prices[order_venues[1]] - avg_price) * direction * 1e4)
 }
+
+# ============================================================
+# ADDITIONAL: ORDER MANAGEMENT
+# ============================================================
+order_urgency_score <- function(target_qty, filled_qty, time_elapsed,
+                                 time_budget, market_vol) {
+  pct_filled  <- filled_qty / (target_qty + 1e-8)
+  pct_time    <- time_elapsed / (time_budget + 1e-8)
+  urgency     <- pct_time - pct_filled
+  vol_adj     <- urgency * (1 + market_vol)
+  list(base_urgency=urgency, vol_adjusted=vol_adj,
+       must_rush=urgency > 0.3,
+       pct_filled=pct_filled, pct_time=pct_time)
+}
+
+participation_rate_optimizer <- function(total_qty, adv, sigma,
+                                          risk_aversion=1e-4,
+                                          pov_min=0.02, pov_max=0.25) {
+  obj <- function(pov) {
+    T_hrs  <- (1/pov) * (total_qty/adv) * 8  # hours
+    impact <- 0.1 * sigma * sqrt(pov) * 1e4
+    timing_risk <- risk_aversion * sigma^2 * T_hrs^2
+    impact + timing_risk
+  }
+  pov_grid <- seq(pov_min, pov_max, by=0.01)
+  costs    <- sapply(pov_grid, obj)
+  opt_pov  <- pov_grid[which.min(costs)]
+  list(optimal_pov=opt_pov, cost_curve=data.frame(pov=pov_grid, cost=costs),
+       min_cost=min(costs))
+}
+
+execution_shortfall_budget <- function(total_notional, is_budget_bps,
+                                        component_budgets) {
+  # Allocate budget to IS components
+  total_budget <- sum(component_budgets)
+  alloc <- component_budgets / total_budget * is_budget_bps
+  budget_usd <- alloc / 1e4 * total_notional
+  list(components=names(component_budgets),
+       budget_bps=alloc, budget_usd=budget_usd,
+       total_budget_usd=is_budget_bps/1e4*total_notional)
+}
+
+# ============================================================
+# ADDITIONAL: ALGO SELECTION
+# ============================================================
+algo_selection_model <- function(qty, adv, sigma, urgency,
+                                  spread_bps, market_cap_tier=1) {
+  pov <- qty / (adv + 1e-8)
+  # Score each algo
+  vwap_score  <- 1 - urgency + (1-pov)
+  twap_score  <- 0.5 * (1-urgency) + 0.5 * (1-pov)
+  is_score    <- urgency + pov * sigma
+  pov_score   <- 0.7 + 0.3 * (1-pov)
+
+  scores <- c(VWAP=vwap_score, TWAP=twap_score, IS=is_score, POV=pov_score)
+  best   <- names(which.max(scores))
+  list(scores=scores, recommended=best,
+       rationale=paste("POV:", round(pov,3), "Urgency:", round(urgency,2)))
+}
+
+dark_pool_routing_decision <- function(qty, spread_bps, dark_fill_prob,
+                                        lit_impact_bps, dark_fee_bps=0.5) {
+  # Expected cost: dark pool
+  ec_dark <- (1-dark_fill_prob)*lit_impact_bps + dark_fill_prob*dark_fee_bps
+  # Expected cost: lit market
+  ec_lit  <- spread_bps/2 + lit_impact_bps
+  list(ec_dark=ec_dark, ec_lit=ec_lit,
+       prefer_dark=ec_dark < ec_lit,
+       dark_benefit_bps=ec_lit-ec_dark)
+}
+
+# ============================================================
+# ADDITIONAL: VENUE ANALYTICS
+# ============================================================
+exchange_quality_score <- function(avg_spread, fill_rate, latency_ms,
+                                    uptime_pct, fee_bps) {
+  spread_s  <- 1 - avg_spread/max(avg_spread)
+  fill_s    <- fill_rate
+  lat_s     <- 1 - latency_ms/max(latency_ms)
+  uptime_s  <- uptime_pct/100
+  fee_s     <- 1 - fee_bps/max(fee_bps)
+  composite <- (spread_s + fill_s + lat_s + uptime_s + fee_s) / 5
+  list(score=composite, spread=spread_s, fill=fill_s,
+       latency=lat_s, uptime=uptime_s, fee=fee_s)
+}
+
+smart_order_routing <- function(asks, bid_asks, available_qty, order_qty,
+                                 fees, direction=1) {
+  n     <- length(asks)
+  prices <- if (direction==1) asks else bid_asks
+  order_ <- order(prices, decreasing=(direction==-1))
+  filled <- 0; routes <- numeric(n); cost <- 0
+  for (i in order_) {
+    if (filled>=order_qty) break
+    fill_i   <- min(available_qty[i], order_qty-filled)
+    routes[i] <- fill_i
+    cost      <- cost + fill_i * (prices[i] + direction*fees[i]/1e4)
+    filled    <- filled + fill_i
+  }
+  list(routes=routes, filled=filled, avg_price=cost/(filled+1e-8),
+       best_price=prices[order_[1]])
+}

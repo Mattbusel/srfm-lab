@@ -184,3 +184,318 @@ participation_rate_impact <- function(qty_series, adv_series,
   list(pov=pov, slippage=slippage_series, model=fit,
        predicted_impact=exp(fit$intercept)*pov^fit$slope)
 }
+
+# ============================================================
+# ADDITIONAL: EMPIRICAL MARKET IMPACT RESEARCH
+# ============================================================
+price_impact_persistence <- function(returns, signed_volume, lags=1:10) {
+  sapply(lags, function(lag) {
+    n <- length(returns)
+    if (lag >= n) return(NA)
+    cor(signed_volume[1:(n-lag)], returns[(lag+1):n], use="complete.obs")
+  })
+}
+
+intraday_seasonality_impact <- function(impact_by_interval, volume_by_interval) {
+  n   <- length(impact_by_interval)
+  vp  <- volume_by_interval/sum(volume_by_interval)
+  ip  <- impact_by_interval/mean(impact_by_interval,na.rm=TRUE)
+  list(vol_profile=vp, impact_profile=ip,
+       correlation=cor(vp, ip, use="complete.obs"),
+       optimal_interval=which.min(ip))
+}
+
+execution_alpha_study <- function(is_bps_series, market_returns,
+                                    strategy_type="momentum") {
+  # Does execution quality vary with market conditions?
+  n   <- length(is_bps_series)
+  ret_z <- (market_returns-mean(market_returns,na.rm=TRUE))/
+            (sd(market_returns,na.rm=TRUE)+1e-8)
+  corr_is_ret <- cor(is_bps_series, market_returns, use="complete.obs")
+  trending_days <- abs(ret_z) > 1
+  list(is_trend_days=mean(is_bps_series[trending_days],na.rm=TRUE),
+       is_calm_days=mean(is_bps_series[!trending_days],na.rm=TRUE),
+       corr_with_market=corr_is_ret)
+}
+
+order_size_impact_study <- function(order_sizes, is_bps, adv) {
+  pov <- order_sizes / (adv+1e-8)
+  small  <- pov < 0.05; medium <- pov>=0.05&pov<0.15; large <- pov>=0.15
+  list(
+    small_mean_IS  = mean(is_bps[small],  na.rm=TRUE),
+    medium_mean_IS = mean(is_bps[medium], na.rm=TRUE),
+    large_mean_IS  = mean(is_bps[large],  na.rm=TRUE),
+    impact_elasticity = if(var(log(pov+1e-8))>0)
+      cov(is_bps, log(pov+1e-8))/var(log(pov+1e-8)) else NA
+  )
+}
+
+venue_selection_study <- function(is_by_venue, volume_by_venue, venue_names) {
+  weighted_IS <- sum(is_by_venue*volume_by_venue)/sum(volume_by_venue)
+  best  <- venue_names[which.min(is_by_venue)]
+  worst <- venue_names[which.max(is_by_venue)]
+  list(by_venue=data.frame(venue=venue_names,is=is_by_venue,vol=volume_by_venue),
+       weighted_IS=weighted_IS, best_venue=best, worst_venue=worst,
+       dispersion=max(is_by_venue)-min(is_by_venue))
+}
+
+
+# ============================================================
+# ADDITIONAL EXECUTION RESEARCH
+# ============================================================
+
+optimal_execution_regime_study <- function(price_series, volume_series,
+                                            order_size, n_simulations = 100) {
+  n       <- length(price_series)
+  vwap    <- sum(price_series * volume_series) / (sum(volume_series) + 1e-8)
+  vol_est <- sd(diff(log(price_series)), na.rm=TRUE)
+  avg_vol <- mean(volume_series, na.rm=TRUE)
+  pov     <- order_size / (avg_vol + 1e-12)
+  results <- list()
+  for (horizon in c(30, 60, 120, 240)) {
+    n_slices    <- floor(horizon / 5)
+    slice_size  <- order_size / n_slices
+    impact_cost <- slice_size * 0.01 / sqrt(avg_vol + 1e-12) * n_slices
+    timing_risk <- vol_est * sqrt(horizon / 252 / 78) * order_size
+    total_cost  <- impact_cost + 0.5 * timing_risk
+    results[[as.character(horizon)]] <- list(
+      horizon = horizon, impact_cost = impact_cost,
+      timing_risk = timing_risk, total_cost = total_cost,
+      optimal = FALSE)
+  }
+  costs       <- sapply(results, function(r) r$total_cost)
+  best        <- names(which.min(costs))
+  results[[best]]$optimal <- TRUE
+  list(scenarios = results, optimal_horizon = best, vwap = vwap, pov = pov)
+}
+
+market_impact_model_comparison <- function(order_sizes, avg_volume,
+                                            volatility, price) {
+  pov <- order_sizes / (avg_volume + 1e-12)
+  sqrt_impact    <- 0.1 * volatility * sqrt(pov) * price
+  linear_impact  <- 0.5 * volatility * pov * price
+  power_impact   <- 0.1 * volatility * pov^0.6 * price
+  data.frame(
+    order_size   = order_sizes,
+    pov          = pov,
+    sqrt_model   = sqrt_impact,
+    linear_model = linear_impact,
+    power_model  = power_impact,
+    avg_model    = (sqrt_impact + linear_impact + power_impact) / 3
+  )
+}
+
+spread_decomposition_study <- function(bid, ask, trade_price,
+                                        trade_direction, n_lags = 10) {
+  mid         <- (bid + ask) / 2
+  quoted_half <- (ask - bid) / 2
+  effective_half <- (trade_price - mid) * trade_direction
+  n      <- length(trade_price)
+  future_mid <- c(mid[-1], NA)
+  realized_half <- (future_mid - mid) * trade_direction
+  adverse_sel <- realized_half
+  order_proc  <- effective_half - adverse_sel
+  autocov     <- sapply(1:n_lags, function(lag) {
+    dp <- diff(trade_price)
+    if (lag >= length(dp)) return(NA)
+    cov(dp[1:(length(dp)-lag)], dp[(lag+1):length(dp)], use="pairwise.complete.obs")
+  })
+  roll_est <- -2 * sqrt(max(-autocov[1], 0))
+  list(quoted_spread = 2 * quoted_half,
+       effective_spread = 2 * effective_half,
+       adverse_selection = adverse_sel,
+       order_processing = order_proc,
+       roll_estimate = roll_est,
+       autocovariances = autocov)
+}
+
+execution_alpha_decay <- function(signals, execution_returns,
+                                   holding_periods = c(1, 5, 10, 21)) {
+  ics <- sapply(holding_periods, function(h) {
+    n    <- length(signals)
+    if (h >= n) return(NA)
+    fwd  <- sapply(1:(n - h), function(i) sum(execution_returns[i:(i+h-1)]))
+    fwd  <- c(fwd, rep(NA, h))
+    cor(rank(signals, na.last="keep"), rank(fwd, na.last="keep"),
+        use="pairwise.complete.obs", method="spearman")
+  })
+  list(holding_periods = holding_periods, ics = ics,
+       optimal_holding = holding_periods[which.max(ics)],
+       ic_decay_rate = if (sum(!is.na(ics)) > 1)
+         coef(lm(ics[!is.na(ics)] ~ holding_periods[!is.na(ics)]))[2] else NA)
+}
+
+venue_quality_benchmark <- function(venues, fill_rates, avg_spreads,
+                                     market_impact, latency_ms) {
+  score <- 0.3 * fill_rates +
+           0.3 * (1 - avg_spreads / (max(avg_spreads) + 1e-8)) +
+           0.2 * (1 - market_impact / (max(market_impact) + 1e-8)) +
+           0.2 * (1 - latency_ms / (max(latency_ms) + 1e-8))
+  df <- data.frame(venue = venues, fill_rate = fill_rates,
+                   avg_spread = avg_spreads, market_impact = market_impact,
+                   latency_ms = latency_ms, composite_score = score)
+  df[order(-df$composite_score), ]
+}
+
+
+# ─── ADDITIONAL EXECUTION RESEARCH ────────────────────────────────────────────
+
+transaction_cost_model_validation <- function(predicted_cost_bps,
+                                               actual_cost_bps,
+                                               order_metadata) {
+  errors     <- actual_cost_bps - predicted_cost_bps
+  mae        <- mean(abs(errors), na.rm=TRUE)
+  rmse       <- sqrt(mean(errors^2, na.rm=TRUE))
+  bias       <- mean(errors, na.rm=TRUE)
+  r_squared  <- 1 - var(errors, na.rm=TRUE) /
+                      (var(actual_cost_bps, na.rm=TRUE) + 1e-8)
+  overestimate_pct <- mean(errors < 0, na.rm=TRUE)
+  list(mae=mae, rmse=rmse, bias=bias, r_squared=r_squared,
+       overestimate_pct=overestimate_pct,
+       well_calibrated = abs(bias) < 0.5 * mae)
+}
+
+liquidity_timing_study <- function(volume_profile, bid_ask_series,
+                                    optimal_participation = 0.1) {
+  n          <- length(volume_profile)
+  total_vol  <- sum(volume_profile, na.rm=TRUE)
+  participation_schedule <- volume_profile / (total_vol + 1e-12) * optimal_participation
+  cost_by_time <- bid_ask_series / 2 + participation_schedule * 0.01
+  optimal_time <- which.min(cost_by_time)
+  list(participation = participation_schedule,
+       cost_by_time = cost_by_time,
+       optimal_execution_time = optimal_time,
+       avg_spread = mean(bid_ask_series, na.rm=TRUE),
+       min_cost_time = optimal_time)
+}
+
+slippage_factor_attribution <- function(slippage_bps, pov, volatility,
+                                          bid_ask, urgency) {
+  n <- length(slippage_bps)
+  X <- cbind(1, pov, volatility, bid_ask, urgency)
+  valid <- complete.cases(X, slippage_bps)
+  if (sum(valid) < 10) return(list(error="insufficient data"))
+  beta <- tryCatch(solve(t(X[valid,]) %*% X[valid,]) %*%
+                     t(X[valid,]) %*% slippage_bps[valid],
+                   error=function(e) rep(NA, ncol(X)))
+  fitted    <- as.vector(X %*% beta)
+  residuals <- slippage_bps - fitted
+  list(coefficients = setNames(as.vector(beta),
+                               c("intercept","pov","vol","spread","urgency")),
+       fitted = fitted, residuals = residuals,
+       r_squared = 1 - var(residuals, na.rm=TRUE) /
+                       (var(slippage_bps, na.rm=TRUE) + 1e-8),
+       pov_impact = beta[2], vol_impact = beta[3])
+}
+
+execution_quality_scorecard <- function(is_bps, timing_bps, spread_bps,
+                                          market_impact_bps, benchmark = "vwap") {
+  total_cost   <- is_bps + timing_bps + spread_bps + market_impact_bps
+  peer_median  <- median(total_cost, na.rm=TRUE)
+  pctile       <- ecdf(total_cost)(total_cost) * 100
+  grade <- cut(100 - pctile,
+               breaks=c(0,20,40,60,80,100),
+               labels=c("D","C","B","A","A+"),
+               include.lowest=TRUE)
+  list(total_cost_bps = total_cost,
+       is_bps = is_bps, timing_bps = timing_bps,
+       spread_bps = spread_bps, market_impact_bps = market_impact_bps,
+       peer_percentile = pctile, grade = grade,
+       vs_peer_median_bps = total_cost - peer_median)
+}
+
+intraday_momentum_effect_study <- function(returns_5min, time_of_day,
+                                            window = 10) {
+  open_period  <- time_of_day <= 60
+  close_period <- time_of_day >= 330
+  mid_period   <- !open_period & !close_period
+  auto_corr_fn <- function(x) {
+    n <- length(x); if (n < 3) return(NA)
+    cor(x[-length(x)], x[-1], use="pairwise.complete.obs")
+  }
+  list(open_autocorr  = auto_corr_fn(returns_5min[open_period]),
+       mid_autocorr   = auto_corr_fn(returns_5min[mid_period]),
+       close_autocorr = auto_corr_fn(returns_5min[close_period]),
+       open_vol   = sd(returns_5min[open_period],  na.rm=TRUE),
+       close_vol  = sd(returns_5min[close_period], na.rm=TRUE),
+       u_shape_vol = sd(returns_5min[open_period], na.rm=TRUE) >
+                     sd(returns_5min[mid_period],   na.rm=TRUE) &
+                     sd(returns_5min[close_period], na.rm=TRUE) >
+                     sd(returns_5min[mid_period],   na.rm=TRUE))
+}
+
+# ─── UTILITY / HELPER FUNCTIONS ───────────────────────────────────────────────
+
+annualized_tc_drag <- function(daily_turnover, tc_bps) {
+  daily_cost <- daily_turnover * tc_bps / 1e4
+  list(daily_cost = daily_cost,
+       annual_cost = mean(daily_cost, na.rm=TRUE) * 252,
+       cumulative  = cumsum(daily_cost))
+}
+
+optimal_order_size <- function(daily_volume, max_pov = 0.1,
+                                min_size = 1000, max_size = 1e6) {
+  raw_size <- daily_volume * max_pov
+  pmax(pmin(raw_size, max_size), min_size)
+}
+
+execution_pnl_attribution <- function(alpha_entry, alpha_exit,
+                                       tc_entry_bps, tc_exit_bps,
+                                       holding_return) {
+  gross_pnl   <- alpha_entry + holding_return - alpha_exit
+  net_pnl     <- gross_pnl - (tc_entry_bps + tc_exit_bps) / 1e4
+  list(gross = gross_pnl, net = net_pnl,
+       cost_drag = (tc_entry_bps + tc_exit_bps) / 1e4,
+       timing_value = alpha_entry + (-alpha_exit),
+       selection_value = holding_return)
+}
+
+reversion_to_vwap_study <- function(price_series, vwap_series,
+                                      horizon = 5) {
+  deviation     <- (price_series - vwap_series) / (vwap_series + 1e-8)
+  n             <- length(price_series)
+  fwd_reversion <- c(rep(NA, horizon),
+                     (vwap_series[(horizon+1):n] - price_series[1:(n-horizon)]) /
+                       (price_series[1:(n-horizon)] + 1e-8))
+  ic <- cor(deviation, fwd_reversion, use="pairwise.complete.obs", method="spearman")
+  list(deviation = deviation, fwd_reversion = fwd_reversion,
+       ic = ic, reversion_detected = ic < -0.1)
+}
+
+# research module metadata
+research_version <- function() "1.0.0"
+research_info    <- function() list(version="1.0.0", base_r_only=TRUE)
+# utility: safe correlation
+safe_cor <- function(x, y, method="pearson") {
+  tryCatch(cor(x, y, use="pairwise.complete.obs", method=method), error=function(e) NA)
+}
+# utility: rolling mean
+roll_mean <- function(x, w) as.numeric(stats::filter(x, rep(1/w, w), sides=1))
+# utility: annualize return
+annualize_ret <- function(r, periods_per_year=252) mean(r, na.rm=TRUE) * periods_per_year
+# utility: annualize vol
+annualize_vol <- function(r, periods_per_year=252) sd(r, na.rm=TRUE) * sqrt(periods_per_year)
+# end of file
+
+# ─── ADDITIONAL UTILITY ───────────────────────────────────────────────────────
+market_hours_filter <- function(timestamps, market_open = 9.5, market_close = 16) {
+  hour_frac <- as.numeric(format(timestamps, "%H")) +
+                 as.numeric(format(timestamps, "%M")) / 60
+  hour_frac >= market_open & hour_frac <= market_close
+}
+
+order_size_bins <- function(order_sizes, breaks = c(0, 1e3, 1e4, 1e5, 1e6, Inf)) {
+  cut(order_sizes, breaks=breaks,
+      labels=c("nano","small","medium","large","block"),
+      include.lowest=TRUE)
+}
+
+participation_rate_to_horizon <- function(order_size, avg_volume,
+                                           pov_target = 0.05) {
+  needed_volume  <- order_size / pov_target
+  horizon_days   <- needed_volume / (avg_volume + 1e-12)
+  list(horizon_days = horizon_days, horizon_minutes = horizon_days * 390,
+       feasible = horizon_days < 5)
+}
+# execution research module loaded
+.execution_research_loaded <- TRUE

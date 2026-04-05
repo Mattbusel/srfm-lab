@@ -307,3 +307,196 @@ queue_position_model <- function(queue_depth, order_size,
        prob_fill_1min=1-exp(-fill_rate_est*60),
        queue_priority=order_size/queue_depth)
 }
+
+# ============================================================
+# ADDITIONAL: ADVANCED TCA
+# ============================================================
+conditional_tca <- function(is_bps, features_df, conditioning_var) {
+  levels_cv <- unique(conditioning_var)
+  res <- lapply(levels_cv, function(lv) {
+    idx <- conditioning_var == lv
+    list(level=lv, mean_IS=mean(is_bps[idx],na.rm=TRUE),
+         sd_IS=sd(is_bps[idx],na.rm=TRUE), n=sum(idx))
+  })
+  list(by_level=res, overall=mean(is_bps,na.rm=TRUE))
+}
+
+tca_peer_benchmark <- function(own_is_bps, peer_is_bps_matrix,
+                                trade_characteristics) {
+  n_peers <- ncol(peer_is_bps_matrix)
+  peer_means <- colMeans(peer_is_bps_matrix, na.rm=TRUE)
+  peer_50  <- median(peer_means)
+  peer_25  <- quantile(peer_means, .25)
+  percentile <- mean(peer_means < own_is_bps)
+  list(own=own_is_bps, peer_median=peer_50, peer_25th=peer_25,
+       percentile=percentile*100, better_than_median=own_is_bps < peer_50)
+}
+
+factor_model_tca <- function(is_bps, pov, sigma, spread, size) {
+  log_is  <- log(pmax(abs(is_bps),1e-6))
+  log_pov <- log(pmax(pov,1e-6))
+  log_sig <- log(pmax(sigma,1e-6))
+  log_spd <- log(pmax(spread,1e-6))
+  log_sz  <- log(pmax(size,1e-6))
+  X  <- cbind(1, log_pov, log_sig, log_spd, log_sz)
+  b  <- tryCatch(solve(t(X)%*%X+diag(5)*1e-8)%*%t(X)%*%log_is,
+                 error=function(e) rep(0,5))
+  names(b) <- c("intercept","pov_coef","vol_coef","spread_coef","size_coef")
+  resid <- log_is - as.vector(X%*%b)
+  list(coefs=b, r2=1-var(resid)/(var(log_is)+1e-8),
+       systematic=exp(as.vector(X%*%b)), residual=resid)
+}
+
+# ============================================================
+# ADDITIONAL: LIQUIDITY METRICS
+# ============================================================
+market_depth_metric <- function(bid_qty, ask_qty, bid_px, ask_px, n_levels=5) {
+  l  <- min(n_levels, length(bid_qty), length(ask_qty))
+  bd <- sum(bid_qty[1:l]*bid_px[1:l]); ad <- sum(ask_qty[1:l]*ask_px[1:l])
+  list(bid_depth=bd, ask_depth=ad, total=(bd+ad),
+       imbalance=(bd-ad)/(bd+ad+1e-8))
+}
+
+intraday_liquidity_risk <- function(volume_series, window=24) {
+  n   <- length(volume_series); liq_risk <- rep(NA,n)
+  for (i in seq(window,n)) {
+    v   <- volume_series[seq(i-window+1,i)]
+    liq_risk[i] <- sd(v)/mean(v)
+  }
+  list(liquidity_risk=liq_risk,
+       high_risk=liq_risk>quantile(liq_risk,.8,na.rm=TRUE))
+}
+
+# ============================================================
+# ADDITIONAL: ALGO PERFORMANCE
+# ============================================================
+algo_performance_attribution <- function(algo_results_list, benchmark) {
+  n  <- length(algo_results_list)
+  is_vs_bench <- sapply(algo_results_list, function(r)
+    r$is_bps - benchmark$is_bps)
+  list(outperformance=is_vs_bench, mean_out=mean(is_vs_bench,na.rm=TRUE),
+       best_algo=which.min(is_vs_bench), worst_algo=which.max(is_vs_bench))
+}
+
+slippage_prediction_model <- function(future_is, pov, vol, spread, size) {
+  X  <- cbind(1, pov, vol, spread, size, pov*vol)
+  b  <- tryCatch(solve(t(X)%*%X+diag(6)*1e-8)%*%t(X)%*%future_is,
+                 error=function(e) rep(0,6))
+  fitted <- as.vector(X%*%b); resid <- future_is-fitted
+  list(coefs=b, fitted=fitted,
+       r2=1-sum(resid^2)/(sum((future_is-mean(future_is))^2)+1e-12))
+}
+
+
+# ============================================================
+# ADDITIONAL EXECUTION QUALITY MEASURES
+# ============================================================
+
+intraday_seasonality_adjustment <- function(volume_by_bar, bar_labels,
+                                             n_bars_day = 78) {
+  n      <- length(volume_by_bar)
+  bar_id <- ((seq_len(n) - 1) %% n_bars_day) + 1
+  avg_by_bar <- tapply(volume_by_bar, bar_id, mean, na.rm = TRUE)
+  expected   <- avg_by_bar[bar_id]
+  adj_vol    <- volume_by_bar / (expected + 1e-8)
+  list(expected = expected, adjusted = adj_vol,
+       participation_score = adj_vol / mean(adj_vol, na.rm=TRUE))
+}
+
+crossing_network_analysis <- function(midpoint, trade_price, trade_size,
+                                       venue_type) {
+  crossing   <- venue_type == "dark"
+  price_imp  <- abs(trade_price - midpoint) / (midpoint + 1e-8)
+  dark_ii    <- price_imp[crossing]
+  lit_ii     <- price_imp[!crossing]
+  list(dark_avg_impact = mean(dark_ii, na.rm=TRUE),
+       lit_avg_impact  = mean(lit_ii,  na.rm=TRUE),
+       dark_fraction   = mean(crossing),
+       dark_saving_bps = (mean(lit_ii, na.rm=TRUE) - mean(dark_ii, na.rm=TRUE)) * 1e4)
+}
+
+market_open_close_analysis <- function(open_ret, close_ret, intraday_ret) {
+  gap_fill     <- sign(open_ret) != sign(close_ret)
+  open_premium <- abs(open_ret) > abs(close_ret)
+  momentum     <- sign(open_ret) == sign(intraday_ret)
+  list(gap_fill_rate = mean(gap_fill, na.rm=TRUE),
+       open_premium_rate = mean(open_premium, na.rm=TRUE),
+       open_momentum_rate = mean(momentum, na.rm=TRUE),
+       avg_open_ret = mean(abs(open_ret), na.rm=TRUE),
+       avg_close_ret = mean(abs(close_ret), na.rm=TRUE))
+}
+
+fill_quality_metrics <- function(limit_fills, market_fills,
+                                   midpoint_at_order, midpoint_at_fill) {
+  limit_slippage  <- (midpoint_at_fill[limit_fills] -
+                        midpoint_at_order[limit_fills]) / midpoint_at_order[limit_fills]
+  market_slippage <- (midpoint_at_fill[market_fills] -
+                        midpoint_at_order[market_fills]) / midpoint_at_order[market_fills]
+  list(limit_avg_slippage_bps = mean(limit_slippage, na.rm=TRUE) * 1e4,
+       market_avg_slippage_bps = mean(market_slippage, na.rm=TRUE) * 1e4,
+       limit_fill_rate = mean(limit_fills),
+       avg_queue_time = NA)
+}
+
+momentum_impact_correction <- function(returns, trade_signs, window = 20) {
+  n     <- length(returns)
+  mom   <- rep(NA_real_, n)
+  for (i in seq(window, n)) {
+    idx  <- seq(i - window + 1, i)
+    mom[i] <- mean(returns[idx], na.rm = TRUE)
+  }
+  momentum_component <- mom * trade_signs
+  idiosyncratic      <- returns - momentum_component
+  list(momentum_component = momentum_component,
+       idiosyncratic = idiosyncratic,
+       momentum_cost_bps = mean(momentum_component, na.rm=TRUE) * 1e4)
+}
+
+
+# ─── ADDITIONAL: COST ATTRIBUTION ────────────────────────────────────────────
+
+execution_cost_budget <- function(alpha_bps, tc_bps, market_impact_bps,
+                                   spread_cost_bps, opportunity_cost_bps) {
+  total_cost   <- tc_bps + market_impact_bps + spread_cost_bps + opportunity_cost_bps
+  net_alpha    <- alpha_bps - total_cost
+  cost_breakdown <- c(tc=tc_bps, impact=market_impact_bps,
+                      spread=spread_cost_bps, opportunity=opportunity_cost_bps)
+  list(total_cost_bps = total_cost, net_alpha_bps = net_alpha,
+       cost_breakdown = cost_breakdown,
+       cost_fractions = cost_breakdown / (total_cost + 1e-8),
+       is_viable = net_alpha > 0)
+}
+
+order_book_imbalance_execution <- function(bid_qty, ask_qty, side,
+                                            window = 10) {
+  obi <- (bid_qty - ask_qty) / (bid_qty + ask_qty + 1)
+  obi_ma <- as.numeric(stats::filter(obi, rep(1/window, window), sides=1))
+  exec_advantage <- ifelse(side == "buy",  obi_ma,
+                    ifelse(side == "sell", -obi_ma, 0))
+  list(obi = obi, smoothed = obi_ma,
+       execution_advantage_bps = exec_advantage * 10,
+       favorable = exec_advantage > 0)
+}
+
+# ─── UTILITY FUNCTIONS ────────────────────────────────────────────────────────
+
+bps_to_pct <- function(bps) bps / 1e4
+pct_to_bps <- function(pct) pct * 1e4
+
+execution_summary_report <- function(is_bps, spread_bps, impact_bps,
+                                      timing_bps) {
+  total <- is_bps + spread_bps + impact_bps + timing_bps
+  data.frame(
+    metric = c("implementation_shortfall","spread","market_impact","timing","total"),
+    bps    = c(is_bps, spread_bps, impact_bps, timing_bps, total),
+    pct    = c(is_bps, spread_bps, impact_bps, timing_bps, total) / 1e4
+  )
+}
+
+# version
+module_version <- function() "1.0.0"
+module_info <- function() list(version="1.0.0", base_r_only=TRUE, pure=TRUE)
+# end of file
+
+# placeholder
+.module_loaded <- TRUE

@@ -212,3 +212,290 @@ range_selection_analysis <- function(price_series, price_lo_candidates,
        best_lo=price_lo_candidates[best_idx[1]],
        best_hi=price_hi_candidates[best_idx[2]])
 }
+
+# ============================================================
+# ADDITIONAL: EMPIRICAL DEFI STUDIES
+# ============================================================
+amm_price_efficiency_test <- function(pool_prices, cex_prices, window=100) {
+  n   <- length(pool_prices)
+  err <- pool_prices - cex_prices
+  acf_vals <- acf(err[!is.na(err)], lag.max=10, plot=FALSE)$acf[,,1]
+  var_ratio_5 <- var(diff(err,5))/(5*var(diff(err))+1e-8)
+  list(mean_error=mean(err,na.rm=TRUE), sd_error=sd(err,na.rm=TRUE),
+       acf_1=acf_vals[2], var_ratio_5=var_ratio_5,
+       efficient=abs(acf_vals[2])<0.1 && abs(var_ratio_5-1)<0.1)
+}
+
+liquidity_provider_pnl_study <- function(initial_capital, price_series,
+                                          fee_rate=0.003, rebalance=FALSE) {
+  n    <- length(price_series)
+  k    <- initial_capital^2/4  # constant product
+  il_  <- numeric(n); fee_cum <- numeric(n)
+  for (i in seq_len(n)) {
+    r    <- price_series[i]/price_series[1]
+    il_[i]  <- 2*sqrt(r)/(1+r)-1
+    fee_cum[i] <- fee_rate * i * 0.001 * initial_capital  # rough estimate
+  }
+  net_pnl <- initial_capital*(1+il_) - initial_capital + fee_cum
+  list(il=il_, fee_income=fee_cum, net_pnl=net_pnl,
+       better_than_hold=net_pnl>0,
+       breakeven_days=which(net_pnl>0)[1])
+}
+
+gas_cost_impact_study <- function(strategy_returns, gas_costs_usd,
+                                   position_sizes_usd) {
+  gas_drag <- gas_costs_usd / (position_sizes_usd + 1e-8)
+  net_ret  <- strategy_returns - gas_drag
+  list(gross=strategy_returns, gas_drag=gas_drag, net=net_ret,
+       gas_adjusted_sr=mean(net_ret)/(sd(net_ret)+1e-8)*sqrt(365),
+       min_position_for_viability=gas_costs_usd/(strategy_returns+1e-8))
+}
+
+mev_impact_on_lp <- function(lp_returns, mev_extracted, pool_tvl) {
+  mev_rate     <- mev_extracted / (pool_tvl+1e-8)
+  lp_ret_adj   <- lp_returns - mev_rate
+  list(gross_lp=lp_returns, mev_rate=mev_rate, net_lp=lp_ret_adj,
+       mev_impact_pct=mev_rate/lp_returns*100)
+}
+
+concentration_vs_returns <- function(position_ranges, lp_returns,
+                                      price_vol) {
+  width <- sapply(position_ranges, function(r) r[2]-r[1])
+  efficiency <- 1/width
+  df <- data.frame(width=width, efficiency=efficiency, returns=lp_returns, vol=price_vol)
+  corr_eff_ret <- cor(df$efficiency, df$returns, use="complete.obs")
+  list(df=df, efficiency_return_corr=corr_eff_ret,
+       optimal_width=width[which.max(lp_returns)])
+}
+
+
+# ============================================================
+# EMPIRICAL DEFI RESEARCH FUNCTIONS
+# ============================================================
+
+lp_survivorship_study <- function(pool_birth_dates, pool_death_dates,
+                                   tvl_at_birth, current_date) {
+  alive       <- is.na(pool_death_dates)
+  age         <- ifelse(alive,
+                        as.numeric(current_date - pool_birth_dates),
+                        as.numeric(pool_death_dates - pool_birth_dates))
+  survival_rate <- mean(alive)
+  median_life   <- median(age[!alive], na.rm=TRUE)
+  correlation   <- cor(log(tvl_at_birth + 1), age, use="pairwise.complete.obs")
+  list(survival_rate = survival_rate, median_life_days = median_life,
+       age = age, alive = alive,
+       tvl_survival_corr = correlation)
+}
+
+amm_fee_vs_il_study <- function(fee_revenue, il_cost, tvl_series,
+                                  time_periods) {
+  net_lp_return <- fee_revenue - il_cost
+  fee_apy       <- fee_revenue / (tvl_series + 1e-8) * 365 / time_periods
+  il_apy        <- il_cost    / (tvl_series + 1e-8) * 365 / time_periods
+  breakeven_tvl <- il_cost / (fee_revenue / (tvl_series + 1e-8) + 1e-12)
+  list(net_lp_return = net_lp_return,
+       fee_apy = fee_apy, il_apy = il_apy,
+       net_apy = fee_apy - il_apy,
+       is_profitable = net_lp_return > 0,
+       breakeven_tvl = breakeven_tvl)
+}
+
+protocol_revenue_attribution <- function(total_protocol_rev,
+                                          trading_fees, liquidation_fees,
+                                          borrow_fees) {
+  fractions <- c(trading = trading_fees, liquidation = liquidation_fees,
+                 borrow = borrow_fees) / (total_protocol_rev + 1e-8)
+  diversification_hhi <- sum(fractions^2)
+  list(fractions = fractions, hhi = diversification_hhi,
+       dominant_source = names(which.max(fractions)),
+       concentrated = diversification_hhi > 0.5)
+}
+
+yield_aggregator_efficiency <- function(gross_yields, gas_costs,
+                                         management_fees, compounding_freq) {
+  net_apy <- ((1 + (gross_yields - management_fees) / compounding_freq)^compounding_freq - 1) -
+               gas_costs
+  efficiency_ratio <- net_apy / (gross_yields + 1e-8)
+  list(gross_yields = gross_yields, net_apy = net_apy,
+       efficiency_ratio = efficiency_ratio,
+       gas_drag = gas_costs / (gross_yields + 1e-8))
+}
+
+governance_token_value_model <- function(protocol_revenue, token_supply,
+                                          buyback_pct, discount_rate = 0.15,
+                                          growth_rate = 0.2, horizon = 5) {
+  fair_values <- numeric(horizon)
+  for (y in seq_len(horizon)) {
+    projected_rev    <- protocol_revenue * (1 + growth_rate)^y
+    token_cash_flow  <- projected_rev * buyback_pct
+    fair_values[y]   <- token_cash_flow / (discount_rate - growth_rate + 1e-8) /
+                          (1 + discount_rate)^y
+  }
+  per_token <- fair_values / (token_supply + 1e-12)
+  list(fair_value_scenarios = fair_values,
+       per_token_fair_value = per_token,
+       npv = sum(fair_values / (1 + discount_rate)^seq_len(horizon)))
+}
+
+defi_market_share_dynamics <- function(tvl_matrix, protocol_names) {
+  # tvl_matrix: rows = time, cols = protocols
+  total_tvl   <- rowSums(tvl_matrix, na.rm=TRUE)
+  shares      <- sweep(tvl_matrix, 1, total_tvl + 1e-8, "/")
+  hhi         <- apply(shares, 1, function(r) sum(r^2))
+  dominance_idx <- apply(shares, 1, function(r) max(r, na.rm=TRUE))
+  share_changes <- apply(shares, 2, diff)
+  list(market_shares = shares, hhi = hhi,
+       dominance_index = dominance_idx,
+       share_velocity = share_changes,
+       leader = apply(shares, 1, function(r) protocol_names[which.max(r)]))
+}
+
+bridge_flow_analysis <- function(inflows, outflows, bridge_names,
+                                  window = 7) {
+  net_flow    <- inflows - outflows
+  net_ma      <- apply(net_flow, 2, function(x)
+                   as.numeric(stats::filter(x, rep(1/window, window), sides=1)))
+  total_bridged <- colSums(inflows + outflows, na.rm=TRUE)
+  list(net_flow = net_flow, smoothed_net = net_ma,
+       total_volume = total_bridged,
+       dominant_bridge = bridge_names[which.max(total_bridged)],
+       flow_concentration = total_bridged / sum(total_bridged))
+}
+
+liquidation_cascade_study <- function(collateral_prices, debt_levels,
+                                       liq_thresholds, cascade_rounds = 5) {
+  health <- collateral_prices / (debt_levels / liq_thresholds + 1e-8)
+  liquidated <- health < 1.0
+  total_liquidated_debt <- sum(debt_levels[liquidated], na.rm=TRUE)
+  for (r in seq_len(cascade_rounds)) {
+    price_impact  <- total_liquidated_debt * 0.0001
+    collateral_prices <- collateral_prices * (1 - price_impact)
+    health     <- collateral_prices / (debt_levels / liq_thresholds + 1e-8)
+    new_liq    <- health < 1.0 & !liquidated
+    liquidated <- liquidated | new_liq
+    total_liquidated_debt <- sum(debt_levels[liquidated], na.rm=TRUE)
+    if (!any(new_liq)) break
+  }
+  list(liquidated = liquidated,
+       total_liquidated_debt = total_liquidated_debt,
+       cascade_fraction = mean(liquidated),
+       final_health = health)
+}
+
+
+# ─── ADDITIONAL DEFI RESEARCH ─────────────────────────────────────────────────
+
+stablecoin_peg_stability_study <- function(price_series, target = 1.0,
+                                            window = 30) {
+  deviation      <- price_series - target
+  abs_dev        <- abs(deviation)
+  peg_breaks     <- abs_dev > 0.01
+  recovery_time  <- diff(which(peg_breaks))
+  vol_dev        <- sd(deviation, na.rm=TRUE)
+  roll_vol       <- rep(NA, length(price_series))
+  for (i in seq(window, length(price_series))) {
+    idx <- seq(i - window + 1, i)
+    roll_vol[i] <- sd(deviation[idx], na.rm=TRUE)
+  }
+  list(deviation = deviation, abs_deviation = abs_dev,
+       peg_break_pct = mean(peg_breaks, na.rm=TRUE),
+       avg_recovery_time = if (length(recovery_time)) mean(recovery_time) else NA,
+       vol_of_deviation = vol_dev, rolling_vol = roll_vol,
+       max_deviation = max(abs_dev, na.rm=TRUE))
+}
+
+amm_volume_tvl_ratio_study <- function(volume_series, tvl_series,
+                                        window = 7) {
+  ratio      <- volume_series / (tvl_series + 1e-8)
+  ratio_ma   <- as.numeric(stats::filter(ratio, rep(1/window, window), sides=1))
+  fee_yield  <- ratio * 0.003 * 365
+  list(volume_to_tvl = ratio, smoothed = ratio_ma,
+       annualized_fee_yield = fee_yield,
+       high_utilization = ratio > quantile(ratio, 0.75, na.rm=TRUE))
+}
+
+lending_market_utilization_study <- function(supplied, borrowed,
+                                              base_rate = 0.02,
+                                              kink = 0.8, jump_rate = 0.5) {
+  utilization <- borrowed / (supplied + 1e-8)
+  borrow_rate <- ifelse(utilization < kink,
+                         base_rate + utilization / kink * 0.1,
+                         base_rate + 0.1 + (utilization - kink) / (1 - kink + 1e-8) * jump_rate)
+  supply_rate <- borrow_rate * utilization * 0.9
+  list(utilization = utilization, borrow_rate = borrow_rate,
+       supply_rate = supply_rate,
+       at_kink = abs(utilization - kink) < 0.05,
+       crisis_zone = utilization > 0.95)
+}
+
+protocol_comparison_framework <- function(metrics_mat, weights,
+                                           higher_is_better) {
+  norm_mat <- matrix(NA, nrow(metrics_mat), ncol(metrics_mat))
+  for (j in seq_len(ncol(metrics_mat))) {
+    col <- metrics_mat[, j]
+    mn  <- min(col, na.rm=TRUE); mx <- max(col, na.rm=TRUE)
+    norm_col <- (col - mn) / (mx - mn + 1e-8)
+    norm_mat[, j] <- if (higher_is_better[j]) norm_col else 1 - norm_col
+  }
+  scores <- as.vector(norm_mat %*% (weights / sum(weights)))
+  list(normalized = norm_mat, scores = scores,
+       ranking = order(-scores),
+       best_protocol = which.max(scores))
+}
+
+# ─── UTILITY / HELPER FUNCTIONS ───────────────────────────────────────────────
+
+defi_sharpe_equivalent <- function(apy, vol_daily, rf_daily = 0) {
+  daily_ret <- apy / 365
+  (daily_ret - rf_daily) / (vol_daily + 1e-8) * sqrt(365)
+}
+
+pool_concentration_risk <- function(top10_tvl, total_tvl) {
+  top10_share <- top10_tvl / (total_tvl + 1e-8)
+  list(top10_share = top10_share,
+       tail_risk_premium = pmax(top10_share - 0.5, 0) * 0.2,
+       is_concentrated = top10_share > 0.7)
+}
+
+defi_risk_adjusted_yield <- function(gross_yield, smart_contract_risk_pct,
+                                      oracle_risk_pct, liquidity_risk_pct) {
+  total_risk <- smart_contract_risk_pct + oracle_risk_pct + liquidity_risk_pct
+  net_yield  <- gross_yield - total_risk
+  list(gross_yield = gross_yield, total_risk = total_risk,
+       net_yield = net_yield, is_positive = net_yield > 0,
+       risk_components = c(sc=smart_contract_risk_pct, oracle=oracle_risk_pct,
+                           liquidity=liquidity_risk_pct))
+}
+
+rolling_protocol_dominance <- function(tvl_matrix, window = 30) {
+  n  <- nrow(tvl_matrix)
+  hh <- rep(NA, n)
+  for (i in seq(window, n)) {
+    idx <- seq(i - window + 1, i)
+    avg_tvls <- colMeans(tvl_matrix[idx, , drop=FALSE], na.rm=TRUE)
+    shares   <- avg_tvls / (sum(avg_tvls) + 1e-12)
+    hh[i]    <- sum(shares^2)
+  }
+  list(rolling_hhi = hh, high_concentration = hh > 0.25)
+}
+
+# research module metadata
+research_version <- function() "1.0.0"
+research_info    <- function() list(version="1.0.0", base_r_only=TRUE)
+# utility: safe correlation
+safe_cor <- function(x, y, method="pearson") {
+  tryCatch(cor(x, y, use="pairwise.complete.obs", method=method), error=function(e) NA)
+}
+# utility: rolling mean
+roll_mean <- function(x, w) as.numeric(stats::filter(x, rep(1/w, w), sides=1))
+# utility: annualize return
+annualize_ret <- function(r, periods_per_year=252) mean(r, na.rm=TRUE) * periods_per_year
+# utility: annualize vol
+annualize_vol <- function(r, periods_per_year=252) sd(r, na.rm=TRUE) * sqrt(periods_per_year)
+# end of file
+
+# defi research module loaded
+.defi_research_loaded <- TRUE
+# placeholder utility
+defi_util <- function() invisible(NULL)
+# end

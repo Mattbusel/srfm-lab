@@ -902,4 +902,535 @@ function ridge_regression_lstsq(X::Matrix{Float64}, y::Vector{Float64}, lambda::
     return (X'X + lambda*I) \ (X'y)
 end
 
+
+# ============================================================
+# SECTION 2: ADVANCED ROOT FINDING & OPTIMIZATION
+# ============================================================
+
+function bisection(f::Function, a::Float64, b::Float64; tol::Float64=1e-10, maxiter::Int=200)
+    fa=f(a); fb=f(b)
+    fa*fb > 0 && error("sign change required")
+    for _ in 1:maxiter
+        c=(a+b)/2; fc=f(c)
+        abs(fc)<tol && return c
+        fa*fc<0 ? (b=c;fb=fc) : (a=c;fa=fc)
+    end
+    return (a+b)/2
+end
+
+function newton_raphson(f::Function, df::Function, x0::Float64;
+                         tol::Float64=1e-10, maxiter::Int=100)
+    x=x0
+    for i in 1:maxiter
+        fx=f(x); dfx=df(x)
+        abs(dfx)<1e-15 && break
+        xn=x-fx/dfx; abs(xn-x)<tol && return xn; x=xn
+    end
+    return x
+end
+
+function brent_method(f::Function, a::Float64, b::Float64;
+                       tol::Float64=1e-10, maxiter::Int=100)
+    fa=f(a); fb=f(b); fa*fb > 0 && error("sign change required")
+    c=a; fc=fa; d=b-a; e=d
+    for _ in 1:maxiter
+        if fb*fc>0; c=a; fc=fa; d=b-a; e=d; end
+        abs(fc)<abs(fb) && (a=b;b=c;c=a; fa=fb;fb=fc;fc=fa)
+        tol1=2*eps()*abs(b)+0.5*tol; xm=(c-b)/2
+        (abs(xm)<=tol1||abs(fb)<1e-15) && return b
+        if abs(e)>=tol1 && abs(fa)>abs(fb)
+            s=fb/fa; p=2*xm*s; q=1-s
+            if a!=c; t=fb/fc; r=fb/fa; p=s*(2*xm*t*(t-r)-(b-a)*(r-1)); q=(t-1)*(r-1)*(s-1); end
+            p>0 && (q=-q); p=abs(p)
+            if 2*p<min(3*xm*q-abs(tol1*q), abs(e*q))
+                e=d; d=p/q
+            else; d=xm; e=d; end
+        else; d=xm; e=d; end
+        a=b; fa=fb
+        b+=abs(d)>tol1 ? d : sign(xm)*tol1
+        fb=f(b)
+    end
+    return b
+end
+
+function secant(f::Function, x0::Float64, x1::Float64; tol::Float64=1e-10, maxiter::Int=100)
+    for _ in 1:maxiter
+        fx0=f(x0); fx1=f(x1)
+        abs(fx1-fx0)<1e-15 && break
+        x2=x1-fx1*(x1-x0)/(fx1-fx0)
+        abs(x2-x1)<tol && return x2; x0=x1; x1=x2
+    end
+    return x1
+end
+
+function gradient_descent_wolfe(f_grad::Function, x0::Vector{Float64};
+                                  c1::Float64=1e-4, c2::Float64=0.9,
+                                  max_iter::Int=1000, tol::Float64=1e-6)
+    x=copy(x0); f_val,g=f_grad(x)
+    for i in 1:max_iter
+        p=-g; alpha=1.0
+        # Backtracking line search
+        for _ in 1:50
+            xn=x.+alpha.*p; fn,_=f_grad(xn)
+            fn<=f_val+c1*alpha*dot(g,p) && break; alpha*=0.5
+        end
+        x_new=x.+alpha.*p; f_new,g_new=f_grad(x_new)
+        norm(g_new)<tol && return (x=x_new,f=f_new,iter=i,converged=true)
+        x=x_new; f_val=f_new; g=g_new
+    end
+    return (x=x, f=f_val, iter=max_iter, converged=false)
+end
+
+function conjugate_gradient_linear(A::Matrix{Float64}, b::Vector{Float64};
+                                     tol::Float64=1e-10, maxiter::Int=1000)
+    n=length(b); x=zeros(n); r=copy(b); p=copy(r)
+    rs_old=dot(r,r)
+    for _ in 1:maxiter
+        Ap=A*p; alpha=rs_old/(dot(p,Ap)+1e-15)
+        x.+=alpha.*p; r.-=alpha.*Ap
+        rs_new=dot(r,r)
+        rs_new<tol^2 && break
+        p=r.+(rs_new/rs_old).*p; rs_old=rs_new
+    end
+    return x
+end
+
+function nelder_mead(f::Function, x0::Vector{Float64};
+                      tol::Float64=1e-8, maxiter::Int=5000)
+    n=length(x0)
+    s=[copy(x0) for _ in 1:n+1]
+    for i in 2:n+1; s[i][i-1]+=max(0.05,0.05*abs(x0[i-1])); end
+    v=[f(si) for si in s]
+    for _ in 1:maxiter
+        ord=sortperm(v); s=s[ord]; v=v[ord]
+        xo=mean(s[1:n])
+        xr=xo.+1.0.*(xo.-s[n+1]); fr=f(xr)
+        if fr<v[1]
+            xe=xo.+2.0.*(xr.-xo); fe=f(xe)
+            if fe<fr; s[n+1]=xe; v[n+1]=fe
+            else; s[n+1]=xr; v[n+1]=fr; end
+        elseif fr<v[n]
+            s[n+1]=xr; v[n+1]=fr
+        else
+            xc=xo.+0.5.*(s[n+1].-xo); fc=f(xc)
+            if fc<v[n+1]; s[n+1]=xc; v[n+1]=fc
+            else
+                for i in 2:n+1
+                    s[i]=s[1].+0.5.*(s[i].-s[1]); v[i]=f(s[i])
+                end
+            end
+        end
+        std([f(si) for si in s])<tol && return (x=s[1],f=v[1],converged=true)
+    end
+    return (x=s[1],f=v[1],converged=false)
+end
+
+function simulated_annealing_opt(f::Function, x0::Vector{Float64};
+                                   T0::Float64=10.0, Tf::Float64=1e-5,
+                                   cool::Float64=0.995, maxiter::Int=50000,
+                                   step::Float64=0.1)
+    x=copy(x0); fx=f(x); best_x=copy(x); best_f=fx; T=T0
+    for _ in 1:maxiter
+        xn=x.+randn(length(x)).*step; fn=f(xn)
+        delta=fn-fx
+        (delta<0||rand()<exp(-delta/T)) && (x=xn; fx=fn)
+        fx<best_f && (best_f=fx; best_x=copy(x))
+        T=max(T*cool,Tf); T<=Tf && break
+    end
+    return (x=best_x, f=best_f)
+end
+
+# ============================================================
+# SECTION 3: ADVANCED INTEGRATION
+# ============================================================
+
+function gauss_legendre_quadrature(f::Function, a::Float64, b::Float64; n::Int=10)
+    # Gauss-Legendre nodes and weights for n up to 10
+    nodes_weights = Dict(
+        2 => ([-0.5773502691896257, 0.5773502691896257], [1.0, 1.0]),
+        3 => ([-0.7745966692414834, 0.0, 0.7745966692414834],
+               [0.5555555555555556, 0.8888888888888888, 0.5555555555555556]),
+        5 => ([-0.9061798459386640, -0.5384693101056831, 0.0,
+                0.5384693101056831, 0.9061798459386640],
+               [0.2369268850561891, 0.4786286704993665, 0.5688888888888889,
+                0.4786286704993665, 0.2369268850561891])
+    )
+    n_use = n in keys(nodes_weights) ? n : 5
+    xi, wi = nodes_weights[n_use]
+    mid = (a+b)/2; half = (b-a)/2
+    return half * sum(wi[i]*f(mid+half*xi[i]) for i in eachindex(xi))
+end
+
+function adaptive_quadrature(f::Function, a::Float64, b::Float64;
+                               tol::Float64=1e-8, maxdepth::Int=50)
+    function quad_rec(a, b, fa, fm, fb, tol, depth)
+        m=(a+b)/2
+        lm=(a+m)/2; rm=(m+b)/2
+        flm=f(lm); frm=f(rm)
+        s1=( b-a)/6*(fa+4*fm+fb)
+        s2=(b-a)/12*(fa+4*flm+2*fm+4*frm+fb)
+        if depth>=maxdepth||abs(s2-s1)<15*tol
+            return s2+(s2-s1)/15
+        end
+        return quad_rec(a,m,fa,flm,fm,tol/2,depth+1)+
+               quad_rec(m,b,fm,frm,fb,tol/2,depth+1)
+    end
+    fa=f(a); fm=f((a+b)/2); fb=f(b)
+    return quad_rec(a,b,fa,fm,fb,tol,0)
+end
+
+function romberg(f::Function, a::Float64, b::Float64; max_order::Int=8, tol::Float64=1e-10)
+    R=zeros(max_order,max_order); h=b-a
+    R[1,1]=h*(f(a)+f(b))/2
+    for j in 2:max_order
+        h/=2
+        R[j,1]=R[j-1,1]/2+h*sum(f(a+(2k-1)*h) for k in 1:2^(j-2))
+        for k in 2:j; R[j,k]=R[j,k-1]+(R[j,k-1]-R[j-1,k-1])/(4^(k-1)-1); end
+        j>2 && abs(R[j,j]-R[j-1,j-1])<tol && return R[j,j]
+    end
+    return R[max_order,max_order]
+end
+
+function monte_carlo_integrate_qmc(f::Function, a::Float64, b::Float64, n::Int=10000)
+    # Halton sequence for QMC
+    function halton(k, base)
+        r=0.0; f_=1.0; n_=k
+        while n_>0; f_/=base; r+=f_*(n_%base); n_÷=base; end
+        r
+    end
+    xs = [a+(b-a)*halton(i,2) for i in 1:n]
+    return (b-a)*mean(f.(xs))
+end
+
+# ============================================================
+# SECTION 4: ODE & PDE SOLVERS
+# ============================================================
+
+function euler_ode(f::Function, y0::Vector{Float64},
+                    t0::Float64, t1::Float64, n::Int=1000)
+    h=(t1-t0)/n; t=t0; y=copy(y0)
+    ts=[t]; ys=[copy(y)]
+    for _ in 1:n
+        y=y.+h.*f(t,y); t+=h
+        push!(ts,t); push!(ys,copy(y))
+    end
+    return (t=ts,y=ys)
+end
+
+function rk4_ode(f::Function, y0::Vector{Float64},
+                  t0::Float64, t1::Float64, n::Int=1000)
+    h=(t1-t0)/n; t=t0; y=copy(y0)
+    ts=[t]; ys=[copy(y)]
+    for _ in 1:n
+        k1=f(t,y); k2=f(t+h/2,y.+h/2.*k1)
+        k3=f(t+h/2,y.+h/2.*k2); k4=f(t+h,y.+h.*k3)
+        y=y.+h/6.*(k1.+2*k2.+2*k3.+k4); t+=h
+        push!(ts,t); push!(ys,copy(y))
+    end
+    return (t=ts,y=ys)
+end
+
+function crank_nicolson_heat(u0::Vector{Float64}, dx::Float64, dt::Float64,
+                               D::Float64, T::Float64)
+    n=length(u0); nsteps=round(Int,T/dt); r=D*dt/dx^2/2
+    u=copy(u0); ni=n-2
+    # Build matrices once
+    A_lo=fill(-r,ni-1); A_md=fill(1+2r,ni); A_up=fill(-r,ni-1)
+    B_lo=fill(r,ni-1);  B_md=fill(1-2r,ni); B_up=fill(r,ni-1)
+    for _ in 1:nsteps
+        rhs=zeros(ni)
+        for i in 1:ni
+            rhs[i]=B_md[i]*u[i+1]
+            i>1 && (rhs[i]+=B_lo[i-1]*u[i])
+            i<ni && (rhs[i]+=B_up[i]*u[i+2])
+        end
+        # Thomas algorithm
+        c=zeros(ni); d=zeros(ni)
+        c[1]=A_up[1]/A_md[1]; d[1]=rhs[1]/A_md[1]
+        for i in 2:ni
+            denom=A_md[i]-A_lo[i-1]*c[i-1]
+            c[i]=i<ni ? A_up[i]/denom : 0.0
+            d[i]=(rhs[i]-A_lo[i-1]*d[i-1])/denom
+        end
+        x=zeros(ni); x[ni]=d[ni]
+        for i in ni-1:-1:1; x[i]=d[i]-c[i]*x[i+1]; end
+        u[2:n-1]=x
+    end
+    return u
+end
+
+function thomas_algorithm(lo::Vector{Float64}, md::Vector{Float64},
+                            up::Vector{Float64}, rhs::Vector{Float64})
+    n=length(md); c=zeros(n); d=zeros(n)
+    c[1]=up[1]/md[1]; d[1]=rhs[1]/md[1]
+    for i in 2:n
+        denom=md[i]-lo[i-1]*c[i-1]
+        c[i]=i<n ? up[i]/denom : 0.0
+        d[i]=(rhs[i]-lo[i-1]*d[i-1])/denom
+    end
+    x=zeros(n); x[n]=d[n]
+    for i in n-1:-1:1; x[i]=d[i]-c[i]*x[i+1]; end
+    return x
+end
+
+# ============================================================
+# SECTION 5: QUASI-MONTE CARLO & VARIANCE REDUCTION
+# ============================================================
+
+function sobol_sequence_2d(n::Int)
+    # Simple bit-reversal Sobol for 2D
+    xs=zeros(n); ys=zeros(n)
+    for i in 1:n
+        r=0.0; f_=0.5; k=i
+        while k>0; r+=f_*(k&1); k>>=1; f_*=0.5; end; xs[i]=r
+        r=0.0; f_=0.5; k=i
+        # Second dimension with different scramble
+        while k>0; r+=f_*((k>>1)&1+k&1)%2; k>>=1; f_*=0.5; end; ys[i]=r
+    end
+    return xs,ys
+end
+
+function antithetic_variates_mc(f::Function, n::Int=50000)
+    samples = randn(n)
+    y1=[f(z) for z in samples]; y2=[f(-z) for z in samples]
+    paired=[(y1[i]+y2[i])/2 for i in 1:n]
+    return (estimate=mean(paired), se=std(paired)/sqrt(n),
+            variance_reduction=1-var(paired)/var(y1))
+end
+
+function control_variate_option(S0::Float64, K::Float64, r::Float64,
+                                  sigma::Float64, T::Float64, n::Int=100000)
+    dt=T; sqrt_T=sqrt(dt)
+    zs=randn(n)
+    STs=S0.*exp.((r-0.5*sigma^2).*T.+sigma.*sqrt_T.*zs)
+    payoffs=max.(STs.-K,0.0).*exp(-r*T)
+    # Control: E[S_T] = S0*exp(r*T)
+    control=STs; E_control=S0*exp(r*T)
+    c_opt=cov(payoffs,control)/(var(control)+1e-10)
+    cv_payoffs=payoffs.-c_opt.*(control.-E_control)
+    return (price=mean(cv_payoffs), se=std(cv_payoffs)/sqrt(n))
+end
+
+function stratified_sampling(f::Function, a::Float64, b::Float64,
+                               n_strata::Int=100, samps::Int=10)
+    w=(b-a)/n_strata; total=0.0; var_total=0.0
+    for k in 1:n_strata
+        lo=a+(k-1)*w; vals=[f(lo+rand()*w) for _ in 1:samps]
+        total+=mean(vals)*w; var_total+=var(vals)/samps*w^2
+    end
+    return (estimate=total, se=sqrt(var_total))
+end
+
+# ============================================================
+# SECTION 6: INTERPOLATION & REGRESSION
+# ============================================================
+
+function cubic_spline_interpolate(xs::Vector{Float64}, ys::Vector{Float64},
+                                    x_query::Vector{Float64})
+    n=length(xs); h=diff(xs)
+    # Natural cubic spline: tridiagonal system for second derivatives
+    n_int=n-2; rhs=zeros(n_int)
+    lo=zeros(n_int-1); md=zeros(n_int); up=zeros(n_int-1)
+    for i in 1:n_int
+        md[i]=2*(h[i]+h[i+1])
+        rhs[i]=6*((ys[i+2]-ys[i+1])/h[i+1]-(ys[i+1]-ys[i])/h[i])
+        i<n_int && (up[i]=h[i+1]; lo[i]=h[i+1])
+    end
+    sigma=thomas_algorithm(lo, md, up, rhs)
+    sigma_all=vcat(0.0, sigma, 0.0)
+    result=zeros(length(x_query))
+    for (qi,xq) in enumerate(x_query)
+        seg=searchsortedlast(xs, xq); seg=clamp(seg,1,n-1)
+        dx=xs[seg+1]-xs[seg]; t=(xq-xs[seg])/dx
+        a_=sigma_all[seg]*dx^2/6; b_=sigma_all[seg+1]*dx^2/6
+        result[qi]=((1-t)*ys[seg]+t*ys[seg+1] +
+                    t*(1-t)*((1-t)*(a_) + t*(b_)))
+    end
+    return result
+end
+
+function polynomial_regression(x::Vector{Float64}, y::Vector{Float64}, degree::Int=2)
+    n=length(x)
+    X=hcat([x.^k for k in 0:degree]...)
+    beta=(X'*X+1e-8*I(degree+1))\(X'*y)
+    fitted=X*beta; resid=y.-fitted
+    r2=1-var(resid)/(var(y)+1e-10)
+    return (beta=beta, fitted=fitted, r2=r2)
+end
+
+function local_polynomial_regression(x::Vector{Float64}, y::Vector{Float64},
+                                       x_grid::Vector{Float64}; h::Float64=1.0)
+    n=length(x); m=length(x_grid); fitted=zeros(m)
+    for i in 1:m
+        xg=x_grid[i]
+        w=[exp(-0.5*((x[j]-xg)/h)^2) for j in 1:n]
+        W=Diagonal(w)
+        X=hcat(ones(n), x.-xg)
+        beta=(X'*W*X+1e-8*I(2))\(X'*W*y)
+        fitted[i]=beta[1]
+    end
+    return fitted
+end
+
+# ============================================================
+# SECTION 7: LINEAR ALGEBRA & DECOMPOSITIONS
+# ============================================================
+
+function gram_schmidt(A::Matrix{Float64})
+    m,n=size(A); Q=zeros(m,n); R=zeros(n,n)
+    for j in 1:n
+        v=A[:,j]
+        for i in 1:j-1
+            R[i,j]=dot(Q[:,i],A[:,j]); v.-=R[i,j].*Q[:,i]
+        end
+        R[j,j]=norm(v); Q[:,j]=v./(R[j,j]+1e-15)
+    end
+    return Q,R
+end
+
+function power_iteration(A::Matrix{Float64}; maxiter::Int=1000, tol::Float64=1e-10)
+    n=size(A,1); v=randn(n); v./=norm(v)
+    lambda=0.0
+    for _ in 1:maxiter
+        Av=A*v; lambda=dot(v,Av)
+        v_new=Av./norm(Av)
+        norm(v_new-v)<tol && (v=v_new; break); v=v_new
+    end
+    return (eigenvalue=lambda, eigenvector=v)
+end
+
+function inverse_iteration(A::Matrix{Float64}, mu::Float64=0.0;
+                             maxiter::Int=500, tol::Float64=1e-10)
+    n=size(A,1); v=randn(n); v./=norm(v)
+    Amu=A-mu*I(n)
+    for _ in 1:maxiter
+        w=Amu\v; v_new=w./norm(w)
+        norm(v_new-v)<tol && (v=v_new; break); v=v_new
+    end
+    Av=A*v; lambda=dot(v,Av)
+    return (eigenvalue=lambda, eigenvector=v)
+end
+
+function householder_qr(A::Matrix{Float64})
+    m,n=size(A); Q=Matrix{Float64}(I,m,m); R=copy(A)
+    for k in 1:min(m-1,n)
+        x=R[k:m,k]; e=zeros(m-k+1); e[1]=norm(x)
+        v=x.-e; nv=norm(v)
+        nv<1e-14 && continue; v./=nv
+        R[k:m,k:n].-=2*v*(v'*R[k:m,k:n])
+        Q[:,k:m].=(Q[:,k:m]*(I(m-k+1)-2*v*v'))'
+    end
+    return Q,R
+end
+
+# ============================================================
+# SECTION 8: FINANCIAL NUMERICS
+# ============================================================
+
+function black_scholes_call_price(S::Float64, K::Float64, r::Float64,
+                                    sigma::Float64, T::Float64)
+    T<=0 && return max(S-K,0.0)
+    d1=(log(S/K)+(r+0.5*sigma^2)*T)/(sigma*sqrt(T))
+    d2=d1-sigma*sqrt(T)
+    N(x)=0.5*(1+erf(x/sqrt(2)))
+    return S*N(d1)-K*exp(-r*T)*N(d2)
+end
+
+function black_scholes_put_price(S::Float64, K::Float64, r::Float64,
+                                   sigma::Float64, T::Float64)
+    T<=0 && return max(K-S,0.0)
+    d1=(log(S/K)+(r+0.5*sigma^2)*T)/(sigma*sqrt(T))
+    d2=d1-sigma*sqrt(T)
+    N(x)=0.5*(1+erf(x/sqrt(2)))
+    return K*exp(-r*T)*N(-d2)-S*N(-d1)
+end
+
+function implied_volatility_brent(market_price::Float64, S::Float64, K::Float64,
+                                    r::Float64, T::Float64; is_call::Bool=true)
+    T<=0 && return NaN
+    f = is_call ? black_scholes_call_price : black_scholes_put_price
+    try
+        return brent_method(v -> f(S,K,r,v,T) - market_price, 0.001, 10.0)
+    catch; return NaN; end
+end
+
+function bond_duration(cash_flows::Vector{Float64}, times::Vector{Float64}, ytm::Float64)
+    pv = [cf*exp(-ytm*t) for (cf,t) in zip(cash_flows,times)]
+    price = sum(pv)
+    duration = sum(pv[i]*times[i] for i in eachindex(pv)) / (price+1e-10)
+    modified = duration/(1+ytm)
+    convexity = sum(pv[i]*times[i]^2 for i in eachindex(pv)) / (price+1e-10)
+    return (price=price, duration=duration, modified_duration=modified, convexity=convexity)
+end
+
+function bond_ytm(price::Float64, cash_flows::Vector{Float64}, times::Vector{Float64})
+    f(y) = sum(cf*exp(-y*t) for (cf,t) in zip(cash_flows,times)) - price
+    try; return brent_method(f, 0.001, 0.5); catch; return NaN; end
+end
+
+function var_historical(returns::Vector{Float64}, confidence::Float64=0.95)
+    return -quantile(returns, 1-confidence)
+end
+
+function var_parametric(returns::Vector{Float64}, confidence::Float64=0.95)
+    mu=mean(returns); sigma=std(returns)
+    # z for 95% is 1.645, for 99% is 2.326
+    z_map=Dict(0.90=>1.282, 0.95=>1.645, 0.99=>2.326)
+    z=get(z_map, round(confidence,digits=2), 1.645)
+    return -(mu-z*sigma)
+end
+
+function expected_shortfall(returns::Vector{Float64}, confidence::Float64=0.95)
+    threshold=quantile(returns, 1-confidence)
+    tail=[r for r in returns if r<=threshold]
+    return isempty(tail) ? var_historical(returns,confidence) : -mean(tail)
+end
+
+# ============================================================
+# EXTENDED DEMO
+# ============================================================
+
+function demo_numerical_methods_extended()
+    println("=== Numerical Methods Extended Demo ===")
+
+    # Root finding
+    f3(x) = x^3-2x-5
+    println("Bisection: ", round(bisection(f3,2.0,3.0),digits=8))
+    println("Brent:     ", round(brent_method(f3,2.0,3.0),digits=8))
+
+    # Integration
+    fi(x) = sin(x)^2/(1+x^2)
+    println("Romberg ∫: ", round(romberg(fi,0.0,π),digits=8))
+    println("GL 5pt  ∫: ", round(gauss_legendre_quadrature(fi,0.0,π;n=5),digits=6))
+
+    # ODE
+    sir(t,y)=begin β=0.3;γ=0.1;N=1e6; [-β*y[1]*y[2]/N, β*y[1]*y[2]/N-γ*y[2], γ*y[2]] end
+    sol=rk4_ode(sir,[999000.0,1000.0,0.0],0.0,160.0,160)
+    println("SIR peak I: ", round(maximum([y[2] for y in sol.y])/1e6,digits=3),"M")
+
+    # BS option
+    println("BS call: ", round(black_scholes_call_price(100.0,100.0,0.05,0.2,1.0),digits=4))
+
+    # IV
+    mkt=black_scholes_call_price(100.0,100.0,0.05,0.2,1.0)
+    iv=implied_volatility_brent(mkt,100.0,100.0,0.05,1.0)
+    println("Round-trip IV: ", round(iv,digits=4))
+
+    # VaR
+    rets=randn(1000).*0.01
+    println("Historical VaR 95%: ", round(var_historical(rets)*100,digits=3),"%")
+    println("ES 95%: ", round(expected_shortfall(rets)*100,digits=3),"%")
+
+    # Spline
+    xs=[0.0,1.0,2.0,3.0,4.0]; ys=sin.(xs)
+    interp=cubic_spline_interpolate(xs,ys,[0.5,1.5,2.5])
+    println("Cubic spline at [0.5,1.5,2.5]: ", round.(interp,digits=4))
+
+    # Bond
+    cfs=[5.0,5.0,5.0,105.0]; ts=[1.0,2.0,3.0,4.0]
+    bd=bond_duration(cfs,ts,0.05)
+    println("Bond duration: ", round(bd.duration,digits=4),
+            " modified: ", round(bd.modified_duration,digits=4))
+end
+
 end # module NumericalMethods

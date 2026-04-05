@@ -233,3 +233,268 @@ lp_position_value <- function(L, current_price, price_low, price_high,
   list(value = val, amount_x = ams$amount_x, amount_y = ams$amount_y,
        fee_component = fee_growth)
 }
+
+# ============================================================
+# ADDITIONAL: PROTOCOL COMPARISON
+# ============================================================
+compare_amm_protocols <- function(tvl_list, volume_list, fee_rates,
+                                   protocol_names) {
+  n <- length(protocol_names)
+  capital_eff <- mapply(function(v, tvl) v/(tvl+1e-8), volume_list, tvl_list)
+  fee_apy     <- mapply(function(v, tvl, f) v*f*365/(tvl+1e-8), volume_list, tvl_list, fee_rates)
+  data.frame(protocol=protocol_names, tvl=unlist(tvl_list),
+             volume=unlist(volume_list), capital_efficiency=capital_eff,
+             fee_apy=fee_apy)
+}
+
+liquidity_depth_score <- function(pool_reserves, trade_size_usd, fee_rate=0.003) {
+  k     <- prod(pool_reserves)
+  mid_p <- pool_reserves[2]/pool_reserves[1]
+  impact_usd <- trade_size_usd
+  impact_pct <- impact_usd/(sum(pool_reserves*c(mid_p,1))+1e-8)
+  list(depth_score=1/impact_pct, mid_price=mid_p,
+       impact_bps=impact_pct*1e4, fee_bps=fee_rate*1e4)
+}
+
+yield_aggregator_analysis <- function(strategies, apys, tvls, risks) {
+  weighted_apy <- sum(apys*tvls)/sum(tvls)
+  risk_adj_apy <- apys / (risks+1e-8)
+  best_risk_adj <- which.max(risk_adj_apy)
+  list(weighted_avg_apy=weighted_apy,
+       risk_adj_apy=risk_adj_apy,
+       best_strategy=strategies[best_risk_adj],
+       allocation=tvls/sum(tvls))
+}
+
+# ============================================================
+# ADDITIONAL: GOVERNANCE ANALYTICS
+# ============================================================
+governance_participation <- function(token_holders, votes_cast,
+                                      proposal_outcomes) {
+  turnout <- votes_cast / (token_holders+1e-8)
+  pass_rate <- mean(proposal_outcomes == "passed")
+  list(turnout=turnout, pass_rate=pass_rate,
+       mean_turnout=mean(turnout,na.rm=TRUE),
+       governance_score=mean(turnout)*pass_rate)
+}
+
+whale_voting_power <- function(holder_balances, total_supply) {
+  pct   <- holder_balances / total_supply
+  top10 <- sum(sort(pct,decreasing=TRUE)[1:min(10,length(pct))])
+  hhi   <- sum(pct^2)
+  list(pct=pct, top10_pct=top10*100, hhi=hhi,
+       decentralized=top10<0.5)
+}
+
+# ============================================================
+# ADDITIONAL: CROSS-CHAIN ANALYTICS
+# ============================================================
+bridge_volume_signal <- function(inflow_by_chain, outflow_by_chain,
+                                  chain_names) {
+  net_flow  <- inflow_by_chain - outflow_by_chain
+  total_flow <- inflow_by_chain + outflow_by_chain
+  preference <- net_flow / (total_flow+1e-8)
+  list(net=net_flow, preference=preference,
+       fastest_growing=chain_names[which.max(net_flow)],
+       df=data.frame(chain=chain_names, net=net_flow, pref=preference))
+}
+
+cross_chain_arb <- function(token_prices, chain_names, bridge_costs) {
+  n     <- length(chain_names)
+  spread_mat <- outer(token_prices, token_prices, "-")
+  arb_mat    <- abs(spread_mat) - matrix(bridge_costs, n, n, byrow=TRUE)
+  arb_opp    <- which(arb_mat > 0, arr.ind=TRUE)
+  list(spread_matrix=spread_mat, net_arb=arb_mat,
+       opportunities=arb_opp, n_opportunities=nrow(arb_opp))
+}
+
+# ============================================================
+# ADDITIONAL: DEFI RISK SCORING
+# ============================================================
+protocol_health_score <- function(tvl, revenue_30d, token_price,
+                                   token_fdv, audit_score=0.8) {
+  ps_ratio <- token_fdv / (tvl+1e-8)
+  pe_ratio <- token_fdv / (revenue_30d*12+1e-8)
+  rev_yield <- revenue_30d*12 / (token_fdv+1e-8)
+  health <- audit_score * (1/pmax(ps_ratio,1)) * pmin(rev_yield*10, 1)
+  list(ps=ps_ratio, pe=pe_ratio, rev_yield=rev_yield,
+       health_score=pmin(health,1), grade=ifelse(health>.7,"A",
+                                           ifelse(health>.4,"B","C")))
+}
+
+
+# ============================================================
+# ADDITIONAL DEFI ANALYTICS
+# ============================================================
+
+amm_fee_revenue <- function(volume_series, fee_tier = 0.003) {
+  daily_rev <- volume_series * fee_tier
+  cumrev    <- cumsum(daily_rev)
+  list(daily_revenue = daily_rev, cumulative = cumrev,
+       annualized = mean(daily_rev, na.rm=TRUE) * 365)
+}
+
+concentrated_lp_range_pnl <- function(price, lower, upper,
+                                       liquidity, fee_tier = 0.003,
+                                       volume_series = NULL) {
+  in_range <- price >= lower & price <= upper
+  price_ratio <- pmin(price, upper) / pmax(price, lower)
+  il_factor   <- 2 * sqrt(price_ratio) / (1 + price_ratio) - 1
+  if (!is.null(volume_series)) {
+    fee_income <- ifelse(in_range, volume_series * fee_tier * liquidity, 0)
+  } else {
+    fee_income <- rep(0, length(price))
+  }
+  list(in_range = in_range, il_factor = il_factor,
+       fee_income = fee_income,
+       net_pnl = fee_income + il_factor * liquidity,
+       range_utilization = mean(in_range, na.rm=TRUE))
+}
+
+rebase_token_mechanics <- function(supply, target_price, current_price,
+                                    rebase_fraction = 0.1) {
+  deviation   <- (current_price - target_price) / (target_price + 1e-8)
+  rebase_amt  <- supply * deviation * rebase_fraction
+  new_supply  <- supply + rebase_amt
+  list(rebase_amount = rebase_amt, new_supply = new_supply,
+       deviation_pct = deviation * 100,
+       expansionary = rebase_amt > 0)
+}
+
+governance_quorum_analysis <- function(votes_for, votes_against,
+                                        total_supply, quorum_pct = 0.04) {
+  total_votes     <- votes_for + votes_against
+  participation   <- total_votes / (total_supply + 1e-12)
+  approval_rate   <- votes_for / (total_votes + 1e-12)
+  quorum_reached  <- participation >= quorum_pct
+  list(participation = participation, approval_rate = approval_rate,
+       quorum_reached = quorum_reached,
+       passed = quorum_reached & approval_rate > 0.5,
+       effective_turnout = participation * approval_rate)
+}
+
+protocol_fee_switch <- function(total_fees, lp_share = 0.8, protocol_share = 0.2,
+                                 token_buyback_fraction = 0.5) {
+  lp_fees       <- total_fees * lp_share
+  protocol_fees <- total_fees * protocol_share
+  buyback       <- protocol_fees * token_buyback_fraction
+  treasury      <- protocol_fees * (1 - token_buyback_fraction)
+  list(lp_fees = lp_fees, protocol_fees = protocol_fees,
+       buyback = buyback, treasury = treasury,
+       revenue_multiple = cumsum(total_fees))
+}
+
+liquidity_migration_model <- function(apy_a, apy_b, tvl_a, total_liquidity,
+                                       elasticity = 2.0) {
+  apy_diff       <- apy_b - apy_a
+  migration_pct  <- plogis(elasticity * apy_diff) - 0.5
+  tvl_shift      <- migration_pct * tvl_a
+  new_tvl_a      <- tvl_a - pmax(tvl_shift, 0)
+  new_tvl_b      <- total_liquidity - new_tvl_a
+  list(migration_pct = migration_pct, tvl_shift = tvl_shift,
+       new_tvl_a = new_tvl_a, new_tvl_b = new_tvl_b)
+}
+
+defi_yield_decomposition <- function(base_apy, reward_apy, il_estimate,
+                                      gas_cost_annual, risk_premium) {
+  gross_yield  <- base_apy + reward_apy
+  net_yield    <- gross_yield + il_estimate - gas_cost_annual
+  risk_adj     <- net_yield - risk_premium
+  list(gross_yield = gross_yield, net_yield = net_yield,
+       risk_adjusted = risk_adj,
+       il_drag = il_estimate,
+       is_attractive = risk_adj > 0.05)
+}
+
+collateral_efficiency <- function(debt, collateral_value, liq_threshold = 0.825) {
+  collateral_ratio <- collateral_value / (debt + 1e-8)
+  utilization      <- debt / (collateral_value * liq_threshold + 1e-8)
+  buffer           <- collateral_ratio - 1 / liq_threshold
+  list(collateral_ratio = collateral_ratio,
+       utilization = utilization,
+       safety_buffer = buffer,
+       at_risk = collateral_ratio < 1 / liq_threshold * 1.1)
+}
+
+amm_slippage_curve <- function(reserve_x, reserve_y, trade_sizes) {
+  k       <- reserve_x * reserve_y
+  out_amt <- sapply(trade_sizes, function(dx) {
+    new_x <- reserve_x + dx
+    new_y <- k / new_x
+    reserve_y - new_y
+  })
+  spot_price <- reserve_y / reserve_x
+  exec_price <- out_amt / trade_sizes
+  slippage   <- (spot_price - exec_price) / spot_price
+  list(trade_sizes = trade_sizes, output = out_amt,
+       execution_price = exec_price, slippage_pct = slippage * 100)
+}
+
+token_emission_schedule <- function(initial_supply, emission_rate,
+                                     vesting_schedule, n_periods = 48) {
+  circulating <- numeric(n_periods)
+  circulating[1] <- initial_supply
+  for (t in 2:n_periods) {
+    vest_t <- if (t <= length(vesting_schedule)) vesting_schedule[t] else 0
+    circulating[t] <- circulating[t-1] + emission_rate + vest_t
+  }
+  inflation_rate <- c(NA, diff(circulating) / (circulating[-length(circulating)] + 1e-8))
+  list(circulating = circulating, inflation_rate = inflation_rate,
+       fully_diluted_pct = circulating / max(circulating))
+}
+
+
+# ─── ADDITIONAL: RISK METRICS ────────────────────────────────────────────────
+
+defi_portfolio_var <- function(pool_returns_mat, weights, alpha = 0.05) {
+  port_ret  <- as.vector(pool_returns_mat %*% weights)
+  var_est   <- quantile(port_ret, alpha, na.rm=TRUE)
+  es_est    <- mean(port_ret[port_ret <= var_est], na.rm=TRUE)
+  list(var = var_est, es = es_est,
+       max_dd = min(cumprod(1 + port_ret) / cummax(cumprod(1 + port_ret)) - 1))
+}
+
+defi_stress_test <- function(tvl, yield_apy, price_shock = -0.5,
+                               liquidity_shock = 0.3, yield_shock = -0.5) {
+  shocked_tvl   <- tvl * (1 + price_shock)
+  shocked_liq   <- shocked_tvl * (1 - liquidity_shock)
+  shocked_yield <- yield_apy * (1 + yield_shock)
+  pnl_tvl       <- shocked_tvl - tvl
+  list(base_tvl = tvl, shocked_tvl = shocked_tvl,
+       available_liquidity = shocked_liq,
+       shocked_yield_apy = shocked_yield,
+       tvl_loss = pnl_tvl,
+       pct_loss = pnl_tvl / (tvl + 1e-8))
+}
+
+stable_pool_curve_analysis <- function(A_param, balances, fee = 0.0004) {
+  n <- length(balances)
+  D_approx <- sum(balances)
+  for (iter in 1:100) {
+    Dprod <- D_approx^(n+1) / (n^n * prod(balances))
+    D_approx <- (A_param * n^n * sum(balances) + Dprod) /
+                  ((A_param * n^n - 1) + (n+1) * Dprod / D_approx + 1e-12) *
+                  D_approx
+    if (is.nan(D_approx) || !is.finite(D_approx)) break
+  }
+  price_impact_1pct <- fee + 1 / (A_param * n + 1e-8) * 0.01
+  list(D = D_approx, A = A_param,
+       fee = fee, estimated_price_impact_1pct = price_impact_1pct)
+}
+
+# ─── UTILITY FUNCTIONS ────────────────────────────────────────────────────────
+
+defi_apr_to_apy <- function(apr, compounding_periods = 365) {
+  (1 + apr / compounding_periods)^compounding_periods - 1
+}
+
+defi_apy_to_apr <- function(apy, compounding_periods = 365) {
+  compounding_periods * ((1 + apy)^(1/compounding_periods) - 1)
+}
+
+optimal_rebalance_band <- function(target_weight, vol, tc_bps, horizon = 21) {
+  sigma_drift <- vol * sqrt(horizon / 252)
+  band_half   <- sqrt(2 * tc_bps/1e4 * sigma_drift)
+  list(lower = target_weight - band_half, upper = target_weight + band_half,
+       band_width = 2 * band_half)
+}

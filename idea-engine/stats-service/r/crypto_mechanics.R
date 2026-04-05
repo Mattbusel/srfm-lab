@@ -382,3 +382,152 @@ order_book_resilience <- function(mid_price_before, mid_price_after,
        recovery_time = recovery_time,
        resilience_score = 1 / (resilience * recovery_time + 1e-8))
 }
+
+# ============================================================
+# ADDITIONAL: DEFI PROTOCOL METRICS
+# ============================================================
+protocol_revenue_analysis <- function(fee_revenue, tvl, token_price,
+                                       token_supply, window=30) {
+  pe_ratio     <- token_price * token_supply / (fee_revenue * 365 + 1e-8)
+  ps_ratio     <- token_price * token_supply / (tvl + 1e-8)
+  rev_yield    <- fee_revenue / (token_price * token_supply + 1e-8) * 365
+  rev_ma       <- as.numeric(stats::filter(fee_revenue, rep(1/window,window), sides=1))
+  list(pe=pe_ratio, ps=ps_ratio, revenue_yield=rev_yield,
+       revenue_growth=c(NA, diff(log(fee_revenue+1))),
+       smoothed_revenue=rev_ma)
+}
+
+token_inflation_impact <- function(circulating_supply, total_supply,
+                                    emission_rate_daily, price) {
+  inflation_annual <- emission_rate_daily * 365 / circulating_supply
+  dilution_pct     <- emission_rate_daily / (circulating_supply + 1e-8)
+  revenue_needed   <- emission_rate_daily * price  # buy pressure needed to offset
+  list(inflation_annual=inflation_annual, dilution_daily=dilution_pct,
+       sell_pressure=emission_rate_daily*price,
+       fdv=price*total_supply, mc=price*circulating_supply)
+}
+
+vetoken_model <- function(locked_supply, total_supply, lock_period_years,
+                           base_boost=1, max_boost=2.5) {
+  lock_ratio <- locked_supply / (total_supply + 1e-8)
+  boost_avg  <- base_boost + (max_boost-base_boost) * lock_ratio
+  voting_pct <- locked_supply / total_supply
+  list(lock_ratio=lock_ratio, avg_boost=boost_avg,
+       voting_power=voting_pct, governance_concentration=lock_ratio^2)
+}
+
+# ============================================================
+# ADDITIONAL: MEV / ORDERFLOW
+# ============================================================
+sandwich_attack_cost <- function(victim_size_usd, pool_liquidity_usd,
+                                  fee_rate=0.003, gas_cost_usd=5) {
+  # Estimate sandwich attack profitability
+  price_impact  <- victim_size_usd / (pool_liquidity_usd + 1e-8)
+  front_run_profit <- victim_size_usd * price_impact * 0.5
+  back_run_profit  <- victim_size_usd * price_impact * 0.5
+  total_mev     <- front_run_profit + back_run_profit - 2*gas_cost_usd -
+                   2*fee_rate*victim_size_usd
+  list(victim_impact=price_impact, mev_profit=total_mev,
+       mev_positive=total_mev>0, victim_cost=victim_size_usd*price_impact)
+}
+
+block_builder_revenue <- function(priority_fees, mev_revenue, base_fee,
+                                   blocks_per_day=7200) {
+  total_per_block <- priority_fees + mev_revenue
+  daily_revenue   <- total_per_block * blocks_per_day
+  list(per_block=total_per_block, daily=daily_revenue,
+       mev_fraction=mev_revenue/(total_per_block+1e-8),
+       annualized=daily_revenue*365)
+}
+
+# ============================================================
+# ADDITIONAL: STABLECOIN ANALYTICS
+# ============================================================
+stablecoin_depeg_model <- function(prices, peg=1.0, confidence=0.99) {
+  deviation   <- prices - peg
+  vol_dev     <- sd(deviation)
+  var_depeg   <- qnorm(1-confidence) * vol_dev
+  es_depeg    <- mean(deviation[deviation < quantile(deviation, 1-confidence)])
+  list(mean_dev=mean(deviation), vol=vol_dev, var=var_depeg, es=es_depeg,
+       pct_off_peg=mean(abs(deviation)>0.005)*100,
+       worst_depeg=min(deviation))
+}
+
+stablecoin_collateral_ratio <- function(collateral_value, stablecoin_supply,
+                                         target_cr=1.5) {
+  cr    <- collateral_value / (stablecoin_supply + 1e-8)
+  safe  <- cr > target_cr
+  buffer <- (cr - target_cr) / target_cr
+  list(cr=cr, safe=safe, buffer_pct=buffer*100,
+       max_mintable=collateral_value/target_cr - stablecoin_supply,
+       liquidation_price=stablecoin_supply*target_cr/collateral_value)
+}
+
+
+# ============================================================
+# ADDITIONAL: ON-CHAIN & ADVANCED CRYPTO MECHANICS
+# ============================================================
+
+nvt_ratio <- function(market_cap, transaction_volume, window = 28) {
+  nvt     <- market_cap / (transaction_volume + 1)
+  nvt_sma <- as.numeric(stats::filter(nvt, rep(1/window, window), sides=1))
+  z       <- (nvt - nvt_sma) / (sd(nvt, na.rm=TRUE) + 1e-8)
+  list(nvt = nvt, smoothed = nvt_sma, z_score = z,
+       signal = ifelse(z > 2, -1, ifelse(z < -2, 1, 0)),
+       overvalued = nvt > quantile(nvt, 0.9, na.rm=TRUE))
+}
+
+sopr_signal <- function(realized_price_by_coin, current_price) {
+  sopr   <- current_price / (realized_price_by_coin + 1e-8)
+  sopr_ma <- as.numeric(stats::filter(sopr, rep(1/14, 14), sides=1))
+  list(sopr = sopr, smoothed = sopr_ma,
+       in_profit = sopr > 1,
+       capitulation = sopr < 0.95,
+       signal = ifelse(sopr_ma > 1.05, -1, ifelse(sopr_ma < 0.98, 1, 0)))
+}
+
+active_addresses_signal <- function(active_addrs, price, window = 30) {
+  n  <- length(active_addrs)
+  aa_ma <- as.numeric(stats::filter(active_addrs, rep(1/window, window), sides=1))
+  z     <- (active_addrs - aa_ma) / (sd(active_addrs, na.rm=TRUE) + 1e-8)
+  price_growth  <- c(NA, diff(log(price)))
+  addr_growth   <- c(NA, diff(log(active_addrs)))
+  divergence    <- sign(price_growth) != sign(addr_growth) & !is.na(price_growth)
+  list(active = active_addrs, smoothed = aa_ma, z_score = z,
+       divergence = divergence,
+       signal = ifelse(z > 1 & !divergence, 1, ifelse(z < -1, -1, 0)))
+}
+
+hash_rate_signal <- function(hash_rate, difficulty, price, window = 14) {
+  miner_revenue <- price / (hash_rate + 1e-12)
+  diff_adj_hr   <- hash_rate / (difficulty + 1e-12)
+  hr_ma         <- as.numeric(stats::filter(hash_rate, rep(1/window, window), sides=1))
+  security_z    <- (hash_rate - hr_ma) / (sd(hash_rate, na.rm=TRUE) + 1e-8)
+  list(hash_rate = hash_rate, miner_revenue_per_hash = miner_revenue,
+       diff_adj = diff_adj_hr, smoothed = hr_ma, security_z = security_z,
+       strong_network = security_z > 1,
+       signal = ifelse(security_z > 1.5, 1, ifelse(security_z < -2, -1, 0)))
+}
+
+realized_vs_market_cap <- function(market_cap, realized_cap) {
+  mvrv  <- market_cap / (realized_cap + 1e-8)
+  n     <- length(mvrv)
+  mvrv_mean <- mean(mvrv, na.rm=TRUE)
+  mvrv_sd   <- sd(mvrv, na.rm=TRUE)
+  z <- (mvrv - mvrv_mean) / (mvrv_sd + 1e-8)
+  list(mvrv = mvrv, z_score = z,
+       overvalued = mvrv > 3.5, undervalued = mvrv < 1,
+       signal = ifelse(z > 2, -1, ifelse(z < -1, 1, 0)))
+}
+
+coin_days_destroyed <- function(coins_moved, days_since_last_move,
+                                  price, window = 30) {
+  cdd      <- coins_moved * days_since_last_move
+  cdd_ma   <- as.numeric(stats::filter(cdd, rep(1/window, window), sides=1))
+  dormancy <- cdd / (coins_moved + 1e-12)
+  z        <- (cdd - cdd_ma) / (sd(cdd, na.rm=TRUE) + 1e-8)
+  list(cdd = cdd, smoothed = cdd_ma, dormancy_days = dormancy,
+       z_score = z,
+       long_term_holder_sell = z > 2,
+       signal = ifelse(z > 2, -1, 0))
+}

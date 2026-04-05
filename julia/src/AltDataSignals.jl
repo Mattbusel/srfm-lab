@@ -779,4 +779,260 @@ function run_altdata_pipeline(data::NamedTuple; verbose::Bool=true)
             weights=w.weights, composite=composite)
 end
 
+
+# ── Extension: Additional Alt-Data Infrastructure ────────────────────────────
+
+"""
+    SentimentScoreSignal
+
+NLP-based sentiment scoring from news headlines and social media.
+Uses a simple bag-of-words model with configurable positive/negative lexicons.
+"""
+mutable struct SentimentScoreSignal
+    pos_lexicon::Vector{String}
+    neg_lexicon::Vector{String}
+    decay::Float64
+    score_ewma::Float64
+    history::Vector{Float64}
+    count::Int
+end
+
+function SentimentScoreSignal(decay=0.85)
+    pos_words = ["bullish", "surge", "rally", "breakout", "adoption", "institutional",
+                 "upgrade", "partnership", "launch", "record", "growth", "positive",
+                 "buy", "strong", "gain", "rise", "moon", "accumulate", "hodl", "green"]
+    neg_words = ["bearish", "crash", "dump", "hack", "exploit", "ban", "regulation",
+                 "investigation", "fraud", "lawsuit", "loss", "decline", "fear", "sell",
+                 "weak", "drop", "collapse", "scam", "rug", "red", "capitulate"]
+    return SentimentScoreSignal(pos_words, neg_words, decay, 0.0, Float64[], 0)
+end
+
+function score_headline(sig::SentimentScoreSignal, text::String)
+    words = split(lowercase(text), r"[^a-z]+")
+    pos_count = sum(w in sig.pos_lexicon for w in words)
+    neg_count = sum(w in sig.neg_lexicon for w in words)
+    total = pos_count + neg_count
+    total == 0 && return 0.0
+    return (pos_count - neg_count) / total
+end
+
+function update!(sig::SentimentScoreSignal, text::String)
+    raw = score_headline(sig, text)
+    if sig.count == 0
+        sig.score_ewma = raw
+    else
+        sig.score_ewma = sig.decay * sig.score_ewma + (1 - sig.decay) * raw
+    end
+    push!(sig.history, raw)
+    sig.count += 1
+    return sig
+end
+
+predict(sig::SentimentScoreSignal) = sig.score_ewma
+
+function batch_score(sig::SentimentScoreSignal, texts::Vector{String})
+    isempty(texts) && return 0.0
+    return mean(score_headline(sig, t) for t in texts)
+end
+
+"""
+    GithubActivitySignal
+
+Developer activity tracking: commit velocity and star growth as leading
+indicators of protocol health and adoption momentum.
+"""
+mutable struct GithubActivitySignal
+    alpha::Float64
+    beta::Float64
+    commit_ewma::Float64
+    star_ewma::Float64
+    history::Vector{NamedTuple}
+    count::Int
+end
+
+GithubActivitySignal(alpha=0.3, beta=0.2) = GithubActivitySignal(alpha, beta, 0.0, 0.0, [], 0)
+
+function update!(sig::GithubActivitySignal, commits_today::Int, stars_today::Int)
+    if sig.count == 0
+        sig.commit_ewma = commits_today
+        sig.star_ewma   = stars_today
+    else
+        sig.commit_ewma = sig.alpha * commits_today + (1 - sig.alpha) * sig.commit_ewma
+        sig.star_ewma   = sig.beta  * stars_today   + (1 - sig.beta)  * sig.star_ewma
+    end
+    push!(sig.history, (commits=commits_today, stars=stars_today))
+    sig.count += 1
+end
+
+function dev_activity_score(sig::GithubActivitySignal)
+    sig.count < 2 && return 0.0
+    recent = min(sig.count, 30)
+    hist = sig.history[(end-recent+1):end]
+    avg_commits = mean(h.commits for h in hist)
+    avg_stars   = mean(h.stars   for h in hist)
+    avg_commits == 0 && return 0.0
+    commit_score = (sig.commit_ewma - avg_commits) / max(avg_commits, 1)
+    star_score   = (sig.star_ewma   - avg_stars)   / max(avg_stars, 1)
+    return 0.6 * commit_score + 0.4 * star_score
+end
+
+"""
+    ExchangeFlowSignal
+
+Net exchange inflow/outflow tracking as a proxy for selling pressure
+(positive net = inflows = bearish) or accumulation (negative = bullish).
+"""
+mutable struct ExchangeFlowSignal
+    window::Int
+    net_flows::Vector{Float64}
+    ewma_flow::Float64
+    smoothing::Float64
+end
+
+ExchangeFlowSignal(window=14, smoothing=0.2) = ExchangeFlowSignal(window, Float64[], 0.0, smoothing)
+
+function update!(sig::ExchangeFlowSignal, inflow::Float64, outflow::Float64)
+    net = inflow - outflow
+    push!(sig.net_flows, net)
+    if length(sig.net_flows) == 1
+        sig.ewma_flow = net
+    else
+        sig.ewma_flow = sig.smoothing * net + (1 - sig.smoothing) * sig.ewma_flow
+    end
+    return sig
+end
+
+function exchange_pressure_signal(sig::ExchangeFlowSignal)
+    length(sig.net_flows) < sig.window && return 0.0
+    recent = sig.net_flows[(end-sig.window+1):end]
+    avg_abs = mean(abs.(recent))
+    avg_abs == 0 && return 0.0
+    return clamp(sig.ewma_flow / avg_abs, -1.0, 1.0)
+end
+
+function rolling_exchange_ic(sig::ExchangeFlowSignal, forward_returns::Vector{Float64}, window::Int)
+    n = min(length(sig.net_flows), length(forward_returns))
+    n < window && return Float64[]
+    ics = Float64[]
+    for t in window:n
+        s_w = sig.net_flows[(t-window+1):t]
+        r_w = forward_returns[(t-window+1):t]
+        push!(ics, cor(s_w, r_w))
+    end
+    return ics
+end
+
+"""
+    AltDataPortfolio
+
+Meta-learner that combines multiple alt-data signals with adaptive
+weight allocation via online gradient ascent on IC.
+"""
+mutable struct AltDataPortfolio
+    signals::Vector{Any}
+    signal_names::Vector{String}
+    weights::Vector{Float64}
+    ic_history::Vector{Vector{Float64}}
+    learning_rate::Float64
+    regularization::Float64
+end
+
+function AltDataPortfolio(signals, names; lr=0.01, reg=0.01)
+    n = length(signals)
+    AltDataPortfolio(signals, names, ones(n)/n, [Float64[] for _ in 1:n], lr, reg)
+end
+
+function portfolio_signal(port::AltDataPortfolio, predictions::Vector{Float64})
+    return dot(port.weights, predictions)
+end
+
+function update_weights!(port::AltDataPortfolio, predictions::Vector{Float64}, forward_return::Float64)
+    n = length(port.weights)
+    grad = predictions .* forward_return
+    port.weights .+= port.learning_rate .* grad
+    port.weights .-= port.regularization .* port.weights
+    port.weights = max.(port.weights, 0)
+    total = sum(port.weights)
+    total > 0 && (port.weights ./= total)
+    return port
+end
+
+function portfolio_ic_stats(port::AltDataPortfolio)
+    stats = []
+    for (i, name) in enumerate(port.signal_names)
+        hist = port.ic_history[i]
+        length(hist) >= 5 || continue
+        push!(stats, (
+            name    = name,
+            mean_ic = mean(hist),
+            std_ic  = std(hist),
+            ir      = mean(hist) / max(std(hist), 1e-10),
+            weight  = port.weights[i],
+        ))
+    end
+    return stats
+end
+
+"""
+    synthetic_sentiment_data(n)
+
+Generate synthetic news headline data with known sentiment polarity for testing.
+"""
+function synthetic_sentiment_data(n=100)
+    pos_texts = [
+        "BTC surges to new all-time high on institutional adoption",
+        "Ethereum upgrade boosts ecosystem growth and developer activity",
+        "Major bank announces crypto custody services in record move",
+        "DeFi protocol launches with strong early traction and partnership",
+    ]
+    neg_texts = [
+        "Crypto exchange hacked millions in losses reported",
+        "Regulatory ban on crypto trading announced by government",
+        "Bitcoin drops sharply amid market sell-off and fear",
+        "DeFi exploit drains protocol funds in major fraud incident",
+    ]
+    neutral_texts = [
+        "Crypto market sees mixed trading volume today",
+        "Bitcoin price consolidates near key support level",
+        "Ethereum developers release new technical specification",
+    ]
+    texts   = String[]
+    signals = Float64[]
+    for _ in 1:n
+        r = rand()
+        if r < 0.35
+            push!(texts, rand(pos_texts));    push!(signals,  1.0)
+        elseif r < 0.65
+            push!(texts, rand(neg_texts));    push!(signals, -1.0)
+        else
+            push!(texts, rand(neutral_texts)); push!(signals,  0.0)
+        end
+    end
+    return texts, signals
+end
+
+"""
+    run_sentiment_pipeline(n_obs)
+
+Run a complete sentiment signal test pipeline with IC evaluation.
+"""
+function run_sentiment_pipeline(n_obs=200)
+    sig = SentimentScoreSignal(0.90)
+    texts, true_signals = synthetic_sentiment_data(n_obs)
+    predictions = Float64[]
+    for text in texts
+        update!(sig, text)
+        push!(predictions, predict(sig))
+    end
+    n_eval = min(length(predictions), length(true_signals)) - 5
+    ic = n_eval > 0 ? cor(predictions[6:(n_eval+5)], true_signals[6:(n_eval+5)]) : NaN
+    return (signal=sig, predictions=predictions, true_signals=true_signals, ic=ic)
+end
+
+export SentimentScoreSignal, GithubActivitySignal, ExchangeFlowSignal, AltDataPortfolio
+export score_headline, batch_score, dev_activity_score
+export exchange_pressure_signal, rolling_exchange_ic
+export portfolio_signal, update_weights!, portfolio_ic_stats
+export synthetic_sentiment_data, run_sentiment_pipeline
+
 end  # module AltDataSignals

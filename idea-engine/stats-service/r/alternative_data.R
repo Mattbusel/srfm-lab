@@ -382,3 +382,184 @@ hash_rate_signal <- function(hash_rate, price, difficulty, window = 14) {
        capitulation = hash_rate < hr_ma * 0.9,
        signal = ifelse(hr_z > 1, 1, 0))  # high hashrate = miner confidence
 }
+
+# ============================================================
+# ADDITIONAL: FACTOR CONSTRUCTION FROM ALT DATA
+# ============================================================
+short_squeeze_factor <- function(short_interest_ratio, price_momentum,
+                                  volume_ratio) {
+  # Composite short squeeze probability
+  sir_z   <- (short_interest_ratio - mean(short_interest_ratio, na.rm=TRUE)) /
+             (sd(short_interest_ratio, na.rm=TRUE) + 1e-8)
+  mom_z   <- (price_momentum - mean(price_momentum, na.rm=TRUE)) /
+             (sd(price_momentum, na.rm=TRUE) + 1e-8)
+  vol_z   <- (volume_ratio - mean(volume_ratio, na.rm=TRUE)) /
+             (sd(volume_ratio, na.rm=TRUE) + 1e-8)
+  squeeze_score <- (sir_z + mom_z + vol_z) / 3
+  list(score=squeeze_score, sir_z=sir_z, mom_z=mom_z, vol_z=vol_z,
+       signal=ifelse(squeeze_score>1.5, 1, 0))
+}
+
+cross_asset_momentum_factor <- function(equity_ret, bond_ret, fx_ret,
+                                         commodity_ret, lookback=60) {
+  rets  <- cbind(equity_ret, bond_ret, fx_ret, commodity_ret)
+  n     <- nrow(rets); mom <- matrix(NA, n, 4)
+  for (i in seq(lookback, n)) {
+    idx    <- seq(i-lookback+1, i)
+    mom[i,] <- colMeans(rets[idx,], na.rm=TRUE) /
+               (apply(rets[idx,], 2, sd, na.rm=TRUE) + 1e-8)
+  }
+  signal <- apply(mom, 1, function(r) mean(sign(r), na.rm=TRUE))
+  list(momentum=mom, cross_asset_signal=signal,
+       aligned=apply(mom,1,function(r) all(r>0,na.rm=TRUE)|all(r<0,na.rm=TRUE)))
+}
+
+macro_regime_factor <- function(cpi, unemployment, gdp_growth,
+                                 yield_curve, window=12) {
+  macro <- cbind(cpi, unemployment, gdp_growth, yield_curve)
+  n     <- nrow(macro)
+  # Standardize
+  std   <- scale(macro)
+  std[is.nan(std)] <- 0
+  # PCA-based regime score
+  pca_res <- eigen(cov(std, use="pairwise.complete.obs"))
+  scores  <- std %*% pca_res$vectors[,1:2]
+  regime  <- ifelse(scores[,1] > 0, "expansion", "contraction")
+  list(scores=scores, regime=regime,
+       growth_factor=scores[,1], inflation_factor=scores[,2])
+}
+
+regime_conditional_signal <- function(base_signal, regime,
+                                       regimes=c("expansion","contraction")) {
+  out <- base_signal
+  for (reg in regimes) {
+    in_reg <- regime == reg
+    subsig  <- base_signal[in_reg]
+    z       <- (subsig - mean(subsig, na.rm=TRUE)) / (sd(subsig, na.rm=TRUE) + 1e-8)
+    out[in_reg] <- z
+  }
+  out
+}
+
+kalman_signal_filter <- function(signal_raw, Q=0.01, R=0.1) {
+  n   <- length(signal_raw); filtered <- numeric(n); P <- 1
+  filtered[1] <- signal_raw[1]
+  for (i in 2:n) {
+    P_pred <- P + Q
+    K_gain <- P_pred / (P_pred + R)
+    filtered[i] <- filtered[i-1] + K_gain * (signal_raw[i] - filtered[i-1])
+    P <- (1 - K_gain) * P_pred
+  }
+  list(filtered=filtered, raw=signal_raw,
+       noise_reduction=1-var(filtered)/var(signal_raw))
+}
+
+turnovee_weighted_signal <- function(signal, turnover, window=20) {
+  n  <- length(signal); wt_sig <- rep(NA, n)
+  for (i in seq(window, n)) {
+    idx    <- seq(i-window+1, i)
+    w      <- turnover[idx] / (sum(turnover[idx]) + 1e-8)
+    wt_sig[i] <- sum(signal[idx] * w)
+  }
+  list(weighted=wt_sig, raw=signal,
+       signal=sign(wt_sig))
+}
+
+
+# ============================================================
+# ADDITIONAL SIGNALS: YIELD / CREDIT / FX / EARNINGS
+# ============================================================
+
+yield_curve_signal <- function(y2, y10, y30, window = 60) {
+  spread_2_10  <- y10 - y2
+  spread_10_30 <- y30 - y10
+  butterfly    <- y10 - (y2 + y30) / 2
+  n   <- length(spread_2_10)
+  z_s <- rep(NA_real_, n)
+  for (i in seq(window, n)) {
+    idx    <- seq(i - window + 1, i)
+    z_s[i] <- (spread_2_10[i] - mean(spread_2_10[idx])) /
+               (sd(spread_2_10[idx]) + 1e-8)
+  }
+  list(spread_2_10 = spread_2_10, spread_10_30 = spread_10_30,
+       butterfly = butterfly, z_spread = z_s,
+       signal = ifelse(z_s > 1, 1, ifelse(z_s < -1, -1, 0)),
+       inverted = spread_2_10 < 0)
+}
+
+credit_spread_signal <- function(hy_spread, ig_spread, risk_free,
+                                  window = 60) {
+  excess_hy  <- hy_spread - ig_spread
+  n  <- length(hy_spread); z  <- rep(NA_real_, n)
+  for (i in seq(window, n)) {
+    idx  <- seq(i - window + 1, i)
+    z[i] <- (hy_spread[i] - mean(hy_spread[idx])) /
+              (sd(hy_spread[idx]) + 1e-8)
+  }
+  list(hy_spread = hy_spread, excess_hy = excess_hy, z_score = z,
+       signal = ifelse(z > 1.5, -1, ifelse(z < -1.5, 1, 0)),
+       recession_flag = hy_spread > quantile(hy_spread, 0.9, na.rm = TRUE))
+}
+
+commodity_momentum <- function(prices_mat, window = 20, n_top = 3) {
+  ret_mat <- apply(prices_mat, 2, function(p) c(NA, diff(log(p))))
+  n <- nrow(ret_mat)
+  scores <- matrix(NA, n, ncol(ret_mat))
+  for (i in seq(window, n)) {
+    idx <- seq(i - window + 1, i)
+    scores[i, ] <- colMeans(ret_mat[idx, ], na.rm = TRUE) /
+                   (apply(ret_mat[idx, ], 2, sd, na.rm = TRUE) + 1e-8)
+  }
+  long_mask <- apply(scores, 1, function(r) {
+    rk <- rank(-r, na.last = "keep"); ifelse(!is.na(rk) & rk <= n_top, 1L, 0L)
+  })
+  list(scores = scores, long_mask = t(long_mask),
+       composite = rowMeans(scores, na.rm = TRUE))
+}
+
+fx_carry_signal <- function(interest_rates_mat, fx_returns_mat,
+                              window = 60) {
+  n_t <- nrow(interest_rates_mat)
+  carry <- interest_rates_mat - rowMeans(interest_rates_mat, na.rm = TRUE)
+  z <- matrix(NA, n_t, ncol(carry))
+  for (i in seq(window, n_t)) {
+    idx <- seq(i - window + 1, i)
+    z[i, ] <- (carry[i, ] - colMeans(carry[idx, ], na.rm = TRUE)) /
+               (apply(carry[idx, ], 2, sd, na.rm = TRUE) + 1e-8)
+  }
+  realized_carry <- carry * fx_returns_mat
+  list(carry = carry, z_carry = z,
+       realized = realized_carry,
+       signal = apply(z, c(1,2), function(x) ifelse(is.na(x), 0,
+                      ifelse(x > 1, 1, ifelse(x < -1, -1, 0)))))
+}
+
+earnings_surprise_signal <- function(actual_eps, estimate_eps,
+                                      price_before, price_after,
+                                      window = 8) {
+  sue       <- (actual_eps - estimate_eps) / (abs(estimate_eps) + 1e-8)
+  ear       <- (price_after - price_before) / (price_before + 1e-8)
+  n  <- length(sue); z <- rep(NA_real_, n)
+  for (i in seq(window, n)) {
+    idx  <- seq(i - window + 1, i)
+    z[i] <- (sue[i] - mean(sue[idx])) / (sd(sue[idx]) + 1e-8)
+  }
+  list(sue = sue, ear = ear, z_sue = z,
+       signal = ifelse(z > 1, 1, ifelse(z < -1, -1, 0)),
+       drift_potential = sign(sue) == sign(ear))
+}
+
+insider_activity_signal <- function(buy_shares, sell_shares,
+                                     shares_outstanding, window = 20) {
+  net_insider <- buy_shares - sell_shares
+  pct_shares  <- net_insider / (shares_outstanding + 1)
+  n <- length(net_insider); z <- rep(NA_real_, n)
+  for (i in seq(window, n)) {
+    idx  <- seq(i - window + 1, i)
+    z[i] <- (pct_shares[i] - mean(pct_shares[idx])) /
+              (sd(pct_shares[idx]) + 1e-8)
+  }
+  list(net_insider = net_insider, pct_shares = pct_shares, z_score = z,
+       signal = ifelse(z > 1, 1, ifelse(z < -1, -1, 0)),
+       strong_buy = z > 2 & net_insider > 0)
+}

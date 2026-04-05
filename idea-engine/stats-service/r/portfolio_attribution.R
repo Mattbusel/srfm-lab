@@ -371,3 +371,164 @@ benchmark_attribution <- function(port_weights, bench_weights,
        active_weights = active_w,
        active_bet = sum(abs(active_w)) / 2)  # active share
 }
+
+# ============================================================
+# ADDITIONAL: CRYPTO PERFORMANCE ANALYSIS
+# ============================================================
+crypto_drawdown_attribution <- function(returns_matrix, weights,
+                                         crisis_threshold = -0.20) {
+  port_ret <- as.vector(returns_matrix %*% weights)
+  cum      <- cumprod(1 + port_ret)
+  dd       <- (cum - cummax(cum)) / cummax(cum)
+  crisis_periods <- dd < crisis_threshold
+
+  if (sum(crisis_periods) < 2) {
+    return(list(crisis_periods=crisis_periods, attribution=NULL))
+  }
+  R_crisis <- returns_matrix[crisis_periods, ]
+  contrib  <- colMeans(R_crisis) * weights
+  list(crisis_periods = crisis_periods,
+       asset_contribution = contrib,
+       pct_contribution   = contrib / (sum(contrib)+1e-12),
+       worst_assets       = order(contrib)[1:min(3,ncol(returns_matrix))])
+}
+
+factor_timing_return <- function(port_weights_ts, factor_loadings_ts,
+                                  factor_returns, bench_loadings_ts) {
+  T_  <- nrow(port_weights_ts)
+  timing <- numeric(T_)
+  for (t in seq_len(T_)) {
+    active_load <- factor_loadings_ts[t,] - bench_loadings_ts[t,]
+    timing[t]   <- sum(active_load * factor_returns[t,])
+  }
+  list(timing_return=timing, cumulative=cumsum(timing),
+       mean=mean(timing), vol=sd(timing),
+       ir=mean(timing)/(sd(timing)+1e-8)*sqrt(252))
+}
+
+position_sizing_attribution <- function(target_weights, actual_weights,
+                                         returns) {
+  sizing_err <- actual_weights - target_weights
+  sizing_pnl <- sizing_err * returns
+  list(sizing_error=sizing_err, sizing_pnl=sizing_pnl,
+       total_sizing_drag=sum(sizing_pnl),
+       pct_of_total=sum(sizing_pnl)/(sum(actual_weights*returns)+1e-8))
+}
+
+rebalance_cost_attribution <- function(weights_before, weights_after,
+                                        returns_period, transaction_cost_bps=5) {
+  turnover    <- sum(abs(weights_after - weights_before)) / 2
+  tc_drag     <- turnover * transaction_cost_bps / 1e4
+  gross_alpha <- sum(weights_after * returns_period) -
+                 sum(weights_before * returns_period)
+  list(turnover=turnover, tc_drag=tc_drag,
+       gross_alpha=gross_alpha, net_alpha=gross_alpha-tc_drag)
+}
+
+active_share <- function(port_weights, bench_weights) {
+  sum(abs(port_weights - bench_weights)) / 2
+}
+
+concentration_metrics <- function(weights) {
+  n    <- length(weights)
+  hhi  <- sum(weights^2)
+  eff_n <- 1 / (hhi + 1e-12)
+  gini <- sum(sapply(seq_len(n), function(i)
+               sapply(seq_len(n), function(j) abs(weights[i]-weights[j])))) /
+          (2 * n * sum(weights) + 1e-12)
+  list(hhi=hhi, effective_n=eff_n, gini=gini,
+       top3=sum(sort(weights,decreasing=TRUE)[1:min(3,n)]))
+}
+
+benchmark_replication_quality <- function(port_ret, bench_ret, window=60) {
+  n <- length(port_ret); te <- rep(NA,n); r2 <- rep(NA,n)
+  for (i in seq(window, n)) {
+    idx    <- seq(i-window+1,i)
+    ar     <- port_ret[idx]-bench_ret[idx]
+    te[i]  <- sd(ar)*sqrt(252)
+    r2[i]  <- 1-var(ar)/(var(port_ret[idx])+1e-8)
+  }
+  list(tracking_error=te, r_squared=r2,
+       mean_te=mean(te,na.rm=TRUE), mean_r2=mean(r2,na.rm=TRUE))
+}
+
+
+# ============================================================
+# ADDITIONAL ATTRIBUTION UTILITIES
+# ============================================================
+
+active_share <- function(port_weights, bench_weights, names = NULL) {
+  if (!is.null(names)) {
+    all_n <- union(names(port_weights), names(bench_weights))
+    pw    <- ifelse(all_n %in% names(port_weights),
+                    port_weights[all_n], 0)
+    bw    <- ifelse(all_n %in% names(bench_weights),
+                    bench_weights[all_n], 0)
+  } else { pw <- port_weights; bw <- bench_weights }
+  as_val <- 0.5 * sum(abs(pw - bw))
+  list(active_share = as_val, diff = pw - bw,
+       high_conviction = as_val > 0.6)
+}
+
+concentration_metrics <- function(weights) {
+  w   <- weights / sum(weights)
+  hhi <- sum(w^2)
+  eff_n <- 1 / hhi
+  gini  <- sum(outer(w, w, function(a,b) abs(a-b))) / (2*length(w)*mean(w))
+  top5  <- sum(sort(w, decreasing=TRUE)[1:min(5,length(w))])
+  list(hhi = hhi, effective_n = eff_n, gini = gini, top5_concentration = top5)
+}
+
+drawdown_contribution <- function(port_ret, asset_rets, weights_mat) {
+  cum_port <- cumprod(1 + port_ret)
+  peak     <- cummax(cum_port)
+  dd_port  <- cum_port / peak - 1
+  max_dd_idx <- which.min(dd_port)
+  contrib    <- colMeans(weights_mat[1:max_dd_idx, , drop=FALSE] *
+                           asset_rets[1:max_dd_idx, , drop=FALSE],
+                         na.rm = TRUE)
+  list(portfolio_drawdown = dd_port, max_dd = min(dd_port),
+       asset_contribution = contrib,
+       worst_contributors = sort(contrib)[1:min(5, length(contrib))])
+}
+
+factor_timing_return <- function(factor_returns, factor_exposures_t,
+                                  bench_exposures) {
+  timing <- factor_exposures_t - bench_exposures
+  timing_ret <- rowSums(timing * factor_returns, na.rm = TRUE)
+  list(timing_weights = timing, timing_return = timing_ret,
+       cumulative = cumprod(1 + timing_ret),
+       total_timing = prod(1 + timing_ret) - 1)
+}
+
+rebalance_cost_attribution <- function(turnover_series, transaction_cost_bps,
+                                        port_ret, window = 12) {
+  cost_drag  <- turnover_series * transaction_cost_bps / 1e4
+  net_ret    <- port_ret - cost_drag
+  cum_gross  <- cumprod(1 + port_ret)
+  cum_net    <- cumprod(1 + net_ret)
+  n <- length(port_ret)
+  roll_cost  <- rep(NA_real_, n)
+  for (i in seq(window, n)) {
+    idx <- seq(i - window + 1, i)
+    roll_cost[i] <- sum(cost_drag[idx])
+  }
+  list(cost_drag = cost_drag, net_return = net_ret,
+       gross_cumulative = cum_gross, net_cumulative = cum_net,
+       rolling_cost = roll_cost,
+       annualized_cost_drag = mean(cost_drag, na.rm=TRUE) * 252)
+}
+
+position_sizing_attribution <- function(port_weights, signals,
+                                          returns, method = "equal") {
+  if (method == "proportional") {
+    target_w <- abs(signals) / (sum(abs(signals)) + 1e-12) * sign(signals)
+  } else {
+    target_w <- sign(signals) / (sum(sign(signals) != 0) + 1e-12)
+  }
+  sizing_effect  <- (port_weights - target_w) * returns
+  direction_ret  <- target_w * returns
+  list(sizing_effect = sizing_effect, direction_return = direction_ret,
+       total_sizing_pnl = sum(sizing_effect, na.rm = TRUE),
+       total_direction_pnl = sum(direction_ret, na.rm = TRUE))
+}

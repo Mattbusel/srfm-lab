@@ -702,4 +702,319 @@ function shapley_systemic(returns_matrix::Matrix{Float64},
     return shapley ./ n_perm
 end
 
+
+# ============================================================
+# SECTION 2: ADVANCED SYSTEMIC RISK MEASURES
+# ============================================================
+
+function delta_covar_time_varying(returns_i::Vector{Float64},
+                                    returns_system::Vector{Float64};
+                                    tau::Float64=0.05,
+                                    garch_omega::Float64=1e-6,
+                                    garch_alpha::Float64=0.1,
+                                    garch_beta::Float64=0.85)
+    # Time-varying CoVaR via rolling quantile regression with GARCH volatility
+    n = length(returns_i)
+    h = ones(n)
+    for t in 2:n
+        h[t] = garch_omega + garch_alpha*returns_i[t-1]^2 + garch_beta*h[t-1]
+    end
+    sigma = sqrt.(h)
+    std_returns = returns_i ./ (sigma .+ 1e-10)
+    # Rolling VaR of standardized returns
+    covar_series = zeros(n)
+    window = 60
+    for t in window:n
+        w_i = std_returns[t-window+1:t]
+        w_s = returns_system[t-window+1:t]
+        var_i = quantile(w_i, tau)
+        # CoVaR: quantile of system given institution at its VaR
+        in_tail = findall(r -> r <= var_i, w_i)
+        if length(in_tail) >= 3
+            covar_series[t] = quantile(w_s[in_tail], tau)
+        end
+    end
+    return (covar=covar_series, garch_vol=sigma)
+end
+
+function network_systemic_risk(adjacency::Matrix{Float64}, exposures::Vector{Float64})
+    n = size(adjacency, 1)
+    # DebtRank algorithm
+    h = copy(exposures); h0 = copy(h)
+    distress_before = copy(h)
+    impact_total = zeros(n)
+    for _ in 1:n  # propagation rounds
+        h_new = copy(h)
+        for i in 1:n
+            for j in 1:n
+                if adjacency[j,i] > 0
+                    h_new[i] = min(1.0, h_new[i] + adjacency[j,i] * h[j])
+                end
+            end
+        end
+        delta = h_new .- h
+        all(abs.(delta) .< 1e-8) && break
+        h = h_new
+    end
+    total_loss = sum((h .- h0) .* exposures)
+    return (final_distress=h, total_loss=total_loss, loss_amplification=total_loss/sum(exposures))
+end
+
+function systemic_loss_distribution(returns::Matrix{Float64}, weights::Vector{Float64};
+                                      n_scenarios::Int=10000, seed::Int=42)
+    T, N = size(returns)
+    # Bootstrap scenarios
+    rng_state = UInt64(seed)
+    lcg() = (rng_state = rng_state*6364136223846793005+1442695040888963407; rng_state)
+    scenario_losses = zeros(n_scenarios)
+    for s in 1:n_scenarios
+        idx = (lcg() % T) + 1
+        row = returns[idx,:]
+        scenario_losses[s] = -dot(weights, row)
+    end
+    sort!(scenario_losses)
+    var95 = quantile(scenario_losses, 0.95)
+    var99 = quantile(scenario_losses, 0.99)
+    es95  = mean([l for l in scenario_losses if l >= var95])
+    es99  = mean([l for l in scenario_losses if l >= var99])
+    return (losses=scenario_losses, var95=var95, var99=var99, es95=es95, es99=es99)
+end
+
+function absorption_ratio_extended(returns::Matrix{Float64}; n_factors::Int=1)
+    T, N = size(returns)
+    # Covariance matrix
+    mu = [mean(returns[:,i]) for i in 1:N]
+    X = returns .- mu'
+    C = X'*X ./ (T-1)
+    total_var = sum(diag(C))
+    # Power iteration for top eigenvalues
+    absorbed = 0.0
+    B = copy(C)
+    for _ in 1:n_factors
+        v = randn(N); v ./= norm(v)
+        for _ in 1:500
+            vn = B*v; vn ./= (norm(vn)+1e-15)
+            norm(vn-v)<1e-10 && break; v=vn
+        end
+        lam = dot(v, B*v)
+        absorbed += lam
+        B .-= lam .* (v*v')
+    end
+    return absorbed / (total_var + 1e-10)
+end
+
+function financial_stress_index(credit_spreads::Vector{Float64},
+                                  equity_vol::Vector{Float64},
+                                  fx_vol::Vector{Float64},
+                                  funding_spread::Vector{Float64};
+                                  window::Int=252)
+    n = min(length(credit_spreads), length(equity_vol),
+            length(fx_vol), length(funding_spread))
+    fsi = zeros(n)
+    for i in window:n
+        ws = window
+        z_credit  = (credit_spreads[i] - mean(credit_spreads[max(1,i-ws+1):i])) /
+                    (std(credit_spreads[max(1,i-ws+1):i]) + 1e-10)
+        z_eqvol   = (equity_vol[i] - mean(equity_vol[max(1,i-ws+1):i])) /
+                    (std(equity_vol[max(1,i-ws+1):i]) + 1e-10)
+        z_fxvol   = (fx_vol[i] - mean(fx_vol[max(1,i-ws+1):i])) /
+                    (std(fx_vol[max(1,i-ws+1):i]) + 1e-10)
+        z_funding = (funding_spread[i] - mean(funding_spread[max(1,i-ws+1):i])) /
+                    (std(funding_spread[max(1,i-ws+1):i]) + 1e-10)
+        fsi[i] = (z_credit + z_eqvol + z_fxvol + z_funding) / 4.0
+    end
+    return fsi
+end
+
+function turbulence_index(returns::Matrix{Float64}; window::Int=252)
+    T, N = size(returns)
+    turbulence = zeros(T)
+    for t in window+1:T
+        hist = returns[t-window:t-1,:]
+        mu   = [mean(hist[:,i]) for i in 1:N]
+        Sigma = cov(hist)
+        r = returns[t,:] .- mu
+        # Pseudo-inverse for robustness
+        try
+            Sigma_inv = inv(Sigma + 1e-6*I(N))
+            turbulence[t] = dot(r, Sigma_inv * r)
+        catch
+            turbulence[t] = dot(r, r)
+        end
+    end
+    return turbulence
+end
+
+function cross_border_contagion(domestic_returns::Vector{Float64},
+                                  foreign_returns::Vector{Float64};
+                                  crisis_threshold::Float64=-0.02,
+                                  window::Int=60)
+    n = min(length(domestic_returns), length(foreign_returns))
+    normal_corr = Float64[]; crisis_corr = Float64[]
+    for t in window:n
+        d = domestic_returns[t-window+1:t]
+        f = foreign_returns[t-window+1:t]
+        in_crisis = mean(f) < crisis_threshold
+        c = cor(d, f)
+        in_crisis ? push!(crisis_corr, c) : push!(normal_corr, c)
+    end
+    return (normal_correlation = isempty(normal_corr) ? 0.0 : mean(normal_corr),
+            crisis_correlation = isempty(crisis_corr) ? 0.0 : mean(crisis_corr),
+            contagion_excess    = isempty(crisis_corr) ? 0.0 :
+                                  mean(crisis_corr) - mean(normal_corr))
+end
+
+function srisk_panel(returns_i::Matrix{Float64},
+                      returns_market::Vector{Float64},
+                      equity_values::Vector{Float64},
+                      debt_values::Vector{Float64};
+                      k::Float64=0.08, h::Int=22, simulation_n::Int=10000)
+    N = size(returns_i, 2)
+    srisk_vals = zeros(N)
+    T = length(returns_market)
+    for i in 1:N
+        ret_i = returns_i[:,i]
+        beta_i = cov(ret_i, returns_market) / (var(returns_market) + 1e-10)
+        # LRMES approximation: 1 - exp(-18 * beta * sigma_m * sqrt(h))
+        sigma_m = std(returns_market)
+        lrmes = 1 - exp(-18 * beta_i * sigma_m * sqrt(h))
+        lrmes = clamp(lrmes, 0.0, 1.0)
+        srisk_vals[i] = max(k*(equity_values[i]+debt_values[i]) -
+                            (1-lrmes)*equity_values[i], 0.0)
+    end
+    return (srisk=srisk_vals, total_srisk=sum(srisk_vals),
+            systemic_share=srisk_vals./max(sum(srisk_vals),1e-10))
+end
+
+function tail_dependence_copula(u::Vector{Float64}, v::Vector{Float64};
+                                  threshold::Float64=0.95)
+    n = length(u)
+    # Lower tail
+    lo_idx = findall(i -> u[i] < 1-threshold && v[i] < 1-threshold, 1:n)
+    lo_expected = n * (1-threshold)^2
+    lambda_lo = length(lo_idx) / (lo_expected + 1e-10)
+    # Upper tail
+    hi_idx = findall(i -> u[i] > threshold && v[i] > threshold, 1:n)
+    hi_expected = n * (1-threshold)^2
+    lambda_hi = length(hi_idx) / (hi_expected + 1e-10)
+    return (lower_tail=lambda_lo, upper_tail=lambda_hi)
+end
+
+function bank_capital_buffer(tier1_capital::Float64, rwas::Float64,
+                               systemic_surcharge::Float64=0.0)
+    # Basel III: minimum CET1 = 4.5%, conservation = 2.5%, countercyclical = 0-2.5%
+    min_cet1 = 0.045; conservation = 0.025; ccb = 0.025
+    total_requirement = min_cet1 + conservation + ccb + systemic_surcharge
+    actual_ratio = tier1_capital / (rwas + 1e-10)
+    buffer = actual_ratio - total_requirement
+    meets_requirement = buffer >= 0
+    return (capital_ratio=actual_ratio, requirement=total_requirement,
+            buffer=buffer, meets_minimum=meets_requirement,
+            stressed_buffer=buffer - 0.02)  # 2% stress buffer
+end
+
+function systemic_risk_ranking(institutions::Vector{String},
+                                 covar_values::Vector{Float64},
+                                 mes_values::Vector{Float64},
+                                 srisk_values::Vector{Float64})
+    n = length(institutions)
+    # Z-score each measure
+    z(v) = (v .- mean(v)) ./ (std(v) .+ 1e-10)
+    composite = (z(covar_values) .+ z(mes_values) .+ z(srisk_values)) ./ 3
+    order = sortperm(composite; rev=true)
+    return (institutions=institutions[order], composite_score=composite[order],
+            covar_rank=sortperm(sortperm(covar_values; rev=true)),
+            mes_rank=sortperm(sortperm(mes_values; rev=true)),
+            srisk_rank=sortperm(sortperm(srisk_values; rev=true)))
+end
+
+function interconnectedness_index(exposure_matrix::Matrix{Float64})
+    N = size(exposure_matrix, 1)
+    # Normalize by total assets
+    row_sums = sum(exposure_matrix, dims=2)[:,1]
+    col_sums = sum(exposure_matrix, dims=1)[1,:]
+    # In-degree and out-degree centrality
+    in_degree  = col_sums ./ (sum(col_sums) + 1e-10)
+    out_degree = row_sums ./ (sum(row_sums) + 1e-10)
+    # Betweenness approximation: product of in- and out-degree
+    betweenness = in_degree .* out_degree
+    # Overall index: top 10% concentration
+    threshold = quantile(betweenness, 0.9)
+    top_nodes = findall(b -> b >= threshold, betweenness)
+    return (in_degree=in_degree, out_degree=out_degree,
+            betweenness=betweenness, top_systemic_nodes=top_nodes,
+            concentration_index=sum(betweenness[top_nodes]))
+end
+
+function liquidity_mismatch_index(asset_liquidity::Vector{Float64},
+                                    liability_maturity::Vector{Float64},
+                                    values::Vector{Float64})
+    # Positive LMI = funding risk (short liabilities, illiquid assets)
+    weighted_asset_liq = sum(asset_liquidity .* values) / (sum(values) + 1e-10)
+    weighted_liab_mat  = sum(liability_maturity .* values) / (sum(values) + 1e-10)
+    lmi = weighted_liab_mat - weighted_asset_liq
+    return (lmi=lmi, asset_liquidity_score=weighted_asset_liq,
+            liability_maturity_score=weighted_liab_mat,
+            is_at_risk=(lmi > 0))
+end
+
+function regulatory_stress_test(portfolio_weights::Vector{Float64},
+                                   asset_shocks::Vector{Float64},
+                                   correlations::Matrix{Float64},
+                                   scenario_name::String="Adverse")
+    n = length(portfolio_weights)
+    # Direct shock
+    direct_loss = dot(portfolio_weights, asset_shocks)
+    # Second round: correlated losses
+    shock_cov = correlations .* (asset_shocks * asset_shocks')
+    portfolio_vol = sqrt(max(dot(portfolio_weights, shock_cov*portfolio_weights), 0.0))
+    tail_loss = direct_loss - 1.645 * portfolio_vol  # 5% tail
+    println("Stress Test: ", scenario_name)
+    println("  Direct loss:    ", round(direct_loss*100, digits=2), "%")
+    println("  Portfolio vol:  ", round(portfolio_vol*100, digits=2), "%")
+    println("  Tail loss (5%): ", round(tail_loss*100, digits=2), "%")
+    return (scenario=scenario_name, direct_loss=direct_loss,
+            portfolio_vol=portfolio_vol, tail_loss=tail_loss)
+end
+
+# ============================================================
+# EXTENDED DEMO
+# ============================================================
+
+function demo_systemic_risk_extended()
+    println("=== Systemic Risk Extended Demo ===")
+
+    # FSI
+    n=500; cs=randn(n).*0.02.+0.005; ev=abs.(randn(n)).*0.15.+0.15
+    fxv=abs.(randn(n)).*0.05.+0.05; fs=randn(n).*0.01.+0.002
+    fsi=financial_stress_index(cs,ev,fxv,fs)
+    println("FSI last 5: ", round.(fsi[end-4:end],digits=2))
+
+    # Turbulence
+    rets=randn(300,5).*0.01
+    turb=turbulence_index(rets; window=60)
+    println("Max turbulence: ", round(maximum(turb),sigdigits=3))
+
+    # Absorption ratio
+    ar=absorption_ratio_extended(rets; n_factors=1)
+    println("Absorption ratio (1 factor): ", round(ar,digits=3))
+
+    # Network systemic risk
+    adj=rand(5,5).*0.1; adj-=Diagonal(diag(adj))
+    exp_=rand(5).*1e9
+    net=network_systemic_risk(adj,exp_./maximum(exp_))
+    println("Network loss amplification: ", round(net.loss_amplification,sigdigits=3))
+
+    # SRISK panel
+    ret_mat=randn(252,5).*0.01; mkt_r=randn(252).*0.01
+    eq_v=rand(5).*1e10; d_v=rand(5).*2e10
+    sr=srisk_panel(ret_mat,mkt_r,eq_v,d_v)
+    println("Total SRISK: \$", round(sum(sr.srisk)/1e9,digits=2),"B")
+
+    # Capital buffer
+    cap=bank_capital_buffer(50e9, 400e9; systemic_surcharge=0.02)
+    println("Capital ratio: ", round(cap.capital_ratio*100,digits=2),
+            "% Buffer: ", round(cap.buffer*100,digits=2),"%")
+end
+
 end # module SystemicRisk

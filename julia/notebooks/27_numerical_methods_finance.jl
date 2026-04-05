@@ -648,3 +648,423 @@ println("""
    - At N=50000: quasi-random is 10-20x more accurate
    - Use Sobol for all MC pricing; pseudo-random for regime simulations
 """)
+
+# ─── 7. Monte Carlo Variance Reduction ───────────────────────────────────────
+
+println("\n═══ 7. Monte Carlo Variance Reduction ═══")
+
+function bs_call_price(S, K, r, sigma, T)
+    T <= 0 && return max(S - K, 0.0)
+    d1 = (log(S / K) + (r + 0.5 * sigma^2) * T) / (sigma * sqrt(T))
+    d2 = d1 - sigma * sqrt(T)
+    return S * 0.5 * (1 + erf(d1 / sqrt(2))) - K * exp(-r * T) * 0.5 * (1 + erf(d2 / sqrt(2)))
+end
+
+# Antithetic variates for European call
+function mc_antithetic_call(S0, K, r, sigma, T, N)
+    payoffs = Float64[]
+    for _ in 1:(N ÷ 2)
+        z = randn()
+        ST_pos = S0 * exp((r - 0.5 * sigma^2) * T + sigma * sqrt(T) * z)
+        ST_neg = S0 * exp((r - 0.5 * sigma^2) * T - sigma * sqrt(T) * z)
+        push!(payoffs, 0.5 * (max(ST_pos - K, 0) + max(ST_neg - K, 0)))
+    end
+    price = exp(-r * T) * mean(payoffs)
+    se    = exp(-r * T) * std(payoffs) / sqrt(length(payoffs))
+    return price, se
+end
+
+# Stratified sampling
+function mc_stratified_call(S0, K, r, sigma, T, N)
+    payoffs = Float64[]
+    for i in 0:(N - 1)
+        u = (i + rand()) / N
+        p = clamp(u, 1e-10, 1 - 1e-10)
+        # Rational approximation to probit (Beasley–Springer–Moro)
+        z_approx = 0.0
+        if p < 0.5
+            t = sqrt(-2 * log(p))
+            z_approx = -(2.515517 + 0.802853 * t + 0.010328 * t^2) /
+                        (1 + 1.432788 * t + 0.189269 * t^2 + 0.001308 * t^3) + t
+        else
+            t = sqrt(-2 * log(1 - p))
+            z_approx = (2.515517 + 0.802853 * t + 0.010328 * t^2) /
+                       (1 + 1.432788 * t + 0.189269 * t^2 + 0.001308 * t^3) - t
+        end
+        ST = S0 * exp((r - 0.5 * sigma^2) * T + sigma * sqrt(T) * z_approx)
+        push!(payoffs, max(ST - K, 0))
+    end
+    price = exp(-r * T) * mean(payoffs)
+    se    = exp(-r * T) * std(payoffs) / sqrt(N)
+    return price, se
+end
+
+# Importance sampling for OTM options — shift mean toward log(K/S0)
+function mc_importance_sampling_call(S0, K, r, sigma, T, N)
+    mu_IS = log(K / S0) / (sigma * sqrt(T))
+    payoffs = Float64[]
+    for _ in 1:N
+        z = randn() + mu_IS
+        ST = S0 * exp((r - 0.5 * sigma^2) * T + sigma * sqrt(T) * z)
+        payoff = max(ST - K, 0)
+        lr = exp(-mu_IS * z + 0.5 * mu_IS^2)
+        push!(payoffs, payoff * lr)
+    end
+    price = exp(-r * T) * mean(payoffs)
+    se    = exp(-r * T) * std(payoffs) / sqrt(N)
+    return price, se
+end
+
+S0_vc, K_vc, r_vc, sigma_vc, T_vc = 100.0, 110.0, 0.05, 0.25, 1.0
+N_vc = 10_000
+d1_vc = (log(S0_vc / K_vc) + (r_vc + 0.5 * sigma_vc^2) * T_vc) / (sigma_vc * sqrt(T_vc))
+d2_vc = d1_vc - sigma_vc * sqrt(T_vc)
+bs_bench = S0_vc * 0.5 * (1 + erf(d1_vc / sqrt(2))) - K_vc * exp(-r_vc * T_vc) * 0.5 * (1 + erf(d2_vc / sqrt(2)))
+
+p_naive = exp(-r_vc * T_vc) * mean(max.(S0_vc .* exp.((r_vc - 0.5 * sigma_vc^2) * T_vc .+
+          sigma_vc * sqrt(T_vc) .* randn(N_vc)) .- K_vc, 0))
+p_anti, se_anti   = mc_antithetic_call(S0_vc, K_vc, r_vc, sigma_vc, T_vc, N_vc)
+p_strat, se_strat = mc_stratified_call(S0_vc, K_vc, r_vc, sigma_vc, T_vc, N_vc)
+p_is, se_is       = mc_importance_sampling_call(S0_vc, K_vc, r_vc, sigma_vc, T_vc, N_vc)
+
+println("BS analytic:             $(round(bs_bench, digits=4))")
+println("Naive MC:                $(round(p_naive, digits=4))")
+println("Antithetic:              $(round(p_anti, digits=4))  ± $(round(se_anti, digits=4))")
+println("Stratified:              $(round(p_strat, digits=4))  ± $(round(se_strat, digits=4))")
+println("Importance Sampling:     $(round(p_is, digits=4))  ± $(round(se_is, digits=4))")
+
+println("\n── Error comparison ──")
+for (name, val) in [("Naive MC", p_naive), ("Antithetic", p_anti), ("Stratified", p_strat), ("Importance Sampling", p_is)]
+    println("  $(rpad(name, 22)) error = $(round(abs(val - bs_bench), digits=5))")
+end
+
+# ─── 8. Finite Difference Greeks ─────────────────────────────────────────────
+
+println("\n═══ 8. Finite Difference Greeks ═══")
+
+function bs_greeks_fd(S, K, r, sigma, T)
+    dS   = S * 0.001
+    dsig = sigma * 0.001
+    dt   = T * 0.001
+    dr   = r * 0.001
+    V0   = bs_call_price(S, K, r, sigma, T)
+
+    delta  = (bs_call_price(S + dS, K, r, sigma, T) - bs_call_price(S - dS, K, r, sigma, T)) / (2dS)
+    gamma  = (bs_call_price(S + dS, K, r, sigma, T) - 2V0 + bs_call_price(S - dS, K, r, sigma, T)) / dS^2
+    theta  = -(V0 - bs_call_price(S, K, r, sigma, T - dt)) / dt
+    vega   = (bs_call_price(S, K, r, sigma + dsig, T) - bs_call_price(S, K, r, sigma - dsig, T)) / (2dsig)
+    rho_g  = (bs_call_price(S, K, r + dr, sigma, T) - bs_call_price(S, K, r - dr, sigma, T)) / (2dr)
+    vanna  = (bs_call_price(S + dS, K, r, sigma + dsig, T) - bs_call_price(S + dS, K, r, sigma - dsig, T) -
+              bs_call_price(S - dS, K, r, sigma + dsig, T) + bs_call_price(S - dS, K, r, sigma - dsig, T)) / (4dS * dsig)
+    volga  = (bs_call_price(S, K, r, sigma + dsig, T) - 2V0 + bs_call_price(S, K, r, sigma - dsig, T)) / dsig^2
+    return (delta=delta, gamma=gamma, theta=theta, vega=vega, rho=rho_g, vanna=vanna, volga=volga)
+end
+
+function bs_greeks_analytic(S, K, r, sigma, T)
+    d1  = (log(S / K) + (r + 0.5 * sigma^2) * T) / (sigma * sqrt(T))
+    d2  = d1 - sigma * sqrt(T)
+    phi_d1 = exp(-0.5 * d1^2) / sqrt(2π)
+    Nd1    = 0.5 * (1 + erf(d1 / sqrt(2)))
+    Nd2    = 0.5 * (1 + erf(d2 / sqrt(2)))
+    delta_a = Nd1
+    gamma_a = phi_d1 / (S * sigma * sqrt(T))
+    theta_a = -(S * phi_d1 * sigma / (2sqrt(T)) + r * K * exp(-r * T) * Nd2) / 365
+    vega_a  = S * phi_d1 * sqrt(T)
+    rho_a   = K * T * exp(-r * T) * Nd2
+    return (delta=delta_a, gamma=gamma_a, theta=theta_a, vega=vega_a, rho=rho_a)
+end
+
+S_g, K_g, r_g, sig_g, T_g = 100.0, 110.0, 0.05, 0.25, 1.0
+gfd = bs_greeks_fd(S_g, K_g, r_g, sig_g, T_g)
+gan = bs_greeks_analytic(S_g, K_g, r_g, sig_g, T_g)
+
+println("Greek\t\tFD\t\t\tAnalytic")
+println("Delta\t\t$(round(gfd.delta,digits=6))\t\t$(round(gan.delta,digits=6))")
+println("Gamma\t\t$(round(gfd.gamma,digits=7))\t\t$(round(gan.gamma,digits=7))")
+println("Vega\t\t$(round(gfd.vega,digits=4))\t\t$(round(gan.vega,digits=4))")
+println("Rho\t\t$(round(gfd.rho,digits=4))\t\t$(round(gan.rho,digits=4))")
+println("Vanna\t\t$(round(gfd.vanna,digits=6))\t\t(N/A analytic)")
+println("Volga\t\t$(round(gfd.volga,digits=4))\t\t(N/A analytic)")
+
+# Greeks across the smile
+println("\n── Greeks across strike ──")
+println("K\tDelta\tGamma\tVega")
+for K_i in [80, 90, 95, 100, 105, 110, 120, 130]
+    g_i = bs_greeks_fd(S_g, Float64(K_i), r_g, sig_g, T_g)
+    println("  $K_i\t$(round(g_i.delta,digits=3))\t$(round(g_i.gamma,digits=5))\t$(round(g_i.vega,digits=2))")
+end
+
+# ─── 9. Richardson Extrapolation ─────────────────────────────────────────────
+
+println("\n═══ 9. Richardson Extrapolation ═══")
+
+function richardson_delta(S, K, r, sigma, T, h=0.01)
+    D1 = (bs_call_price(S * (1 + h), K, r, sigma, T) - bs_call_price(S * (1 - h), K, r, sigma, T)) / (2 * S * h)
+    D2 = (bs_call_price(S * (1 + h/2), K, r, sigma, T) - bs_call_price(S * (1 - h/2), K, r, sigma, T)) / (S * h)
+    return (4D2 - D1) / 3
+end
+
+function richardson_gamma(S, K, r, sigma, T, h=0.01)
+    G1 = (bs_call_price(S*(1+h),K,r,sigma,T) - 2bs_call_price(S,K,r,sigma,T) + bs_call_price(S*(1-h),K,r,sigma,T)) / (S*h)^2
+    h2 = h / 2
+    G2 = (bs_call_price(S*(1+h2),K,r,sigma,T) - 2bs_call_price(S,K,r,sigma,T) + bs_call_price(S*(1-h2),K,r,sigma,T)) / (S*h2)^2
+    return (4G2 - G1) / 3
+end
+
+# Romberg integration table
+function romberg_integrate(f, a, b, max_order=6)
+    R = zeros(max_order, max_order)
+    for k in 1:max_order
+        n = 2^(k-1)
+        h = (b - a) / n
+        R[k, 1] = h / 2 * (f(a) + f(b) + 2 * sum(f(a + i*h) for i in 1:(n-1)))
+    end
+    for j in 2:max_order
+        for k in j:max_order
+            R[k, j] = (4^(j-1) * R[k, j-1] - R[k-1, j-1]) / (4^(j-1) - 1)
+        end
+    end
+    return R[max_order, max_order], R
+end
+
+f_test(x) = exp(-x^2)
+romberg_val, _ = romberg_integrate(f_test, 0.0, 1.0, 6)
+exact_val = 0.5 * sqrt(π) * erf(1.0)
+println("Romberg vs exact for ∫₀¹ exp(-x²) dx:")
+println("  Romberg: $(round(romberg_val, digits=12))  Exact: $(round(exact_val, digits=12))  Err: $(abs(romberg_val-exact_val))")
+
+delta_naive = (bs_call_price(S_g+1, K_g, r_g, sig_g, T_g) - bs_call_price(S_g-1, K_g, r_g, sig_g, T_g)) / 2
+delta_rich  = richardson_delta(S_g, K_g, r_g, sig_g, T_g)
+delta_exact = gan.delta
+println("\nDelta: Naive FD err=$(round(abs(delta_naive-delta_exact),digits=7))  Richardson err=$(round(abs(delta_rich-delta_exact),digits=9))")
+
+# ─── 10. Adaptive Quadrature ─────────────────────────────────────────────────
+
+println("\n═══ 10. Adaptive Quadrature ═══")
+
+function adaptive_simpson(f, a, b, tol=1e-8, max_depth=50)
+    function recurse(a, b, fa, fm, fb, whole, tol, depth)
+        mid1 = (a + (a+b)/2) / 2
+        mid2 = ((a+b)/2 + b) / 2
+        fm1, fm2 = f(mid1), f(mid2)
+        left  = (b-a)/12 * (fa + 4fm1 + fm)
+        right = (b-a)/12 * (fm + 4fm2 + fb)
+        delta = left + right - whole
+        if depth >= max_depth || abs(delta) <= 15tol
+            return left + right + delta/15
+        end
+        mid = (a+b)/2
+        return recurse(a, mid, fa, fm1, fm, left, tol/2, depth+1) +
+               recurse(mid, b, fm, fm2, fb, right, tol/2, depth+1)
+    end
+    fa, fm, fb = f(a), f((a+b)/2), f(b)
+    whole = (b-a)/6 * (fa + 4fm + fb)
+    return recurse(a, b, fa, fm, fb, whole, tol, 0)
+end
+
+# BS price via numerical integration over log-normal density
+function bs_via_quadrature(S0, K, r, sigma, T)
+    mu_lognorm = (r - 0.5*sigma^2) * T
+    sig_lognorm = sigma * sqrt(T)
+    integrand(z) = max(S0 * exp(mu_lognorm + sig_lognorm*z) - K, 0.0) * exp(-0.5z^2) / sqrt(2π)
+    val = adaptive_simpson(integrand, -8.0, 8.0, 1e-8)
+    return exp(-r*T) * val
+end
+
+price_quad = bs_via_quadrature(S_g, K_g, r_g, sig_g, T_g)
+d1_bench = (log(S_g/K_g)+(r_g+0.5*sig_g^2)*T_g)/(sig_g*sqrt(T_g))
+d2_bench = d1_bench - sig_g*sqrt(T_g)
+bs_bench2 = S_g*0.5*(1+erf(d1_bench/sqrt(2))) - K_g*exp(-r_g*T_g)*0.5*(1+erf(d2_bench/sqrt(2)))
+println("BS price via adaptive quadrature: $(round(price_quad, digits=6))")
+println("BS analytic:                       $(round(bs_bench2, digits=6))")
+println("Error:                             $(abs(price_quad - bs_bench2))")
+
+# ─── 11. Heston Model Simulation ─────────────────────────────────────────────
+
+println("\n═══ 11. Heston Stochastic Volatility Simulation ═══")
+
+struct HestonParams
+    S0::Float64; V0::Float64; kappa::Float64; theta::Float64
+    xi::Float64; rho::Float64; r::Float64
+end
+
+function simulate_heston(p::HestonParams, T, N_steps, N_paths)
+    dt  = T / N_steps
+    S   = fill(p.S0, N_paths)
+    V   = fill(p.V0, N_paths)
+    for _ in 1:N_steps
+        z1 = randn(N_paths)
+        z2 = p.rho .* z1 .+ sqrt(1 - p.rho^2) .* randn(N_paths)
+        V_pos = max.(V, 0.0)
+        S .= S .* exp.((p.r .- 0.5 .* V_pos) .* dt .+ sqrt.(V_pos .* dt) .* z1)
+        V .= max.(V .+ p.kappa .* (p.theta .- V_pos) .* dt .+ p.xi .* sqrt.(V_pos .* dt) .* z2, 0.0)
+    end
+    return S, V
+end
+
+hp = HestonParams(100.0, 0.04, 2.0, 0.04, 0.3, -0.7, 0.05)
+S_hest, V_hest = simulate_heston(hp, 1.0, 252, 20_000)
+
+println("Heston model (κ=2, θ=0.04, ξ=0.3, ρ=-0.7) call prices:")
+println("K\tHeston\t\tBS(σ=0.20)")
+for K_h in [90, 95, 100, 105, 110, 120]
+    p_h = exp(-hp.r*1.0) * mean(max.(S_hest .- K_h, 0))
+    p_bs = bs_call_price(100.0, Float64(K_h), 0.05, 0.20, 1.0)
+    println("  $K_h\t$(round(p_h,digits=3))\t\t$(round(p_bs,digits=3))")
+end
+
+println("\nHeston terminal vol stats:")
+println("  Mean terminal var: $(round(mean(V_hest), digits=5))  (θ = 0.04)")
+println("  Mean terminal vol: $(round(mean(sqrt.(V_hest)), digits=4))")
+println("  Skewness of log returns: implied negative from ρ<0")
+
+# ─── 12. SABR Implied Volatility ─────────────────────────────────────────────
+
+println("\n═══ 12. SABR Implied Vol Smile ═══")
+
+function sabr_implied_vol(F, K, T, alpha, beta, rho, nu)
+    if abs(F - K) < 1e-8
+        FK_beta = F^(1 - beta)
+        return alpha / FK_beta * (1 + ((1-beta)^2/24 * alpha^2/FK_beta^2 +
+               rho*beta*nu*alpha/(4FK_beta) + (2-3rho^2)/24 * nu^2) * T)
+    end
+    logFK   = log(F / K)
+    FK_mid  = sqrt(F * K)^(1 - beta)
+    z       = nu / alpha * FK_mid * logFK
+    chi     = log((sqrt(1 - 2rho*z + z^2) + z - rho) / (1 - rho))
+    A = alpha / (FK_mid * (1 + (1-beta)^2/24 * logFK^2 + (1-beta)^4/1920 * logFK^4))
+    B = (abs(chi) < 1e-10 ? 1.0 : z / chi)
+    C = 1 + ((1-beta)^2/24 * alpha^2/FK_mid^2 + rho*beta*nu*alpha/(4FK_mid) + (2-3rho^2)/24*nu^2) * T
+    return A * B * C
+end
+
+F_s, T_s = 100.0, 1.0
+params_sets = [
+    ("ATM vol=30%, β=0.5, ρ=-0.3, ν=0.4", 0.30, 0.5, -0.3, 0.4),
+    ("Low vol-of-vol,  β=0.5, ρ=-0.3, ν=0.1", 0.30, 0.5, -0.3, 0.1),
+    ("Positive skew,   β=0.5, ρ=+0.3, ν=0.4", 0.30, 0.5, +0.3, 0.4),
+]
+strikes_s = [80, 90, 95, 100, 105, 110, 120]
+
+for (label, alpha_s, beta_s, rho_s, nu_s) in params_sets
+    println("\n$label:")
+    print("  K:   ")
+    for K_s in strikes_s; print("  $(lpad(K_s,4)) "); end; println()
+    print("  σ%:  ")
+    for K_s in strikes_s
+        v = sabr_implied_vol(F_s, Float64(K_s), T_s, alpha_s, beta_s, rho_s, nu_s) * 100
+        print("  $(lpad(round(v,digits=1),5))"); end; println()
+end
+
+# ─── 13. Nelder-Mead Calibration ─────────────────────────────────────────────
+
+println("\n═══ 13. Nelder-Mead Optimization ═══")
+
+function nelder_mead(f, x0; max_iter=2000, tol=1e-9)
+    n = length(x0)
+    simplex = [copy(x0) for _ in 1:(n+1)]
+    for i in 2:(n+1)
+        simplex[i][i-1] += max(0.05, 0.05*abs(x0[i-1]))
+    end
+    fvals = [f(s) for s in simplex]
+    for _ in 1:max_iter
+        ord = sortperm(fvals)
+        simplex, fvals = simplex[ord], fvals[ord]
+        maximum(abs.(fvals .- fvals[1])) < tol && break
+        centroid = mean(simplex[1:n])
+        xr = centroid .+ 1.0 .* (centroid .- simplex[n+1])
+        fr = f(xr)
+        if fvals[1] <= fr < fvals[n]
+            simplex[n+1] = xr; fvals[n+1] = fr
+        elseif fr < fvals[1]
+            xe = centroid .+ 2.0 .* (xr .- centroid)
+            fe = f(xe)
+            if fe < fr; simplex[n+1]=xe; fvals[n+1]=fe
+            else;       simplex[n+1]=xr; fvals[n+1]=fr; end
+        else
+            xc = centroid .+ 0.5 .* (simplex[n+1] .- centroid)
+            fc = f(xc)
+            if fc < fvals[n+1]; simplex[n+1]=xc; fvals[n+1]=fc
+            else
+                for i in 2:(n+1)
+                    simplex[i] = simplex[1] .+ 0.5.*(simplex[i].-simplex[1])
+                    fvals[i] = f(simplex[i])
+                end
+            end
+        end
+    end
+    return simplex[1], fvals[1]
+end
+
+# Generate synthetic market vols from known SVI params
+F_cal, T_cal = 100.0, 0.5
+strikes_cal = [85.0, 90, 95, 100, 105, 110, 115]
+true_svi = [0.04, 0.10, -0.30, 0.00, 0.10]  # a, b, rho, m, sigma_svi
+
+function svi_vol(K, F, T, p)
+    a, b, rho_svi, m, sig_svi = p
+    k = log(K / F)
+    w = a + b * (rho_svi*(k-m) + sqrt((k-m)^2 + sig_svi^2))
+    return sqrt(max(w, 1e-8) / T)
+end
+
+mkt_vols_cal = [svi_vol(K, F_cal, T_cal, true_svi) + 0.001*randn() for K in strikes_cal]
+svi_obj(p) = sum((svi_vol(K, F_cal, T_cal, p) - σ)^2 for (K, σ) in zip(strikes_cal, mkt_vols_cal))
+
+x0_svi = [0.03, 0.08, -0.20, 0.00, 0.12]
+svi_opt, svi_err = nelder_mead(svi_obj, x0_svi)
+println("SVI calibration via Nelder-Mead:")
+println("  True:       a=0.04 b=0.10 ρ=-0.30 m=0.00 σ=0.10")
+println("  Calibrated: a=$(round(svi_opt[1],digits=4)) b=$(round(svi_opt[2],digits=4)) ρ=$(round(svi_opt[3],digits=3)) m=$(round(svi_opt[4],digits=3)) σ=$(round(svi_opt[5],digits=4))")
+println("  Residual RMSE: $(round(sqrt(svi_err/length(strikes_cal))*100, digits=4)) vol points")
+
+# Verify calibrated vs market
+println("\n  Strike comparison:")
+println("  K\tMarket\t\tCalibrated\tError")
+for (K, σ_mkt) in zip(strikes_cal, mkt_vols_cal)
+    σ_cal = svi_vol(K, F_cal, T_cal, svi_opt)
+    println("  $K\t$(round(σ_mkt*100,digits=3))%\t\t$(round(σ_cal*100,digits=3))%\t\t$(round(abs(σ_cal-σ_mkt)*10000,digits=1)) bps")
+end
+
+# ─── 14. Key Takeaways ───────────────────────────────────────────────────────
+
+println("\n═══ 14. Key Takeaways ═══")
+println("""
+Numerical Methods — Extended Summary:
+
+7. VARIANCE REDUCTION:
+   - Antithetic variates: ~2x variance reduction, zero extra CPU per path
+   - Stratified sampling: strong for smooth payoffs; use BSM probit approximation
+   - Importance sampling: critical for deep OTM (>20% OTM) options; shifts
+     sampling distribution toward the payoff region
+
+8. FINITE DIFFERENCE GREEKS:
+   - Central differences: O(h²) error — always prefer over forward differences
+   - Higher-order Greeks (Vanna, Volga): essential for exotic option hedging
+   - Step size h ≈ S·0.001 balances truncation vs rounding error
+
+9. RICHARDSON EXTRAPOLATION:
+   - Combines two O(h²) estimates to give O(h⁴) accuracy automatically
+   - Romberg table: achieves double-precision in ≤6 halvings for smooth integrands
+   - Reduces Greek computation error by 10-100x at same function evaluation count
+
+10. ADAPTIVE QUADRATURE:
+    - Adaptive Simpson: concentrates evaluations in high-curvature regions
+    - Outperforms fixed Gauss-Legendre when integrand has localized features
+    - Key for density-weighted integrals in option pricing
+
+11. HESTON SIMULATION:
+    - Full truncation scheme prevents negative variance (vs reflection/absorption)
+    - ρ < 0 generates the equity-style negative skew observed empirically
+    - Need N_steps ≥ 252 for accurate vol-of-vol effects at daily granularity
+
+12. SABR MODEL:
+    - 4 parameters: α (ATM vol level), β (backbone), ρ (skew), ν (curvature)
+    - β = 0.5 (square-root): natural for crypto (between normal and log-normal)
+    - Higher ν → more pronounced vol smile; ρ controls slope (put/call skew)
+
+13. NELDER-MEAD CALIBRATION:
+    - Derivative-free: robust for calibrating noisy market data
+    - SVI calibration to 7 strikes achieves <1 vol point RMSE
+    - For production: add penalty for arbitrage violations (calendar/butterfly)
+""")

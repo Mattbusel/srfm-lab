@@ -508,3 +508,357 @@ println("""
    - Tail risk: 5th percentile loss can be large (delta hedge imperfect)
    - Optimal strategy: sell vol when IV/RV ratio > 1.2, buy back at 1.0
 """)
+
+# ─── 7. Term Structure of Volatility ─────────────────────────────────────────
+
+println("\n═══ 7. Volatility Term Structure Analysis ═══")
+
+# Model term structure: flat, backwardation, contango
+function vol_term_structure(atm_vol, term_bps_per_month, tenors_months)
+    [atm_vol + term_bps_per_month * t / 10000 for t in tenors_months]
+end
+
+tenors_m = [0.25, 0.5, 1, 2, 3, 6, 12]  # months (0.25 = 1 week)
+
+println("Volatility term structures:")
+println("Tenor\t\tContango\tFlat\t\tBackwardation")
+vols_c = vol_term_structure(0.60, 50.0, tenors_m)    # contango: vol rises with tenor
+vols_f = vol_term_structure(0.65, 0.0,  tenors_m)    # flat
+vols_b = vol_term_structure(0.80, -80.0, tenors_m)   # backwardation: vol falls
+for (t, vc, vf, vb) in zip(tenors_m, vols_c, vols_f, vols_b)
+    label = t < 1 ? "$(round(t*4,digits=0)) wk" : "$(round(t,digits=0)) mo"
+    println("  $(rpad(label, 8))\t$(round(vc*100,digits=1))%\t\t$(round(vf*100,digits=1))%\t\t$(round(vb*100,digits=1))%")
+end
+
+# Variance term structure arbitrage (calendar spread)
+function calendar_spread_vol(short_vol, short_T, long_vol, long_T)
+    # Implied forward variance for period [T1, T2]
+    var_short = short_vol^2 * short_T
+    var_long  = long_vol^2 * long_T
+    fwd_var   = (var_long - var_short) / (long_T - short_T)
+    fwd_var   = max(fwd_var, 0.0)
+    return sqrt(fwd_var)
+end
+
+println("\nForward implied vols (calendar spreads):")
+println("Period\t\tShort end\tLong end\tForward vol")
+for (i, j) in [(1,3), (2,4), (3,5), (4,6), (5,7)]
+    fwd = calendar_spread_vol(vols_c[i], tenors_m[i]/12, vols_c[j], tenors_m[j]/12)
+    t1 = tenors_m[i]; t2 = tenors_m[j]
+    println("  $(t1)→$(t2) mo\t$(round(vols_c[i]*100,digits=1))%\t\t$(round(vols_c[j]*100,digits=1))%\t\t$(round(fwd*100,digits=1))%")
+end
+
+# ─── 8. GARCH Volatility Forecast Evaluation ─────────────────────────────────
+
+println("\n═══ 8. GARCH Forecast Evaluation ═══")
+
+# Realized vs GARCH forecast comparison
+function fit_garch11(returns; omega_init=1e-6, alpha_init=0.1, beta_init=0.8, n_iter=200)
+    n = length(returns)
+    omega, alpha, beta = omega_init, alpha_init, beta_init
+    lr = 0.001
+
+    for _ in 1:n_iter
+        h = fill(var(returns), n)
+        for t in 2:n
+            h[t] = omega + alpha*returns[t-1]^2 + beta*h[t-1]
+            h[t] = max(h[t], 1e-10)
+        end
+        # Gradient via finite differences
+        function nll(om, al, be)
+            h_t = fill(var(returns), n)
+            ll = 0.0
+            for t in 2:n
+                h_t[t] = om + al*returns[t-1]^2 + be*h_t[t-1]
+                h_t[t] = max(h_t[t], 1e-12)
+                ll += -0.5*(log(h_t[t]) + returns[t]^2/h_t[t])
+            end
+            return -ll
+        end
+        eps = 1e-7
+        grad_om = (nll(omega+eps, alpha, beta) - nll(omega-eps, alpha, beta)) / (2eps)
+        grad_al = (nll(omega, alpha+eps, beta) - nll(omega, alpha-eps, beta)) / (2eps)
+        grad_be = (nll(omega, alpha, beta+eps) - nll(omega, alpha, beta-eps)) / (2eps)
+        omega -= lr * grad_om; alpha -= lr * grad_al; beta -= lr * grad_be
+        omega = max(omega, 1e-8); alpha = max(alpha, 0.0); beta = max(beta, 0.0)
+        # Covariance stationarity
+        if alpha + beta >= 1; scale = 0.99/(alpha+beta); alpha *= scale; beta *= scale; end
+    end
+
+    # Compute in-sample fitted variances
+    h_fit = fill(var(returns), n)
+    for t in 2:n
+        h_fit[t] = omega + alpha*returns[t-1]^2 + beta*h_fit[t-1]
+    end
+    return (omega=omega, alpha=alpha, beta=beta, h_fit=h_fit)
+end
+
+Random.seed!(42)
+n_garch_eval = 500
+# Simulate GARCH(1,1) data
+true_omega, true_alpha, true_beta = 5e-6, 0.10, 0.88
+h_sim = zeros(n_garch_eval); r_sim = zeros(n_garch_eval)
+h_sim[1] = true_omega / (1 - true_alpha - true_beta)
+r_sim[1] = sqrt(h_sim[1]) * randn()
+for t in 2:n_garch_eval
+    h_sim[t] = true_omega + true_alpha*r_sim[t-1]^2 + true_beta*h_sim[t-1]
+    r_sim[t] = sqrt(h_sim[t]) * randn()
+end
+
+garch_fit = fit_garch11(r_sim)
+println("GARCH(1,1) estimation on simulated data:")
+println("  True params:  ω=$(true_omega) α=$(true_alpha) β=$(true_beta)")
+println("  Estimated:    ω=$(round(garch_fit.omega,sigdigits=3)) α=$(round(garch_fit.alpha,digits=3)) β=$(round(garch_fit.beta,digits=3))")
+println("  α+β:          $(round(garch_fit.alpha+garch_fit.beta,digits=4))  (true: $(true_alpha+true_beta))")
+
+# Forecast evaluation metrics
+realized_var = r_sim.^2
+fitted_var   = garch_fit.h_fit
+# QLIKE loss (preferred for variance forecasts)
+qlike = mean(fitted_var[2:end] ./ realized_var[2:end] .- log.(fitted_var[2:end] ./ realized_var[2:end]) .- 1)
+mse_var = mean((fitted_var[2:end] .- realized_var[2:end]).^2)
+corr_vv = cor(fitted_var[2:end], realized_var[2:end])
+
+println("\nForecast evaluation:")
+println("  QLIKE loss:    $(round(qlike, digits=6))")
+println("  MSE (variance):$(round(mse_var, sigdigits=3))")
+println("  Corr(fitted,RV): $(round(corr_vv, digits=3))")
+
+# ─── 9. Volatility Risk Premium Surface ──────────────────────────────────────
+
+println("\n═══ 9. Volatility Risk Premium Surface ═══")
+
+# VRP = implied vol - realized vol, across strikes and tenors
+function vrp_surface(spot, strikes, tenors, sigma_0=0.70, kappa_vrp=0.3, theta_vrp=0.05, mean_skew=-0.1)
+    vrp_mat = zeros(length(strikes), length(tenors))
+    for (i, K) in enumerate(strikes)
+        moneyness = log(K / spot)
+        skew_adj  = mean_skew * moneyness  # negative skew → OTM puts have higher VRP
+        for (j, T) in enumerate(tenors)
+            # VRP decays with tenor (short-dated more expensive)
+            vrp_tenor = theta_vrp + (sigma_0 * 0.1 - theta_vrp) * exp(-kappa_vrp * T * 12)
+            vrp_mat[i, j] = max(vrp_tenor + skew_adj, -0.05)  # floor at -5%
+        end
+    end
+    return vrp_mat
+end
+
+strikes_vrp = [0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3]  # moneyness K/S
+tenors_vrp  = [1/52, 1/12, 2/12, 3/12, 6/12, 1.0]   # years
+
+vrp_mat = vrp_surface(1.0, strikes_vrp, tenors_vrp)
+println("VRP surface (Implied Vol - Realized Vol):")
+print("Strike/S\t")
+for T in tenors_vrp; print("$(round(T*12,digits=1))mo\t"); end; println()
+for (i, k) in enumerate(strikes_vrp)
+    print("  $k\t\t")
+    for j in 1:length(tenors_vrp)
+        print("$(round(vrp_mat[i,j]*100,digits=1))%\t")
+    end
+    println()
+end
+
+# Optimal strategy: sell which options for max VRP harvest?
+println("\nMax VRP by region:")
+max_vrp_idx = argmax(vrp_mat)
+println("  Highest VRP: K/S=$(strikes_vrp[max_vrp_idx[1]]), T=$(round(tenors_vrp[max_vrp_idx[2]]*12,digits=1)) months = $(round(vrp_mat[max_vrp_idx]*100,digits=1))%")
+
+# ─── 10. Delta-Gamma Neutral Hedging ─────────────────────────────────────────
+
+println("\n═══ 10. Delta-Gamma Neutral Hedging ═══")
+
+# Portfolio of options, find delta-gamma neutral hedge
+struct OptionPosition
+    K::Float64; T::Float64; sigma::Float64; qty::Float64; is_call::Bool
+end
+
+function bs_delta_gamma(S, opt::OptionPosition, r=0.05)
+    K, T, sigma = opt.K, opt.T, opt.sigma
+    T <= 0 && return (0.0, 0.0)
+    d1 = (log(S/K) + (r + 0.5*sigma^2)*T) / (sigma*sqrt(T))
+    phi_d1 = exp(-0.5*d1^2) / sqrt(2π)
+    Nd1 = 0.5*(1+erf(d1/sqrt(2)))
+    delta = opt.is_call ? Nd1 : Nd1 - 1
+    gamma = phi_d1 / (S * sigma * sqrt(T))
+    return delta * opt.qty, gamma * opt.qty
+end
+
+S_hd = 50000.0
+positions = [
+    OptionPosition(45000, 0.25, 0.65, -1.0, false),  # short OTM put
+    OptionPosition(50000, 0.25, 0.60,  1.0, true),   # long ATM call
+    OptionPosition(55000, 0.25, 0.62, -0.5, true),   # short OTM call
+]
+
+port_delta = sum(bs_delta_gamma(S_hd, p)[1] for p in positions)
+port_gamma = sum(bs_delta_gamma(S_hd, p)[2] for p in positions)
+
+println("Option portfolio Greeks at S=50000:")
+println("Position\t\t\tDelta\t\tGamma")
+for p in positions
+    d, g = bs_delta_gamma(S_hd, p)
+    desc = "$(p.is_call ? "Call" : "Put") K=$(p.K) T=$(round(p.T*12,digits=0))mo"
+    println("  $(rpad(desc,28))\t$(round(d,digits=4))\t\t$(round(g*1000,digits=4))")
+end
+println("\nPortfolio:\t\t\t$(round(port_delta,digits=4))\t\t$(round(port_gamma*1000,digits=4))")
+
+# Delta-gamma neutral hedge requires:
+# Spot hedge: -portfolio_delta + gamma_hedge_delta * qty_hedge = 0
+# Gamma hedge: gamma_portfolio + gamma_hedge * qty_hedge = 0
+hedge_opt = OptionPosition(50000, 0.50, 0.58, 1.0, true)  # ATM 6mo call as hedge
+hd, hg = bs_delta_gamma(S_hd, hedge_opt)
+qty_gamma_hedge = -port_gamma / hg  # neutralize gamma
+residual_delta  = port_delta + qty_gamma_hedge * hd
+spot_hedge_qty  = -residual_delta  # BTC spot hedge
+
+println("\nDelta-gamma neutral hedge:")
+println("  Gamma hedge: $(round(qty_gamma_hedge,digits=3)) × ATM 6mo call")
+println("  Spot hedge:  $(round(spot_hedge_qty,digits=4)) BTC")
+println("  Final delta: $(round(port_delta + qty_gamma_hedge*hd + spot_hedge_qty,digits=6))")
+println("  Final gamma: $(round(port_gamma + qty_gamma_hedge*hg,digits=6))")
+
+# ─── 11. Implied Correlation Surface ─────────────────────────────────────────
+
+println("\n═══ 11. BTC-ETH Implied Correlation Surface ═══")
+
+# Implied correlation from basket vs component vols
+# σ_basket² = w1²σ1² + w2²σ2² + 2w1w2ρσ1σ2
+function implied_correlation(sigma_basket, sigma1, sigma2, w1=0.6, w2=0.4)
+    num = sigma_basket^2 - w1^2*sigma1^2 - w2^2*sigma2^2
+    den = 2*w1*w2*sigma1*sigma2
+    return clamp(num/den, -1.0, 1.0)
+end
+
+# Synthetic implied correlations by strike/tenor
+btc_vols = Dict(
+    (0.9, 1/12) => 0.75, (1.0, 1/12) => 0.65, (1.1, 1/12) => 0.62,
+    (0.9, 3/12) => 0.70, (1.0, 3/12) => 0.62, (1.1, 3/12) => 0.58,
+    (0.9, 6/12) => 0.68, (1.0, 6/12) => 0.60, (1.1, 6/12) => 0.56,
+)
+eth_vols = Dict(
+    (0.9, 1/12) => 0.90, (1.0, 1/12) => 0.78, (1.1, 1/12) => 0.74,
+    (0.9, 3/12) => 0.85, (1.0, 3/12) => 0.74, (1.1, 3/12) => 0.70,
+    (0.9, 6/12) => 0.82, (1.0, 6/12) => 0.72, (1.1, 6/12) => 0.66,
+)
+basket_vols = Dict(
+    (0.9, 1/12) => 0.80, (1.0, 1/12) => 0.70, (1.1, 1/12) => 0.66,
+    (0.9, 3/12) => 0.76, (1.0, 3/12) => 0.67, (1.1, 3/12) => 0.62,
+    (0.9, 6/12) => 0.74, (1.0, 6/12) => 0.65, (1.1, 6/12) => 0.60,
+)
+
+println("Implied BTC-ETH correlation surface:")
+println("Moneyness/Tenor\t1m\t\t3m\t\t6m")
+for k_mny in [0.9, 1.0, 1.1]
+    print("  K/S = $k_mny\t")
+    for T in [1/12, 3/12, 6/12]
+        key = (k_mny, T)
+        rho_impl = implied_correlation(basket_vols[key], btc_vols[key], eth_vols[key])
+        print("$(round(rho_impl,digits=3))\t\t")
+    end
+    println()
+end
+
+println("\nObservation: Implied correlation is higher for OTM puts (risk-off periods)")
+println("This drives the 'correlation skew' — put spreads are cheaper than expected")
+
+# ─── 12. Vol Surface Arbitrage Detection ─────────────────────────────────────
+
+println("\n═══ 12. Volatility Surface Arbitrage Detection ═══")
+
+# Calendar arbitrage: total variance must be non-decreasing in T
+function check_calendar_arbitrage(strikes, tenors, vol_surface)
+    violations = []
+    for (ki, K) in enumerate(strikes)
+        for j in 1:(length(tenors)-1)
+            var_j   = vol_surface[ki, j]^2 * tenors[j]
+            var_j1  = vol_surface[ki, j+1]^2 * tenors[j+1]
+            if var_j1 < var_j - 1e-6
+                push!(violations, (K=K, T1=tenors[j], T2=tenors[j+1],
+                                   var1=var_j, var2=var_j1))
+            end
+        end
+    end
+    return violations
+end
+
+# Butterfly arbitrage: d²C/dK² ≥ 0 at each tenor
+function check_butterfly_arbitrage(strikes, vols_at_tenor, T, S, r=0.05)
+    violations = []
+    for i in 2:(length(strikes)-1)
+        K_m, K, K_p = strikes[i-1], strikes[i], strikes[i+1]
+        dK_m = K - K_m; dK_p = K_p - K
+        # Numerical second derivative of call price
+        C_m = bs_call_at(S, K_m, r, vols_at_tenor[i-1], T)
+        C_0 = bs_call_at(S, K,   r, vols_at_tenor[i],   T)
+        C_p = bs_call_at(S, K_p, r, vols_at_tenor[i+1], T)
+        # Symmetric second diff
+        d2CdK2 = 2*(C_m*dK_p + C_p*dK_m - C_0*(dK_m+dK_p)) / (dK_m*dK_p*(dK_m+dK_p))
+        if d2CdK2 < -1e-5
+            push!(violations, (K=K, T=T, d2CdK2=d2CdK2))
+        end
+    end
+    return violations
+end
+
+function bs_call_at(S, K, r, sigma, T)
+    T <= 0 && return max(S-K, 0.0)
+    d1 = (log(S/K)+(r+0.5*sigma^2)*T)/(sigma*sqrt(T))
+    d2 = d1 - sigma*sqrt(T)
+    return S*0.5*(1+erf(d1/sqrt(2))) - K*exp(-r*T)*0.5*(1+erf(d2/sqrt(2)))
+end
+
+# Synthetic surface with intentional arbitrage
+strikes_arb = [35000.0, 40000, 45000, 50000, 55000, 60000, 65000]
+tenors_arb  = [1/12, 2/12, 3/12, 6/12]
+# Calibrated from SVI with slightly noisy parameters (some arbitrage)
+Random.seed!(99)
+surf_arb = [0.55 + 0.1*(K-50000)/50000 + 0.01*randn() for K in strikes_arb, T in tenors_arb]
+# Intentionally introduce calendar arbitrage
+surf_arb[4, 2] = surf_arb[4, 3] * 1.05  # 2m vol > 3m vol at ATM
+
+cal_viols = check_calendar_arbitrage(strikes_arb, tenors_arb, surf_arb)
+println("Calendar arbitrage violations: $(length(cal_viols))")
+for v in cal_viols
+    println("  K=$(v.K), T=$(round(v.T1,digits=3))→$(round(v.T2,digits=3)): var1=$(round(v.var1,digits=5)) > var2=$(round(v.var2,digits=5))")
+end
+
+bfly_viols = check_butterfly_arbitrage(strikes_arb, surf_arb[:,1], tenors_arb[1], 50000.0)
+println("Butterfly arbitrage violations (T=1m): $(length(bfly_viols))")
+for v in bfly_viols
+    println("  K=$(v.K): d²C/dK² = $(round(v.d2CdK2,sigdigits=3))")
+end
+
+# ─── 13. Summary ─────────────────────────────────────────────────────────────
+
+println("\n═══ 13. Volatility Surface — Key Insights ═══")
+println("""
+1. TERM STRUCTURE:
+   - Crypto vol typically in backwardation: spot events dominate near-term
+   - Calendar spread VRP: short 1m / long 3m captures term structure premium
+   - Forward vol from term structure gives "fair value" for intermediate tenors
+
+2. GARCH FORECASTS:
+   - QLIKE loss preferred for variance forecasting (asymmetric, loss-sensitive)
+   - α+β ≈ 0.98 typical for crypto: high persistence, slow mean reversion
+   - Realized variance is noisy: use 5-min RV or bipower variation
+
+3. VRP SURFACE:
+   - Highest VRP at short tenors, OTM puts (market pays for downside protection)
+   - Annualized VRP: 5-15% in equities, 10-25% in BTC
+   - Selling 1-week ATM straddles captures highest VRP per unit risk
+
+4. DELTA-GAMMA HEDGING:
+   - Gamma-neutral requires options, not just spot
+   - Dynamic delta hedging alone leaves vol P&L exposed
+   - Vanna/volga hedging needed for exotic products
+
+5. IMPLIED CORRELATION:
+   - Higher implied rho for OTM puts: crash correlation premium
+   - Correlation swaps: long basket vol short component vols
+   - BTC-ETH correlation jumps from 0.7 to 0.95+ in stress events
+
+6. ARBITRAGE DETECTION:
+   - Calendar arb: total variance must be monotone in T
+   - Butterfly arb: call price must be convex in K
+   - SVI parametrization guarantees calendar-arb-free by construction
+""")

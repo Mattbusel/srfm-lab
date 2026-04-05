@@ -278,3 +278,223 @@ alpha_decay_half_life <- function(factor, ret_1, ret_5, ret_20) {
   } else NA
   list(ic_1d=ic1, ic_5d=ic5, ic_20d=ic20, half_life=hl)
 }
+
+# ============================================================
+# ADDITIONAL: R/R ADVANCED SIGNALS
+# ============================================================
+token_velocity_signal <- function(daily_volume, circulating_supply,
+                                   window=30) {
+  velocity    <- daily_volume / (circulating_supply+1e-8)
+  velocity_ma <- as.numeric(stats::filter(velocity, rep(1/window,window), sides=1))
+  z <- (velocity-velocity_ma)/(sd(velocity,na.rm=TRUE)+1e-8)
+  list(velocity=velocity, smoothed=velocity_ma, z=z,
+       signal=ifelse(z>1.5,1,ifelse(z< -1.5,-1,0)))
+}
+
+whale_accumulation_signal <- function(large_transfers, price,
+                                       threshold_usd=1e6, window=7) {
+  large_buys  <- large_transfers[large_transfers>0]
+  net_whale   <- sum(large_transfers, na.rm=TRUE)
+  net_ma      <- as.numeric(stats::filter(large_transfers, rep(1/window,window), sides=1))
+  normalized  <- net_whale / (mean(abs(price))+1e-8)
+  list(net_flow=net_whale, smoothed=net_ma,
+       normalized=normalized, accumulating=net_ma>0,
+       signal=ifelse(net_ma>0,1,ifelse(net_ma<0,-1,0)))
+}
+
+volatility_surface_signal <- function(atm_iv, skew_25d, fly_25d,
+                                       lookback=20) {
+  n <- length(atm_iv)
+  z_atm  <- (atm_iv-mean(atm_iv,na.rm=TRUE))/(sd(atm_iv,na.rm=TRUE)+1e-8)
+  z_skew <- (skew_25d-mean(skew_25d,na.rm=TRUE))/(sd(skew_25d,na.rm=TRUE)+1e-8)
+  z_fly  <- (fly_25d-mean(fly_25d,na.rm=TRUE))/(sd(fly_25d,na.rm=TRUE)+1e-8)
+  composite <- -(z_atm + z_skew) / 2  # negative: high fear -> buy opportunity
+  list(z_atm=z_atm, z_skew=z_skew, z_fly=z_fly,
+       composite=composite, signal=sign(composite))
+}
+
+multi_timeframe_signal <- function(signal_daily, signal_weekly,
+                                    signal_monthly, weights=c(.5,.3,.2)) {
+  n <- length(signal_daily)
+  if (length(signal_weekly) < n) signal_weekly <- rep(signal_weekly, length.out=n)
+  if (length(signal_monthly) < n) signal_monthly <- rep(signal_monthly, length.out=n)
+  combined <- weights[1]*signal_daily + weights[2]*signal_weekly +
+              weights[3]*signal_monthly
+  list(combined=combined, daily=signal_daily,
+       signal=sign(combined))
+}
+
+cross_asset_z_score <- function(asset_returns_list, lookback=60) {
+  mat <- do.call(cbind, asset_returns_list)
+  n   <- nrow(mat)
+  z   <- matrix(NA, n, ncol(mat))
+  for (i in seq(lookback, n)) {
+    idx   <- seq(i-lookback+1, i)
+    mu    <- colMeans(mat[idx,],na.rm=TRUE)
+    sg    <- apply(mat[idx,],2,sd,na.rm=TRUE)
+    z[i,] <- (mat[i,]-mu)/(sg+1e-8)
+  }
+  list(z=z, cross_asset_score=rowMeans(z,na.rm=TRUE))
+}
+
+
+# ============================================================
+# ADDITIONAL ALTERNATIVE DATA SIGNALS
+# ============================================================
+
+short_interest_signal <- function(short_interest, float_shares, window = 20) {
+  sir   <- short_interest / (float_shares + 1)
+  n     <- length(sir); z <- rep(NA_real_, n)
+  for (i in seq(window, n)) {
+    idx  <- seq(i - window + 1, i)
+    z[i] <- (sir[i] - mean(sir[idx])) / (sd(sir[idx]) + 1e-8)
+  }
+  list(sir = sir, z_score = z,
+       crowded = z > 2,
+       signal = ifelse(z > 1.5, -1, ifelse(z < -1, 1, 0)))
+}
+
+etf_flow_signal <- function(etf_aum, nav, window = 10) {
+  flow_est  <- c(NA, diff(etf_aum) - diff(nav) * (etf_aum[-length(etf_aum)] / (nav[-length(nav)] + 1e-8)))
+  flow_ma   <- as.numeric(stats::filter(flow_est, rep(1/window, window), sides=1))
+  list(flow = flow_est, smoothed = flow_ma,
+       signal = ifelse(flow_ma > 0, 1, -1),
+       large_inflow = flow_est > quantile(flow_est, 0.9, na.rm=TRUE))
+}
+
+cot_report_signal <- function(commercial_long, commercial_short,
+                               noncomm_long, noncomm_short, window = 52) {
+  comm_net    <- commercial_long - commercial_short
+  noncomm_net <- noncomm_long    - noncomm_short
+  n  <- length(comm_net); z_comm <- rep(NA_real_, n)
+  for (i in seq(window, n)) {
+    idx      <- seq(i - window + 1, i)
+    z_comm[i] <- (comm_net[i] - mean(comm_net[idx])) / (sd(comm_net[idx]) + 1e-8)
+  }
+  list(commercial_net = comm_net, noncommercial_net = noncomm_net,
+       z_commercial = z_comm,
+       signal = ifelse(z_comm > 1, 1, ifelse(z_comm < -1, -1, 0)))
+}
+
+fund_positioning_signal <- function(gross_exposure, net_exposure,
+                                     leverage, window = 13) {
+  n  <- length(net_exposure); z_net <- rep(NA_real_, n)
+  for (i in seq(window, n)) {
+    idx      <- seq(i - window + 1, i)
+    z_net[i] <- (net_exposure[i] - mean(net_exposure[idx])) /
+                  (sd(net_exposure[idx]) + 1e-8)
+  }
+  list(net_exposure = net_exposure, gross_exposure = gross_exposure,
+       leverage = leverage, z_net = z_net,
+       extreme_long = z_net > 2, extreme_short = z_net < -2,
+       signal = ifelse(z_net > 2, -1, ifelse(z_net < -2, 1, 0)))
+}
+
+web_traffic_signal <- function(visits, window = 4) {
+  visits_ma <- as.numeric(stats::filter(visits, rep(1/window, window), sides=1))
+  growth    <- c(NA, diff(log(visits)))
+  z         <- (visits - visits_ma) / (sd(visits, na.rm=TRUE) + 1e-8)
+  list(visits = visits, smoothed = visits_ma, growth = growth, z_score = z,
+       surge = z > 2,
+       signal = ifelse(z > 1.5, 1, ifelse(z < -1, -1, 0)))
+}
+
+app_download_signal <- function(downloads, rank, window = 4) {
+  dl_ma  <- as.numeric(stats::filter(downloads, rep(1/window, window), sides=1))
+  rk_ma  <- as.numeric(stats::filter(rank, rep(1/window, window), sides=1))
+  dl_z   <- (downloads - dl_ma) / (sd(downloads, na.rm=TRUE) + 1e-8)
+  list(downloads = downloads, rank = rank, smoothed_downloads = dl_ma,
+       smoothed_rank = rk_ma, z_score = dl_z,
+       improving = dl_z > 0 & c(NA, diff(rank)) < 0,
+       signal = ifelse(dl_z > 1, 1, 0))
+}
+
+satellite_data_signal <- function(parking_lot_occupancy,
+                                    cargo_ship_count, window = 4) {
+  occ_ma  <- as.numeric(stats::filter(parking_lot_occupancy, rep(1/window,window), sides=1))
+  ship_ma <- as.numeric(stats::filter(cargo_ship_count, rep(1/window,window), sides=1))
+  combined <- (parking_lot_occupancy / (occ_ma + 1e-8) +
+                 cargo_ship_count / (ship_ma + 1e-8)) / 2 - 1
+  list(occupancy = parking_lot_occupancy, ships = cargo_ship_count,
+       composite = combined,
+       signal = ifelse(combined > 0.05, 1, ifelse(combined < -0.05, -1, 0)))
+}
+
+
+# ─── ADDITIONAL: MACRO / SENTIMENT ───────────────────────────────────────────
+
+news_sentiment_signal <- function(sentiment_scores, source_weights = NULL,
+                                   window = 5) {
+  if (!is.null(source_weights)) {
+    weighted_scores <- rowSums(sentiment_scores * source_weights, na.rm=TRUE)
+  } else {
+    weighted_scores <- rowMeans(sentiment_scores, na.rm=TRUE)
+  }
+  sma <- as.numeric(stats::filter(weighted_scores, rep(1/window, window), sides=1))
+  z   <- (weighted_scores - sma) / (sd(weighted_scores, na.rm=TRUE) + 1e-8)
+  list(scores = weighted_scores, smoothed = sma, z_score = z,
+       signal = ifelse(z > 1, 1, ifelse(z < -1, -1, 0)),
+       extreme = abs(z) > 2)
+}
+
+search_trend_signal <- function(search_index, baseline_period = 52) {
+  n   <- length(search_index)
+  baseline <- mean(search_index[1:min(baseline_period, n)], na.rm=TRUE)
+  scaled   <- search_index / (baseline + 1e-8) * 100
+  trend    <- c(rep(NA, 4), diff(scaled, lag=4))
+  list(scaled_index = scaled, trend = trend,
+       breakout = scaled > 200,
+       signal = ifelse(trend > 20, 1, ifelse(trend < -20, -1, 0)))
+}
+
+credit_card_spending_signal <- function(spending_by_category,
+                                         category_weights,
+                                         seasonal_adj = TRUE,
+                                         window = 4) {
+  composite <- as.vector(spending_by_category %*% category_weights)
+  if (seasonal_adj) {
+    n   <- length(composite)
+    ma4 <- as.numeric(stats::filter(composite, rep(1/4, 4), sides=2))
+    composite <- composite / (ma4 + 1e-8) * mean(ma4, na.rm=TRUE)
+  }
+  growth  <- c(NA, diff(log(composite + 1)))
+  ma      <- as.numeric(stats::filter(composite, rep(1/window, window), sides=1))
+  list(composite = composite, growth = growth, smoothed = ma,
+       signal = ifelse(growth > 0.02, 1, ifelse(growth < -0.02, -1, 0)))
+}
+
+supply_chain_pressure_index <- function(lead_times, inventory_ratios,
+                                         freight_rates, window = 3) {
+  norm <- function(x) (x - mean(x, na.rm=TRUE)) / (sd(x, na.rm=TRUE) + 1e-8)
+  scpi  <- (norm(lead_times) + norm(1/inventory_ratios) + norm(freight_rates)) / 3
+  scpi_ma <- as.numeric(stats::filter(scpi, rep(1/window, window), sides=1))
+  list(scpi = scpi, smoothed = scpi_ma,
+       high_pressure = scpi > 1,
+       signal = ifelse(scpi_ma > 1, -1, ifelse(scpi_ma < -1, 1, 0)))
+}
+
+# ─── UTILITY FUNCTIONS ────────────────────────────────────────────────────────
+
+z_score_normalize <- function(x, window = NULL) {
+  if (is.null(window)) {
+    (x - mean(x, na.rm=TRUE)) / (sd(x, na.rm=TRUE) + 1e-8)
+  } else {
+    n <- length(x); z <- rep(NA_real_, n)
+    for (i in seq(window, n)) {
+      idx <- seq(i - window + 1, i)
+      z[i] <- (x[i] - mean(x[idx])) / (sd(x[idx]) + 1e-8)
+    }
+    z
+  }
+}
+
+rank_normalize <- function(x) {
+  r <- rank(x, na.last = "keep")
+  (r - 0.5) / (sum(!is.na(r)) + 1e-8)
+}
+
+winsorize_signal <- function(x, lower_pct = 0.01, upper_pct = 0.99) {
+  lo <- quantile(x, lower_pct, na.rm=TRUE)
+  hi <- quantile(x, upper_pct, na.rm=TRUE)
+  pmax(pmin(x, hi), lo)
+}

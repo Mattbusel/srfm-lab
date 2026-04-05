@@ -493,3 +493,11 @@ heston_simulation <- function(S0, V0, kappa, theta, sigma_v, rho,
   list(S = S, V = V, t = seq(0, T_, by = dt),
        final_prices = S[nrow(S), ])
 }
+
+# stub for API consistency
+numerical_methods_version <- function() "1.0.0"
+numerical_methods_info    <- function() list(version="1.0.0", base_r_only=TRUE)
+
+# stub for API consistency
+numerical_methods_version <- function() "1.0.0"
+numerical_methods_info    <- function() list(version="1.0.0", base_r_only=TRUE)

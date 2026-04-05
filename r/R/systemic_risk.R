@@ -290,3 +290,213 @@ regime_transition_probability <- function(fsi, n_regimes=3, window=60) {
          ev <- eigen(t(trans_prob)); Re(ev$vectors[,1])/sum(Re(ev$vectors[,1]))
        }, error=function(e) rep(1/n_regimes, n_regimes)))
 }
+
+# ============================================================
+# ADDITIONAL: CRYPTO CONTAGION CHANNELS
+# ============================================================
+stable_depeg_contagion <- function(stablecoin_prices, asset_returns,
+                                    crisis_threshold = 0.99) {
+  depeg_events <- stablecoin_prices < crisis_threshold
+  crisis_rets  <- asset_returns[depeg_events,]
+  normal_rets  <- asset_returns[!depeg_events,]
+  list(
+    crisis_mean  = if(nrow(crisis_rets)>0) colMeans(crisis_rets) else rep(NA,ncol(asset_returns)),
+    normal_mean  = colMeans(normal_rets),
+    vol_ratio    = apply(crisis_rets,2,sd)/(apply(normal_rets,2,sd)+1e-8),
+    n_crisis     = sum(depeg_events)
+  )
+}
+
+leverage_cascade_risk <- function(positions, collateral, prices,
+                                   liquidation_threshold = 0.8) {
+  ltvs      <- positions / (collateral * prices + 1e-8)
+  at_risk   <- ltvs > liquidation_threshold
+  cascade_vol <- sum(positions[at_risk])
+  list(ltvs=ltvs, at_risk=at_risk,
+       cascade_volume=cascade_vol,
+       systemic_pct=cascade_vol/sum(positions))
+}
+
+exchange_failure_impact <- function(exchange_market_share,
+                                     returns_matrix, failed_exchange) {
+  # Estimate market impact if an exchange fails
+  vol_loss <- exchange_market_share[failed_exchange]
+  liquidity_impact <- -vol_loss * 0.5  # rough impact
+  n <- ncol(returns_matrix)
+  contagion_rets <- returns_matrix + liquidity_impact
+  list(vol_loss_pct=vol_loss*100, liquidity_impact=liquidity_impact,
+       expected_market_drawdown=liquidity_impact*0.5)
+}
+
+# ============================================================
+# ADDITIONAL: REGULATORY RISK
+# ============================================================
+regulatory_risk_index <- function(jurisdictions, enforcement_actions,
+                                   legislation_risk, adoption_metrics) {
+  norm <- function(x) (x-min(x,na.rm=TRUE))/(max(x,na.rm=TRUE)-min(x,na.rm=TRUE)+1e-8)
+  composite <- (norm(enforcement_actions) + norm(legislation_risk)) / 2
+  adoption_factor <- 1 - norm(adoption_metrics) * 0.5
+  list(risk_index=composite*adoption_factor,
+       jurisdictions=jurisdictions,
+       high_risk=jurisdictions[composite*adoption_factor>.7])
+}
+
+# ============================================================
+# ADDITIONAL: MARKET DEPTH SYSTEMIC METRICS
+# ============================================================
+market_resilience_index <- function(bid_depths, ask_depths, spread_series,
+                                     volume_series, window=20) {
+  n    <- length(spread_series)
+  depth_imb <- (bid_depths-ask_depths)/(bid_depths+ask_depths+1e-8)
+  norm_sprd <- spread_series/mean(spread_series,na.rm=TRUE)
+  norm_vol  <- volume_series/mean(volume_series,na.rm=TRUE)
+  mri <- (1/norm_sprd) * norm_vol * (1-abs(depth_imb))
+  mri_ma <- as.numeric(stats::filter(mri, rep(1/window,window), sides=1))
+  list(mri=mri, smoothed=mri_ma,
+       fragile=mri<quantile(mri,.2,na.rm=TRUE))
+}
+
+order_book_depth_systemic <- function(depth_matrix, threshold_pct=0.02) {
+  # depth_matrix: T x N (time x asset)
+  T_ <- nrow(depth_matrix); N <- ncol(depth_matrix)
+  thin_count <- rowSums(depth_matrix < threshold_pct * colMeans(depth_matrix))
+  list(thin_market_count=thin_count,
+       systemic_thin=thin_count/N > 0.5,
+       mean_depth=rowMeans(depth_matrix))
+}
+
+
+# ============================================================
+# ADDITIONAL SYSTEMIC RISK MEASURES
+# ============================================================
+
+entropy_based_risk <- function(returns_mat) {
+  cov_mat  <- cov(returns_mat, use = "pairwise.complete.obs")
+  eig_vals <- eigen(cov_mat, only.values = TRUE)$values
+  eig_vals <- pmax(eig_vals, 0)
+  props    <- eig_vals / sum(eig_vals)
+  entropy  <- -sum(props * log(props + 1e-12))
+  max_ent  <- log(length(props))
+  list(eigenvalues = eig_vals, proportions = props,
+       entropy = entropy, normalized_entropy = entropy / max_ent,
+       diversification_ratio = entropy / max_ent)
+}
+
+conditional_correlation_risk <- function(returns_mat, quantile_thr = 0.1) {
+  n_asset <- ncol(returns_mat)
+  tail_corr <- matrix(NA, n_asset, n_asset)
+  for (i in seq_len(n_asset)) {
+    for (j in seq_len(n_asset)) {
+      if (i != j) {
+        thr_i <- quantile(returns_mat[, i], quantile_thr, na.rm = TRUE)
+        thr_j <- quantile(returns_mat[, j], quantile_thr, na.rm = TRUE)
+        both_tail <- returns_mat[, i] < thr_i & returns_mat[, j] < thr_j
+        if (sum(both_tail, na.rm=TRUE) > 5)
+          tail_corr[i,j] <- cor(returns_mat[both_tail, i],
+                                 returns_mat[both_tail, j],
+                                 use = "pairwise.complete.obs")
+      }
+    }
+  }
+  diag(tail_corr) <- 1
+  list(tail_correlation = tail_corr,
+       mean_tail_corr = mean(tail_corr[lower.tri(tail_corr)], na.rm=TRUE))
+}
+
+network_contagion_model <- function(adjacency_mat, default_prob,
+                                     recovery_rate = 0.4, rounds = 10) {
+  n      <- nrow(adjacency_mat)
+  status <- rbinom(n, 1, default_prob)
+  for (r in seq_len(rounds)) {
+    exposure <- as.vector(adjacency_mat %*% status)
+    new_def  <- (1 - status) * (exposure > (1 - recovery_rate))
+    status   <- pmin(status + new_def, 1)
+  }
+  list(final_defaults = status,
+       total_defaults = sum(status),
+       cascade_ratio = sum(status) / n)
+}
+
+var_components_decomp <- function(returns, weights, alpha = 0.05) {
+  port_ret  <- as.vector(returns %*% weights)
+  port_var  <- quantile(port_ret, alpha, na.rm = TRUE)
+  cov_mat   <- cov(returns, use = "pairwise.complete.obs")
+  sigma_p   <- sqrt(as.numeric(t(weights) %*% cov_mat %*% weights))
+  marg_var  <- as.vector(cov_mat %*% weights) / (sigma_p + 1e-12)
+  comp_var  <- weights * marg_var
+  pct_var   <- comp_var / sum(comp_var)
+  list(portfolio_var = port_var, marginal_var = marg_var,
+       component_var = comp_var, pct_contribution = pct_var)
+}
+
+liquidity_coverage_ratio <- function(liquid_assets, stressed_outflows,
+                                      stressed_inflows, stress_factor = 0.75) {
+  net_outflows <- stressed_outflows - stress_factor * stressed_inflows
+  lcr          <- liquid_assets / (net_outflows + 1e-8)
+  list(lcr = lcr, adequate = lcr >= 1.0, stressed_net_outflows = net_outflows,
+       shortfall = pmax(net_outflows - liquid_assets, 0))
+}
+
+
+# ─── ADDITIONAL: MACRO LINKAGE ───────────────────────────────────────────────
+
+macro_financial_linkage <- function(financial_stress, gdp_growth,
+                                     credit_growth, window = 12) {
+  n   <- length(financial_stress)
+  corr_fs_gdp  <- cor(financial_stress, gdp_growth, use="pairwise.complete.obs")
+  corr_fs_cred <- cor(financial_stress, credit_growth, use="pairwise.complete.obs")
+  lead_corrs <- sapply(1:6, function(lag) {
+    if (lag >= n) return(NA)
+    cor(financial_stress[1:(n-lag)], gdp_growth[(lag+1):n],
+        use="pairwise.complete.obs")
+  })
+  list(fs_gdp_corr = corr_fs_gdp, fs_credit_corr = corr_fs_cred,
+       leading_corrs = lead_corrs,
+       best_lead = which.min(lead_corrs))
+}
+
+defi_systemic_exposure <- function(protocol_tvls, shared_collateral_pct,
+                                    liquidation_thresholds) {
+  total_tvl       <- sum(protocol_tvls, na.rm=TRUE)
+  concentration   <- protocol_tvls / (total_tvl + 1e-8)
+  systemic_risk   <- concentration * shared_collateral_pct *
+                       (1 - liquidation_thresholds)
+  list(concentration = concentration, systemic_risk = systemic_risk,
+       total_systemic = sum(systemic_risk),
+       most_exposed = which.max(systemic_risk))
+}
+
+exchange_stress_scenario <- function(assets, liabilities, haircuts,
+                                      run_fraction = 0.3) {
+  stressed_assets <- assets * (1 - haircuts)
+  withdrawals     <- liabilities * run_fraction
+  shortfall       <- pmax(withdrawals - stressed_assets, 0)
+  coverage_ratio  <- stressed_assets / (withdrawals + 1e-8)
+  list(stressed_assets = stressed_assets, withdrawals = withdrawals,
+       shortfall = shortfall, coverage_ratio = coverage_ratio,
+       solvent = shortfall == 0)
+}
+
+# ─── UTILITY FUNCTIONS ────────────────────────────────────────────────────────
+
+systemic_risk_score <- function(covar, mes, srisk, weights = c(0.33, 0.33, 0.34)) {
+  norm <- function(x) (x - min(x, na.rm=TRUE)) / (max(x, na.rm=TRUE) - min(x, na.rm=TRUE) + 1e-8)
+  score <- weights[1]*norm(-covar) + weights[2]*norm(-mes) + weights[3]*norm(srisk)
+  list(score = score, ranking = order(-score),
+       high_risk = score > quantile(score, 0.8, na.rm=TRUE))
+}
+
+rolling_systemic_summary <- function(score_series, window = 21) {
+  n   <- length(score_series)
+  ma  <- as.numeric(stats::filter(score_series, rep(1/window, window), sides=1))
+  list(smoothed = ma, trend = c(rep(NA, window), diff(ma, lag=window)),
+       elevated = ma > quantile(ma, 0.75, na.rm=TRUE))
+}
+
+# version
+module_version <- function() "1.0.0"
+module_info <- function() list(version="1.0.0", base_r_only=TRUE, pure=TRUE)
+# end of file
+
+# placeholder
+.module_loaded <- TRUE

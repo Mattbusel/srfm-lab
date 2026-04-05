@@ -208,3 +208,294 @@ regime_risk_analysis <- function(returns_matrix, n_regimes=2) {
   }
   list(regimes=res, regime_series=regime)
 }
+
+# ============================================================
+# ADDITIONAL: EMPIRICAL CRYPTO SYSTEMIC RISK
+# ============================================================
+btc_dominance_systemic_role <- function(btc_returns, altcoin_returns,
+                                         btc_dom, window=60) {
+  T_ <- length(btc_returns); N <- ncol(altcoin_returns)
+  betas <- matrix(NA, T_, N)
+  for (t in seq(window,T_)) {
+    idx <- seq(t-window+1,t)
+    for (i in seq_len(N))
+      if(var(btc_returns[idx])>1e-10)
+        betas[t,i] <- cov(altcoin_returns[idx,i],btc_returns[idx])/var(btc_returns[idx])
+  }
+  # When BTC dominance rises, altcoin betas should too
+  btc_dom_lag <- c(NA, btc_dom[-length(btc_dom)])
+  corr_dom_beta <- cor(btc_dom_lag, rowMeans(betas,na.rm=TRUE), use="complete.obs")
+  list(betas=betas, mean_beta=rowMeans(betas,na.rm=TRUE),
+       dominance_beta_corr=corr_dom_beta)
+}
+
+defi_protocol_network <- function(tvl_matrix, correlation_threshold=0.5) {
+  C   <- cor(tvl_matrix, use="pairwise.complete.obs")
+  adj <- ifelse(abs(C)>correlation_threshold, abs(C), 0); diag(adj) <- 0
+  deg <- rowSums(adj)
+  ev  <- Re(eigen(adj)$vectors[,1])
+  list(adjacency=adj, degree=deg,
+       eigenvector=ev/(max(abs(ev))+1e-12),
+       most_central=which.max(deg))
+}
+
+tail_risk_contribution_study <- function(returns_matrix, window=90, alpha=0.05) {
+  T_ <- nrow(returns_matrix); N <- ncol(returns_matrix)
+  trc_ts <- matrix(NA,T_,N)
+  for (t in seq(window,T_)) {
+    idx  <- seq(t-window+1,t); R <- returns_matrix[idx,]
+    pr   <- rowMeans(R); thr <- quantile(pr,alpha); ci <- which(pr<=thr)
+    if(length(ci)>1)
+      trc_ts[t,] <- colMeans(R[ci,])/colMeans(R)
+  }
+  list(trc=trc_ts, mean_trc=colMeans(trc_ts,na.rm=TRUE),
+       most_systemic=which.max(colMeans(trc_ts,na.rm=TRUE)))
+}
+
+crypto_market_stress_events <- function(returns_matrix, threshold_sd=2) {
+  port_ret <- rowMeans(returns_matrix)
+  vol_30   <- as.numeric(stats::filter(abs(port_ret), rep(1/30,30), sides=1))
+  stress_z <- (abs(port_ret)-vol_30)/(sd(abs(port_ret),na.rm=TRUE)+1e-8)
+  events   <- which(stress_z > threshold_sd)
+  list(stress_events=events, stress_z=stress_z,
+       n_events=length(events),
+       pct_stress=length(events)/length(port_ret)*100)
+}
+
+
+# ============================================================
+# EMPIRICAL SYSTEMIC RISK RESEARCH
+# ============================================================
+
+rolling_covar_study <- function(returns_mat, system_ret, quantile = 0.05,
+                                  window = 126) {
+  n        <- nrow(returns_mat)
+  n_assets <- ncol(returns_mat)
+  covar_mat <- matrix(NA, n, n_assets)
+  for (i in seq(window, n)) {
+    idx <- seq(i - window + 1, i)
+    sys <- system_ret[idx]
+    thr <- quantile(sys, quantile, na.rm=TRUE)
+    stress_idx <- which(sys <= thr)
+    for (j in seq_len(n_assets)) {
+      asset_stress <- returns_mat[idx, j][stress_idx]
+      covar_mat[i, j] <- quantile(asset_stress, quantile, na.rm=TRUE)
+    }
+  }
+  list(covar = covar_mat,
+       mean_covar = colMeans(covar_mat, na.rm=TRUE),
+       covar_trend = apply(covar_mat, 2, function(x) {
+         valid <- which(!is.na(x)); if (length(valid) < 10) return(NA)
+         coef(lm(x[valid] ~ valid))[2]
+       }))
+}
+
+market_stress_episode_detection <- function(returns, vol_threshold = 2.0,
+                                              correlation_threshold = 0.7,
+                                              min_duration = 5) {
+  vol   <- sd(returns, na.rm=TRUE)
+  z     <- (returns - mean(returns, na.rm=TRUE)) / (vol + 1e-8)
+  is_stressed <- abs(z) > vol_threshold
+  runs  <- rle(is_stressed)
+  episode_start <- cumsum(c(1, runs$lengths[-length(runs$lengths)]))
+  stress_episodes <- episode_start[runs$values & runs$lengths >= min_duration]
+  list(z_scores = z, is_stressed = is_stressed,
+       n_episodes = length(stress_episodes),
+       episode_starts = stress_episodes,
+       pct_stressed = mean(is_stressed, na.rm=TRUE))
+}
+
+cross_market_contagion_test <- function(returns_a, returns_b,
+                                         calm_period, crisis_period) {
+  rho_calm   <- cor(returns_a[calm_period], returns_b[calm_period],
+                    use="pairwise.complete.obs")
+  rho_crisis <- cor(returns_a[crisis_period], returns_b[crisis_period],
+                    use="pairwise.complete.obs")
+  n_calm   <- sum(!is.na(returns_a[calm_period]) & !is.na(returns_b[calm_period]))
+  n_crisis <- sum(!is.na(returns_a[crisis_period]) & !is.na(returns_b[crisis_period]))
+  fisher_z_diff <- atanh(rho_crisis) - atanh(rho_calm)
+  se_diff  <- sqrt(1/(n_crisis-3) + 1/(n_calm-3))
+  z_stat   <- fisher_z_diff / (se_diff + 1e-8)
+  p_value  <- 2 * (1 - pnorm(abs(z_stat)))
+  list(rho_calm = rho_calm, rho_crisis = rho_crisis,
+       correlation_increase = rho_crisis - rho_calm,
+       z_statistic = z_stat, p_value = p_value,
+       contagion_detected = p_value < 0.05 & rho_crisis > rho_calm)
+}
+
+systemic_risk_factor_model <- function(returns_mat, n_factors = 3) {
+  cov_mat  <- cov(returns_mat, use="pairwise.complete.obs")
+  eig      <- eigen(cov_mat)
+  loadings <- eig$vectors[, 1:n_factors]
+  factors  <- as.matrix(returns_mat) %*% loadings
+  resid_var <- diag(cov_mat) - rowSums(loadings^2 * rep(eig$values[1:n_factors],
+                                                         each=nrow(loadings)))
+  systemic_var <- rowSums(loadings^2 * rep(eig$values[1:n_factors],
+                                            each=nrow(loadings)))
+  systemic_pct <- systemic_var / (diag(cov_mat) + 1e-12)
+  list(factor_loadings = loadings, factors = factors,
+       systemic_pct = systemic_pct,
+       idiosyncratic_var = resid_var,
+       most_systemic = which.max(systemic_pct))
+}
+
+network_topology_study <- function(adjacency_mat, threshold = 0.5) {
+  bin_adj  <- (abs(adjacency_mat) > threshold) * 1
+  diag(bin_adj) <- 0
+  degree       <- rowSums(bin_adj)
+  strength     <- rowSums(adjacency_mat * bin_adj)
+  clustering   <- sapply(seq_len(nrow(bin_adj)), function(i) {
+    nbrs <- which(bin_adj[i, ] == 1)
+    k    <- length(nbrs)
+    if (k < 2) return(0)
+    triangles <- sum(bin_adj[nbrs, nbrs]) / 2
+    triangles / (k * (k-1) / 2)
+  })
+  list(degree = degree, strength = strength, clustering = clustering,
+       density = sum(bin_adj) / (nrow(bin_adj) * (nrow(bin_adj)-1)),
+       most_connected = which.max(degree))
+}
+
+
+# ─── ADDITIONAL SYSTEMIC RISK RESEARCH ────────────────────────────────────────
+
+tail_risk_correlation_dynamics <- function(returns_mat, quantile_thr = 0.1,
+                                            window = 126) {
+  n <- nrow(returns_mat); n_a <- ncol(returns_mat)
+  roll_tail_corr <- rep(NA, n)
+  for (i in seq(window, n)) {
+    idx <- seq(i - window + 1, i)
+    sub <- returns_mat[idx, , drop=FALSE]
+    pair_corrs <- c()
+    for (j in 1:(n_a-1)) {
+      for (k in (j+1):n_a) {
+        thr_j <- quantile(sub[,j], quantile_thr, na.rm=TRUE)
+        thr_k <- quantile(sub[,k], quantile_thr, na.rm=TRUE)
+        both  <- sub[,j] < thr_j & sub[,k] < thr_k
+        if (sum(both) > 5) {
+          pair_corrs <- c(pair_corrs,
+            cor(sub[both,j], sub[both,k], use="pairwise.complete.obs"))
+        }
+      }
+    }
+    roll_tail_corr[i] <- mean(pair_corrs, na.rm=TRUE)
+  }
+  list(rolling_tail_corr = roll_tail_corr,
+       mean_tail_corr = mean(roll_tail_corr, na.rm=TRUE),
+       high_regime = roll_tail_corr > quantile(roll_tail_corr, 0.75, na.rm=TRUE))
+}
+
+financial_cycle_analysis <- function(credit_growth, asset_prices,
+                                      gdp, window = 20) {
+  credit_gap  <- credit_growth - as.numeric(stats::filter(credit_growth,
+                                rep(1/window, window), sides=2))
+  price_gap   <- log(asset_prices) - as.numeric(stats::filter(log(asset_prices),
+                                rep(1/window, window), sides=2))
+  fc_index    <- (credit_gap + price_gap) / 2
+  fc_index[is.na(fc_index)] <- 0
+  boom        <- fc_index > quantile(fc_index, 0.75, na.rm=TRUE)
+  bust        <- fc_index < quantile(fc_index, 0.25, na.rm=TRUE)
+  list(credit_gap = credit_gap, price_gap = price_gap,
+       financial_cycle = fc_index, boom = boom, bust = bust,
+       cycle_amplitude = diff(range(fc_index, na.rm=TRUE)))
+}
+
+systemic_event_backtest <- function(risk_index, actual_crises,
+                                     thresholds = seq(0.5, 2.5, 0.25)) {
+  results <- lapply(thresholds, function(thr) {
+    predicted <- risk_index > thr
+    tp <- sum(predicted & actual_crises, na.rm=TRUE)
+    fp <- sum(predicted & !actual_crises, na.rm=TRUE)
+    fn <- sum(!predicted & actual_crises, na.rm=TRUE)
+    precision <- tp / (tp + fp + 1e-12)
+    recall    <- tp / (tp + fn + 1e-12)
+    f1        <- 2 * precision * recall / (precision + recall + 1e-12)
+    list(threshold=thr, tp=tp, fp=fp, fn=fn,
+         precision=precision, recall=recall, f1=f1)
+  })
+  f1s     <- sapply(results, function(r) r$f1)
+  best    <- results[[which.max(f1s)]]
+  list(all_results = results, best_threshold = best$threshold,
+       best_f1 = best$f1, best_precision = best$precision,
+       best_recall = best$recall)
+}
+
+crypto_stress_contagion_model <- function(btc_crash, altcoin_betas,
+                                           defi_tvls, leverage_ratios,
+                                           rounds = 5) {
+  btc_impact  <- btc_crash
+  alt_impacts <- btc_impact * altcoin_betas
+  tvl_losses  <- defi_tvls * pmax(-alt_impacts, 0)
+  liq_cascade <- tvl_losses * leverage_ratios * 0.1
+  total_impact <- alt_impacts
+  for (r in seq_len(rounds)) {
+    secondary <- -liq_cascade / (sum(defi_tvls) + 1e-8) * altcoin_betas
+    total_impact <- total_impact + secondary
+    liq_cascade <- liq_cascade * 0.5
+    if (max(abs(secondary)) < 0.001) break
+  }
+  list(initial_impact = alt_impacts, total_impact = total_impact,
+       tvl_losses = tvl_losses,
+       cascade_multiplier = total_impact / (alt_impacts + 1e-12))
+}
+
+# ─── UTILITY / HELPER FUNCTIONS ───────────────────────────────────────────────
+
+annualize_systemic_prob <- function(daily_prob) {
+  1 - (1 - daily_prob)^252
+}
+
+systemic_risk_index_composite <- function(vol_idx, credit_spread,
+                                           interbank_spread, equity_corr,
+                                           weights = c(0.25,0.25,0.25,0.25)) {
+  norm <- function(x) (x - min(x,na.rm=TRUE)) / (max(x,na.rm=TRUE) - min(x,na.rm=TRUE) + 1e-8)
+  mat  <- cbind(norm(vol_idx), norm(credit_spread),
+                norm(interbank_spread), norm(equity_corr))
+  score <- as.vector(mat %*% weights)
+  list(score = score, components = mat,
+       crisis = score > quantile(score, 0.9, na.rm=TRUE))
+}
+
+crisis_dating_algorithm <- function(systemic_score, threshold = NULL,
+                                     min_duration = 5, cooldown = 10) {
+  if (is.null(threshold)) threshold <- quantile(systemic_score, 0.9, na.rm=TRUE)
+  above  <- systemic_score > threshold
+  n      <- length(above)
+  crises <- logical(n)
+  in_crisis <- FALSE; crisis_end <- -Inf
+  start <- NA
+  for (i in seq_len(n)) {
+    if (!in_crisis && above[i] && (i - crisis_end) > cooldown) {
+      in_crisis <- TRUE; start <- i
+    } else if (in_crisis && !above[i]) {
+      duration <- i - start
+      if (duration >= min_duration) crises[start:(i-1)] <- TRUE
+      in_crisis <- FALSE; crisis_end <- i
+    }
+  }
+  list(crisis_periods = crises, n_crises = sum(rle(crises)$values),
+       pct_in_crisis = mean(crises))
+}
+
+# research module metadata
+research_version <- function() "1.0.0"
+research_info    <- function() list(version="1.0.0", base_r_only=TRUE)
+# utility: safe correlation
+safe_cor <- function(x, y, method="pearson") {
+  tryCatch(cor(x, y, use="pairwise.complete.obs", method=method), error=function(e) NA)
+}
+# utility: rolling mean
+roll_mean <- function(x, w) as.numeric(stats::filter(x, rep(1/w, w), sides=1))
+# utility: annualize return
+annualize_ret <- function(r, periods_per_year=252) mean(r, na.rm=TRUE) * periods_per_year
+# utility: annualize vol
+annualize_vol <- function(r, periods_per_year=252) sd(r, na.rm=TRUE) * sqrt(periods_per_year)
+# end of file
+
+# systemic risk study module loaded
+.srisk_study_loaded <- TRUE
+# placeholder
+srisk_util <- function() invisible(NULL)
+# end
+# placeholder2
+srisk_util2 <- function(x) x

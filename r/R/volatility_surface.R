@@ -287,3 +287,214 @@ vol_cone_crypto <- function(returns, windows=c(7,14,30,60,90)) {
   })
   do.call(rbind, lapply(res, as.data.frame))
 }
+
+# ============================================================
+# ADDITIONAL: VOL TRADING STRATEGIES
+# ============================================================
+long_gamma_strategy <- function(option_prices, spot_prices,
+                                 hedge_interval=1, sigma=0.3) {
+  n   <- length(spot_prices)
+  pnl <- numeric(n-1)
+  for (i in seq_len(n-1)) {
+    dS  <- spot_prices[i+1] - spot_prices[i]
+    gamma_pnl <- 0.5 * sigma^2 * spot_prices[i]^2 * (dS/spot_prices[i])^2
+    pnl[i]    <- gamma_pnl - sigma^2 * spot_prices[i]^2 * hedge_interval/2
+  }
+  list(pnl=pnl, cumulative=cumsum(pnl),
+       sr=mean(pnl)/(sd(pnl)+1e-8)*sqrt(252))
+}
+
+calendar_spread_vol <- function(near_iv, far_iv, near_T, far_T) {
+  near_var <- near_iv^2 * near_T
+  far_var  <- far_iv^2 * far_T
+  fwd_var  <- (far_var - near_var) / (far_T - near_T + 1e-12)
+  list(fwd_var=fwd_var, fwd_vol=sqrt(pmax(fwd_var,0)),
+       calendar_value=far_iv-near_iv,
+       roll_down=near_iv-approx(c(near_T,far_T),c(near_iv,far_iv),
+                                 xout=near_T*0.5,rule=2)$y)
+}
+
+vega_neutral_portfolio <- function(option_vegas, option_prices,
+                                    target_vega=0) {
+  n  <- length(option_vegas)
+  if (n < 2) return(list(weights=1, vega=option_vegas[1]))
+  # Solve for weights to achieve target vega
+  w  <- rep(1/n, n)
+  for (iter in 1:100) {
+    port_vega <- sum(w * option_vegas)
+    grad      <- option_vegas
+    w         <- w - 0.01*(port_vega-target_vega)*grad/sum(grad^2+1e-8)
+    w         <- pmax(w, -2); w <- pmin(w, 2)
+  }
+  list(weights=w, portfolio_vega=sum(w*option_vegas),
+       portfolio_cost=sum(w*option_prices))
+}
+
+# ============================================================
+# ADDITIONAL: CRYPTO OPTIONS SPECIFIC
+# ============================================================
+deribit_index_vol <- function(call_ivs, put_ivs, strikes, F, T_) {
+  atm_idx  <- which.min(abs(strikes-F))
+  atm_iv   <- (call_ivs[atm_idx]+put_ivs[atm_idx])/2
+  dvol_approx <- atm_iv*100  # simplified DVOL
+  list(dvol=dvol_approx, atm_iv=atm_iv,
+       skew=call_ivs[atm_idx]-put_ivs[atm_idx])
+}
+
+crypto_vol_seasonality <- function(vol_series, timestamps_hour) {
+  vol_by_hr <- tapply(vol_series, timestamps_hour%%24, mean, na.rm=TRUE)
+  vol_by_dow <- tapply(vol_series, timestamps_hour%%(24*7)%/%24, mean, na.rm=TRUE)
+  list(hourly_pattern=vol_by_hr/mean(vol_by_hr,na.rm=TRUE),
+       daily_pattern=vol_by_dow/mean(vol_by_dow,na.rm=TRUE))
+}
+
+realized_variance_options <- function(realized_var, strike_var, notional) {
+  pnl <- (realized_var - strike_var) * notional
+  list(realized_var=realized_var, strike=strike_var,
+       pnl=pnl, profitable=pnl>0)
+}
+
+
+# ============================================================
+# ADDITIONAL VOL SURFACE ANALYTICS
+# ============================================================
+
+vol_surface_stress <- function(surface_mat, strikes, maturities,
+                                 shift_vols = c(-0.05, -0.02, 0, 0.02, 0.05),
+                                 shift_skew = c(-0.1, 0, 0.1)) {
+  results <- list()
+  for (dv in shift_vols) {
+    for (ds in shift_skew) {
+      stressed <- surface_mat
+      skew_adj <- ds * (strikes - mean(strikes)) / (sd(strikes) + 1e-8)
+      stressed <- sweep(stressed, 1, skew_adj + dv, "+")
+      stressed <- pmax(stressed, 0.001)
+      key      <- paste0("dv", dv, "_ds", ds)
+      results[[key]] <- list(surface = stressed, dv = dv, ds = ds)
+    }
+  }
+  results
+}
+
+risk_reversal_surface <- function(iv_call_mat, iv_put_mat) {
+  rr <- iv_call_mat - iv_put_mat
+  list(risk_reversal = rr,
+       avg_by_maturity = colMeans(rr, na.rm=TRUE),
+       avg_by_strike   = rowMeans(rr, na.rm=TRUE),
+       overall_skew    = mean(rr, na.rm=TRUE))
+}
+
+term_structure_carry <- function(short_iv, long_iv, forward_vol_sq = NULL) {
+  spread  <- long_iv - short_iv
+  if (is.null(forward_vol_sq)) {
+    n_s    <- length(short_iv)
+    n_l    <- length(long_iv)
+    fwd_var <- pmax((long_iv^2 * n_l - short_iv^2 * n_s) / (n_l - n_s + 1e-8), 0)
+    fwd_vol <- sqrt(fwd_var)
+  } else {
+    fwd_vol <- sqrt(forward_vol_sq)
+  }
+  carry <- fwd_vol - long_iv
+  list(spread = spread, forward_vol = fwd_vol, carry = carry,
+       signal = ifelse(carry > 0, -1, 1))
+}
+
+vol_of_vol <- function(iv_series, window = 20) {
+  n    <- length(iv_series)
+  vvol <- rep(NA_real_, n)
+  for (i in seq(window, n)) {
+    idx     <- seq(i - window + 1, i)
+    vvol[i] <- sd(iv_series[idx], na.rm = TRUE)
+  }
+  list(vol_of_vol = vvol,
+       normalized = vvol / (iv_series + 1e-8),
+       high_regime = vvol > quantile(vvol, 0.75, na.rm=TRUE))
+}
+
+clamped_delta <- function(delta, lower_clip = 0.1, upper_clip = 0.9) {
+  pmax(pmin(delta, upper_clip), lower_clip)
+}
+
+options_portfolio_greeks <- function(positions, deltas, gammas, vegas,
+                                       thetas, strikes, spot) {
+  net_delta <- sum(positions * deltas, na.rm=TRUE)
+  net_gamma <- sum(positions * gammas, na.rm=TRUE)
+  net_vega  <- sum(positions * vegas,  na.rm=TRUE)
+  net_theta <- sum(positions * thetas, na.rm=TRUE)
+  dollar_gamma <- net_gamma * spot^2 / 100
+  list(net_delta = net_delta, net_gamma = net_gamma,
+       net_vega = net_vega, net_theta = net_theta,
+       dollar_gamma = dollar_gamma,
+       dv01 = net_vega / 100,
+       theta_to_vega = net_theta / (net_vega + 1e-8))
+}
+
+realized_vs_implied_pnl <- function(realized_vol, implied_vol_at_entry,
+                                     gamma, spot, dt = 1/252) {
+  vol_pnl <- 0.5 * gamma * spot^2 * (realized_vol^2 - implied_vol_at_entry^2) * dt
+  list(vol_pnl = vol_pnl,
+       cumulative = cumsum(vol_pnl),
+       positive_carry = realized_vol > implied_vol_at_entry)
+}
+
+
+# ─── ADDITIONAL: SURFACE FITTING ─────────────────────────────────────────────
+
+polynomial_vol_surface <- function(log_moneyness, sqrt_maturity, iv,
+                                    degree = 2) {
+  features <- cbind(1, log_moneyness, sqrt_maturity,
+                    log_moneyness^2, sqrt_maturity^2,
+                    log_moneyness * sqrt_maturity)
+  if (degree >= 3) {
+    features <- cbind(features, log_moneyness^3, sqrt_maturity^3,
+                      log_moneyness^2 * sqrt_maturity,
+                      log_moneyness * sqrt_maturity^2)
+  }
+  valid <- !is.na(iv)
+  beta  <- tryCatch(solve(t(features[valid,]) %*% features[valid,]) %*%
+                      t(features[valid,]) %*% iv[valid],
+                    error = function(e) rep(NA, ncol(features)))
+  fitted   <- as.vector(features %*% beta)
+  residuals <- iv - fitted
+  list(coefficients = beta, fitted = fitted, residuals = residuals,
+       rmse = sqrt(mean(residuals^2, na.rm=TRUE)))
+}
+
+vol_surface_arbitrage_bounds <- function(strikes, maturities, iv_surface) {
+  n_k <- length(strikes); n_t <- length(maturities)
+  butter_viol <- matrix(FALSE, n_k, n_t)
+  for (j in seq_len(n_t)) {
+    for (i in 2:(n_k-1)) {
+      mid_iv  <- iv_surface[i, j]
+      lo_iv   <- iv_surface[i-1, j]
+      hi_iv   <- iv_surface[i+1, j]
+      butter_viol[i, j] <- 2 * mid_iv < lo_iv + hi_iv - 1e-6
+    }
+  }
+  cal_viol <- matrix(FALSE, n_k, n_t - 1)
+  for (j in seq_len(n_t - 1)) {
+    total_var_j   <- iv_surface[, j]^2   * maturities[j]
+    total_var_j1  <- iv_surface[, j+1]^2 * maturities[j+1]
+    cal_viol[, j] <- total_var_j1 < total_var_j - 1e-6
+  }
+  list(butterfly_violations = butter_viol,
+       calendar_violations = cal_viol,
+       n_butterfly_viol = sum(butter_viol),
+       n_calendar_viol = sum(cal_viol),
+       arbitrage_free = sum(butter_viol) + sum(cal_viol) == 0)
+}
+
+# ─── UTILITY FUNCTIONS ────────────────────────────────────────────────────────
+
+moneyness_to_delta <- function(log_moneyness, sigma, T_exp) {
+  d1 <- log_moneyness / (sigma * sqrt(T_exp) + 1e-8) +
+          0.5 * sigma * sqrt(T_exp)
+  pnorm(d1)
+}
+
+atm_forward_vol <- function(iv_surface, strikes, spot_forward) {
+  atm_idx <- which.min(abs(strikes - spot_forward))
+  iv_surface[atm_idx, ]
+}
+
+vol_surface_version <- function() "1.0.0"

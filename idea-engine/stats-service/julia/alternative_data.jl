@@ -643,4 +643,485 @@ function second_party_data_quality(coverage::Float64, freshness_days::Float64,
     return (cov_score + fresh_score + acc_score) / 3.0 * 100.0
 end
 
+
+# ============================================================
+# SECTION 2B: BLOCKCHAIN ON-CHAIN ANALYTICS
+# ============================================================
+
+function detect_whale_transactions(values_usd::Vector{Float64},
+                                   labels_from::Vector{String},
+                                   labels_to::Vector{String},
+                                   times::Vector{Int};
+                                   threshold_usd::Float64=1e6)
+    whale_idx = findall(v -> v >= threshold_usd, values_usd)
+    exchange_inflows  = [values_usd[i] for i in whale_idx if labels_to[i] == "exchange"]
+    exchange_outflows = [values_usd[i] for i in whale_idx if labels_from[i] == "exchange"]
+    net = sum(exchange_inflows) - sum(exchange_outflows)
+    total_whale = sum(values_usd[whale_idx])
+    sell_pressure = sum(exchange_inflows) / (sum(exchange_inflows)+sum(exchange_outflows)+1e-10)
+    return (whale_count=length(whale_idx), total_whale_usd=total_whale,
+            net_exchange_flow=net, sell_pressure=sell_pressure)
+end
+
+function nvt_zscore_signal(market_cap::Vector{Float64}, tx_volume::Vector{Float64};
+                            window::Int=90)
+    nvt = market_cap ./ (tx_volume .+ 1e-10)
+    n = length(nvt); signal = zeros(n)
+    for i in window:n
+        w = nvt[max(1,i-window+1):i]
+        signal[i] = (nvt[i] - mean(w)) / (std(w) + 1e-10)
+    end
+    return (nvt=nvt, signal=signal)
+end
+
+function mvrv_zscore(market_cap::Vector{Float64}, realized_cap::Vector{Float64})
+    mvrv = market_cap ./ (realized_cap .+ 1e-10)
+    mu = mean(mvrv); sigma = std(mvrv)
+    return (mvrv=mvrv, zscore=(mvrv .- mu) ./ (sigma .+ 1e-10))
+end
+
+function hash_ribbon_signal(hr_30d::Vector{Float64}, hr_60d::Vector{Float64})
+    n = min(length(hr_30d), length(hr_60d))
+    sig = zeros(n)
+    for i in 2:n
+        if hr_30d[i] > hr_60d[i] && hr_30d[i-1] <= hr_60d[i-1]; sig[i] = 1.0
+        elseif hr_30d[i] < hr_60d[i] && hr_30d[i-1] >= hr_60d[i-1]; sig[i] = -1.0
+        end
+    end
+    return sig
+end
+
+function stock_to_flow_model(stock::Float64, annual_flow::Float64)
+    sf = stock / (annual_flow + 1e-10)
+    return (sf_ratio=sf, predicted_price=exp(14.6 + 3.3*log(sf+1e-10)))
+end
+
+# ============================================================
+# SECTION 3B: OPTIONS SIGNALS
+# ============================================================
+
+function compute_put_call_ratio(put_oi::Float64, call_oi::Float64,
+                                 put_vol::Float64, call_vol::Float64)
+    return (oi_pcr=put_oi/(call_oi+1e-10), vol_pcr=put_vol/(call_vol+1e-10),
+            combined=(put_oi/(call_oi+1e-10) + put_vol/(call_vol+1e-10))/2)
+end
+
+function iv_rank(current_iv::Float64, iv_history::Vector{Float64})
+    lo = minimum(iv_history); hi = maximum(iv_history)
+    return 100.0*(current_iv-lo)/(hi-lo+1e-10)
+end
+
+function volatility_risk_premium(realized_vol::Vector{Float64}, implied_vol::Vector{Float64})
+    vrp = implied_vol .- realized_vol
+    return (vrp=vrp, mean_vrp=mean(vrp), signal=mean(vrp)>0 ? 1.0 : -1.0)
+end
+
+function gamma_exposure(gammas::Vector{Float64}, open_interests::Vector{Float64},
+                         spot::Float64; contract_size::Float64=1.0)
+    return sum(gammas .* open_interests .* contract_size .* spot^2 .* 0.01)
+end
+
+function composite_options_signal(pcr::Float64, risk_rev::Float64,
+                                   ivr::Float64, term_slope::Float64)
+    pcr_s = clamp(-(pcr-1.0)*2.0,-1.0,1.0)
+    rr_s  = clamp(risk_rev*10.0,-1.0,1.0)
+    ivr_s = clamp((50.0-ivr)/50.0,-1.0,1.0)
+    ts_s  = clamp(-term_slope*5.0,-1.0,1.0)
+    return (pcr_s + rr_s + ivr_s + ts_s)/4.0
+end
+
+# ============================================================
+# SECTION 4B: FUTURES TERM STRUCTURE
+# ============================================================
+
+struct FuturesTermStructure
+    tenors::Vector{Float64}
+    prices::Vector{Float64}
+    spot::Float64
+    implied_yields::Vector{Float64}
+end
+
+function build_term_structure(spot::Float64, fut_prices::Vector{Float64},
+                               tenors_days::Vector{Float64}, rf::Float64)
+    n = length(fut_prices)
+    implied_yields = [T>0 ? rf-log(fut_prices[i]/spot)/(tenors_days[i]/365) : rf
+                      for (i,T) in enumerate(tenors_days./365)]
+    return FuturesTermStructure(tenors_days, fut_prices, spot, implied_yields)
+end
+
+function contango_backwardation_index(ts::FuturesTermStructure)
+    length(ts.prices)<2 && return 0.0
+    return -(ts.prices[2]-ts.prices[1])/(ts.prices[1]+1e-10)
+end
+
+function roll_yield(near_price::Float64, far_price::Float64,
+                    near_days::Float64, far_days::Float64)
+    d = far_days - near_days
+    d <= 0 && return 0.0
+    return (near_price-far_price)/far_price * 365.0/d
+end
+
+function futures_basis_zscore(basis::Vector{Float64}; window::Int=30)
+    n = length(basis); z = zeros(n)
+    for i in window:n
+        w = basis[max(1,i-window+1):i]
+        z[i] = (basis[i]-mean(w))/(std(w)+1e-10)
+    end
+    return z
+end
+
+function open_interest_momentum(oi::Vector{Float64}, prices::Vector{Float64};
+                                  window::Int=5)
+    n = length(oi); sig = zeros(n)
+    for i in window+1:n
+        oi_c = (oi[i]-oi[i-window])/(oi[i-window]+1e-10)
+        px_c = (prices[i]-prices[i-window])/(prices[i-window]+1e-10)
+        sig[i] = sign(px_c)*min(abs(oi_c),1.0)
+    end
+    return sig
+end
+
+# ============================================================
+# SECTION 5B: ORDER BOOK MICROSTRUCTURE
+# ============================================================
+
+struct OrderBook
+    bids::Vector{Tuple{Float64,Float64}}
+    asks::Vector{Tuple{Float64,Float64}}
+    timestamp::Float64
+end
+
+function order_book_imbalance(ob::OrderBook; depth::Int=5)
+    bv = sum(s for (_,s) in ob.bids[1:min(depth,length(ob.bids))])
+    av = sum(s for (_,s) in ob.asks[1:min(depth,length(ob.asks))])
+    return (bv-av)/(bv+av+1e-10)
+end
+
+function mid_price(ob::OrderBook)
+    (isempty(ob.bids)||isempty(ob.asks)) && return NaN
+    return (ob.bids[1][1]+ob.asks[1][1])/2
+end
+
+function weighted_mid_price(ob::OrderBook)
+    (isempty(ob.bids)||isempty(ob.asks)) && return NaN
+    bp,bs=ob.bids[1]; ap,as_=ob.asks[1]
+    return (bp*as_+ap*bs)/(bs+as_+1e-10)
+end
+
+function vpin_estimator(buy_vols::Vector{Float64}, sell_vols::Vector{Float64};
+                         bucket_size::Int=50)
+    n = length(buy_vols); nb = n÷bucket_size
+    vpin = [abs(sum(buy_vols[(b-1)*bucket_size+1:b*bucket_size]) -
+                sum(sell_vols[(b-1)*bucket_size+1:b*bucket_size])) /
+            (sum(buy_vols[(b-1)*bucket_size+1:b*bucket_size]) +
+             sum(sell_vols[(b-1)*bucket_size+1:b*bucket_size]) + 1e-10)
+            for b in 1:nb]
+    return (vpin=vpin, mean_vpin=isempty(vpin) ? 0.0 : mean(vpin))
+end
+
+function kyle_lambda(dp::Vector{Float64}, order_flow::Vector{Float64})
+    xb=mean(order_flow); yb=mean(dp)
+    return sum((order_flow.-xb).*(dp.-yb))/(sum((order_flow.-xb).^2)+1e-10)
+end
+
+function amihud_illiquidity(returns::Vector{Float64}, volumes::Vector{Float64})
+    return mean(abs.(returns)./(volumes.+1e-10))
+end
+
+function roll_spread_estimator(prices::Vector{Float64})
+    dp = diff(prices); n = length(dp)
+    c = sum(dp[1:end-1].*dp[2:end])/(n-1+1e-10)
+    return c<0 ? 2*sqrt(-c) : 0.0
+end
+
+# ============================================================
+# SECTION 6B: IC ANALYSIS
+# ============================================================
+
+function spearman_ic(signal::Vector{Float64}, fwd_ret::Vector{Float64})
+    n = length(signal)
+    sr = Float64.(sortperm(sortperm(signal)))
+    rr = Float64.(sortperm(sortperm(fwd_ret)))
+    return 1.0 - 6*sum((sr.-rr).^2)/(n*(n^2-1)+1e-10)
+end
+
+function rolling_ic(signals::Matrix{Float64}, returns::Vector{Float64}; window::Int=60)
+    T,K = size(signals); ic = fill(NaN,T,K)
+    for t in window:T, k in 1:K
+        ic[t,k] = spearman_ic(signals[t-window+1:t,k], returns[t-window+1:t])
+    end
+    return ic
+end
+
+function icir(ic_series::Vector{Float64})
+    v = filter(!isnan, ic_series)
+    isempty(v) && return 0.0
+    return mean(v)/(std(v)+1e-10)
+end
+
+function pca_signal_combination(signals::Matrix{Float64}; n_comp::Int=3)
+    T,K = size(signals)
+    mu = [mean(signals[:,k]) for k in 1:K]
+    X = signals .- mu'
+    C = X'*X./(T-1)
+    comps = zeros(K,n_comp); res = copy(C)
+    for j in 1:n_comp
+        v = randn(K); v ./= (norm(v)+1e-10)
+        for _ in 1:100
+            vn = res*v; vn ./= (norm(vn)+1e-10)
+            norm(vn-v)<1e-8 && break; v=vn
+        end
+        lam = dot(v,res*v); comps[:,j]=v; res.-=lam.*(v*v')
+    end
+    return (scores=X*comps, loadings=comps, centers=mu)
+end
+
+function ic_weighted_combination(signals::Matrix{Float64}, ics::Vector{Float64})
+    ic_pos = max.(ics,0.0); total=sum(ic_pos)
+    total<1e-10 && return zeros(size(signals,1))
+    return signals*(ic_pos./total)
+end
+
+function signal_neutralization(signal::Vector{Float64}, sector_ids::Vector{Int},
+                                 market_cap::Vector{Float64})
+    neu = copy(signal)
+    for s in unique(sector_ids)
+        idx = findall(==(s),sector_ids)
+        length(idx)<2 && continue
+        neu[idx] .-= mean(signal[idx])
+    end
+    mc_total = sum(market_cap); mc_total<1e-10 && return neu
+    neu .-= sum(neu.*market_cap)/mc_total
+    return neu
+end
+
+function build_alpha_model(signals::Matrix{Float64}, fwd_ret::Vector{Float64};
+                            lam::Float64=1e-3)
+    T,K = size(signals); X = hcat(ones(T),signals)
+    beta = (X'*X+lam*I(K+1))\(X'*fwd_ret)
+    fitted = X*beta; resid = fwd_ret.-fitted
+    return (beta=beta, r2=1.0-var(resid)/(var(fwd_ret)+1e-10))
+end
+
+# ============================================================
+# SECTION 7B: REGIME DETECTION & ORTHOGONALIZATION
+# ============================================================
+
+function identify_regimes_hmm(returns::Vector{Float64}; n_regimes::Int=2, max_iter::Int=50)
+    n = length(returns)
+    mu_k = [quantile(returns, k/(n_regimes+1)) for k in 1:n_regimes]
+    sig_k = fill(std(returns), n_regimes)
+    A = fill(1.0/n_regimes, n_regimes, n_regimes)
+    gmat = zeros(n, n_regimes)
+    gpdf(x,m,s) = exp(-0.5*((x-m)/s)^2)/(sqrt(2π)*s+1e-15)
+
+    for _ in 1:max_iter
+        alpha = zeros(n,n_regimes); beta = zeros(n,n_regimes)
+        for k in 1:n_regimes; alpha[1,k]=gpdf(returns[1],mu_k[k],sig_k[k])/n_regimes; end
+        for t in 2:n
+            for k in 1:n_regimes
+                alpha[t,k]=gpdf(returns[t],mu_k[k],sig_k[k])*
+                            sum(alpha[t-1,j]*A[j,k] for j in 1:n_regimes)
+            end
+            s=sum(alpha[t,:]); s>0 && (alpha[t,:]./=s)
+        end
+        beta[n,:].=1.0
+        for t in n-1:-1:1
+            for j in 1:n_regimes
+                beta[t,j]=sum(A[j,k]*gpdf(returns[t+1],mu_k[k],sig_k[k])*beta[t+1,k]
+                               for k in 1:n_regimes)
+            end
+            s=sum(beta[t,:]); s>0 && (beta[t,:]./=s)
+        end
+        for t in 1:n
+            s=sum(alpha[t,k]*beta[t,k] for k in 1:n_regimes)
+            for k in 1:n_regimes; gmat[t,k]=alpha[t,k]*beta[t,k]/(s+1e-15); end
+        end
+        for k in 1:n_regimes
+            g=gmat[:,k]; tot=sum(g)+1e-10
+            mu_k[k]=sum(g.*returns)/tot
+            sig_k[k]=sqrt(sum(g.*(returns.-mu_k[k]).^2)/tot)+1e-6
+        end
+    end
+    states = [argmax(gmat[t,:]) for t in 1:n]
+    return (states=states, mu=mu_k, sigma=sig_k)
+end
+
+function orthogonalize_signal(target::Vector{Float64}, controls::Matrix{Float64})
+    res = copy(target)
+    for k in 1:size(controls,2)
+        c = controls[:,k]
+        res .-= dot(res,c)/(dot(c,c)+1e-10).*c
+    end
+    return res
+end
+
+function regime_conditional_performance(returns::Vector{Float64},
+                                         signal::Vector{Float64},
+                                         states::Vector{Int}; n_regimes::Int=2)
+    Dict(r => begin
+        idx=findall(==(r),states); length(idx)<5 && continue
+        ret_r=returns[idx]; sig_r=signal[idx]
+        (ic=spearman_ic(sig_r,ret_r),
+         sharpe=mean(ret_r)/(std(ret_r)+1e-10)*sqrt(252),
+         n=length(idx))
+    end for r in 1:n_regimes if length(findall(==(r),states))>=5)
+end
+
+# ============================================================
+# SECTION 8B: MACRO & SATELLITE SIGNALS
+# ============================================================
+
+function google_trends_momentum(volume::Vector{Float64}; fast::Int=4, slow::Int=26)
+    n=length(volume)
+    f=[mean(volume[max(1,i-fast+1):i]) for i in 1:n]
+    s=[mean(volume[max(1,i-slow+1):i]) for i in 1:n]
+    return (fast_ma=f, slow_ma=s, signal=(f.-s)./(s.+1e-10))
+end
+
+function ship_tracking_signal(ships_at_sea::Vector{Float64}, ships_in_port::Vector{Float64})
+    ratio = ships_at_sea./(ships_at_sea.+ships_in_port.+1e-10)
+    mu=mean(ratio); sigma=std(ratio)
+    return tanh.((ratio.-mu)./(sigma.+1e-10))
+end
+
+function crop_ndvi_signal(ndvi::Vector{Float64}; window::Int=4)
+    n=length(ndvi)
+    ma=[mean(ndvi[max(1,i-window+1):i]) for i in 1:n]
+    return -tanh.((ma.-mean(ndvi))./(std(ndvi).+1e-10))
+end
+
+function electricity_consumption_signal(consumption::Vector{Float64}; period::Int=52)
+    n=length(consumption)
+    adj=[i>period ? consumption[i]/(consumption[i-period]+1e-10)-1.0 : 0.0
+         for i in 1:n]
+    v=filter(!iszero,adj)
+    isempty(v) && return zeros(n)
+    return tanh.((adj.-mean(v))./(std(v).+1e-10))
+end
+
+function credit_card_spending_signal(spending::Vector{Float64}; yoy_window::Int=52)
+    n=length(spending)
+    yoy=[(spending[i]-spending[max(1,i-yoy_window)])/(spending[max(1,i-yoy_window)]+1e-10)
+         for i in 1:n]
+    return tanh.((yoy.-mean(yoy))./(std(yoy).+1e-10))
+end
+
+function earnings_revision_signal(current_est::Vector{Float64}, prior_est::Vector{Float64})
+    rev=(current_est.-prior_est)./(abs.(prior_est).+1e-10)
+    return tanh.((rev.-mean(rev))./(std(rev).+1e-10))
+end
+
+function fear_greed_index(vol_z::Float64, mom_z::Float64, vol_flow_z::Float64,
+                           sent_z::Float64, pcr_z::Float64)
+    raw = -vol_z*0.25+mom_z*0.25+vol_flow_z*0.2+sent_z*0.2-pcr_z*0.1
+    return clamp(50.0+raw*10.0, 0.0, 100.0)
+end
+
+# ============================================================
+# SECTION 9B: COMPOSITE SIGNAL CONSTRUCTION
+# ============================================================
+
+struct CompositeSignal
+    name::String
+    components::Vector{String}
+    weights::Vector{Float64}
+    values::Vector{Float64}
+    zscore::Vector{Float64}
+    confidence::Float64
+end
+
+function build_composite_signal(signals::Matrix{Float64}, names::Vector{String},
+                                  ic_weights::Vector{Float64}; zscore_window::Int=252)
+    T,K = size(signals)
+    w = max.(ic_weights,0.0); s=sum(w); s<1e-10 && (w=ones(K)./K); w./=sum(w)
+    std_sigs = zeros(T,K)
+    for k in 1:K
+        mu=mean(signals[:,k]); sg=std(signals[:,k])
+        std_sigs[:,k]=(signals[:,k].-mu)./(sg.+1e-10)
+    end
+    comp = std_sigs*w; zs = zeros(T)
+    for t in zscore_window:T
+        hw=comp[max(1,t-zscore_window+1):t]
+        zs[t]=(comp[t]-mean(hw))/(std(hw)+1e-10)
+    end
+    return CompositeSignal("composite", names, w, comp, zs, min(1.0, T/(2*zscore_window)))
+end
+
+function backtest_signal(signal::Vector{Float64}, returns::Vector{Float64};
+                          tc::Float64=0.001)
+    T=min(length(signal),length(returns))
+    pos=sign.(signal[1:T]); pnl=zeros(T)
+    for t in 2:T
+        pnl[t]=pos[t-1]*returns[t]-abs(pos[t]-pos[t-1])*tc
+    end
+    cum=cumsum(pnl); sr=mean(pnl)/(std(pnl)+1e-10)*sqrt(252)
+    peak=cum[1]; mdd=0.0
+    for v in cum; peak=max(peak,v); mdd=max(mdd,peak-v); end
+    hr=count(p->p>0, pnl[2:end])/(T-1)
+    return (pnl=pnl, cum_pnl=cum, sharpe=sr, max_drawdown=mdd, hit_rate=hr)
+end
+
+function signal_combination_ensemble(signals::Matrix{Float64},
+                                       fwd_returns::Vector{Float64};
+                                       method::Symbol=:ic_weight)
+    T,K = size(signals)
+    if method == :ic_weight
+        ics = [spearman_ic(signals[:,k], fwd_returns) for k in 1:K]
+        ic_pos = max.(ics,0.0); tot=sum(ic_pos)
+        w = tot<1e-10 ? ones(K)./K : ic_pos./tot
+    elseif method == :ridge
+        lam=1e-2; w=(signals'*signals+lam*I(K))\(signals'*fwd_returns)
+        w=max.(w,0.0); tot=sum(w); w=tot<1e-10 ? ones(K)./K : w./tot
+    else
+        w = ones(K)./K
+    end
+    return (weights=w, combined=signals*w)
+end
+
+# ============================================================
+# DEMO
+# ============================================================
+
+function demo_alternative_data_all()
+    println("=== Full Alternative Data Demo ===")
+
+    # Whale detection
+    vals=abs.(randn(100)).*1e6
+    lf=rand(["exchange","whale","unknown"],100)
+    lt=rand(["exchange","whale","unknown"],100)
+    wh=detect_whale_transactions(vals,lf,lt,collect(1:100); threshold_usd=5e5)
+    println("Whales: ", wh.whale_count, " NetFlow: ", round(wh.net_exchange_flow, sigdigits=3))
+
+    # Options
+    pcr=compute_put_call_ratio(1.2e6,1.0e6,800e3,700e3)
+    println("PCR combined: ", round(pcr.combined, digits=3))
+
+    # Futures
+    ts=build_term_structure(30000.0,[30150.0,30400.0,30800.0],[7.0,30.0,90.0],0.05)
+    println("Contango idx: ", round(contango_backwardation_index(ts), digits=4))
+
+    # OB
+    ob=OrderBook([(29990.0-i*10,rand()*5) for i in 0:4],
+                  [(30010.0+i*10,rand()*5) for i in 0:4], 0.0)
+    println("OB imbalance: ", round(order_book_imbalance(ob), digits=3))
+
+    # IC
+    sig=randn(200); ret=0.3*sig.+0.7*randn(200)
+    println("Spearman IC: ", round(spearman_ic(sig,ret), digits=3))
+
+    # HMM
+    hmm=identify_regimes_hmm(randn(300).*0.01)
+    println("HMM mu: ", round.(hmm.mu, sigdigits=3))
+
+    # Fear & Greed
+    println("Fear&Greed: ", round(fear_greed_index(-0.5,1.2,0.8,0.6,-0.3), digits=1))
+
+    # Composite backtest
+    sigs=randn(500,3); fwd=0.1*sigs[:,1].+randn(500)*0.15
+    cs=build_composite_signal(sigs,["a","b","c"],[0.4,0.3,0.3])
+    bt=backtest_signal(cs.values, fwd)
+    println("Backtest Sharpe: ", round(bt.sharpe,digits=2), " HitRate: ", round(bt.hit_rate,digits=2))
+end
+
 end # module AlternativeData

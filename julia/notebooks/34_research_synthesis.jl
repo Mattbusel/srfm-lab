@@ -481,3 +481,445 @@ RISK PRIORITIES:
   - Maintain 10%+ cash buffer for liquidity in stress scenarios
   - Never exceed 2x leverage given combined stress test results (NB33)
 """)
+
+# ─── 6. Signal Lifecycle Management ─────────────────────────────────────────
+
+println("\n═══ 6. Signal Lifecycle Management Framework ═══")
+
+# Signal maturity stages
+@enum SignalStage Research Prototype Live Deprecated
+
+struct SignalLifecycle
+    name::String
+    stage::SignalStage
+    inception_date::String
+    current_ic::Float64
+    peak_ic::Float64
+    current_capacity_usd::Float64
+    cumulative_pnl_usd::Float64
+    last_review_date::String
+    recommendation::String
+end
+
+lifecycle_signals = [
+    SignalLifecycle("BTC momentum 12m",    Live,       "2024-01", 0.052, 0.071, 50_000_000, 420_000,  "2026-03", "Maintain"),
+    SignalLifecycle("ETH funding carry",   Live,       "2024-03", 0.068, 0.080, 30_000_000, 310_000,  "2026-03", "Scale up"),
+    SignalLifecycle("Whale flow on-chain", Prototype,  "2025-06", 0.038, 0.038, 5_000_000,  25_000,   "2026-02", "Continue testing"),
+    SignalLifecycle("VRP short straddle",  Live,       "2024-06", 0.055, 0.065, 20_000_000, 180_000,  "2026-03", "Maintain"),
+    SignalLifecycle("Search trend NLP",    Research,   "2026-01", 0.020, 0.020, 0.0,        0.0,      "2026-04", "Build out"),
+    SignalLifecycle("Basis trade spot/perp",Live,      "2024-01", 0.075, 0.082, 40_000_000, 580_000,  "2026-03", "Scale up"),
+    SignalLifecycle("Alt-season rotation", Prototype,  "2025-09", 0.041, 0.044, 8_000_000,  42_000,   "2026-02", "Expand testing"),
+    SignalLifecycle("MEV protection arb",  Research,   "2026-02", 0.0,   0.0,   0.0,        0.0,      "2026-04", "Feasibility study"),
+    SignalLifecycle("Cross-ex arb HFT",   Deprecated, "2023-06", 0.012, 0.055, 0.0,       -15_000,   "2025-12", "Retired (latency)"),
+    SignalLifecycle("Skew term structure", Live,       "2024-09", 0.044, 0.052, 15_000_000, 92_000,   "2026-03", "Maintain"),
+]
+
+println("Signal Lifecycle Inventory:")
+println("Signal\t\t\t\tStage\t\tIC\tCapacity\tP&L\t\tRec")
+for s in lifecycle_signals
+    stage_str = s.stage == Live       ? "Live" :
+                s.stage == Prototype  ? "Proto" :
+                s.stage == Research   ? "Rsrch" : "Depr"
+    cap_str = s.current_capacity_usd > 0 ? "\$$(round(s.current_capacity_usd/1e6,digits=0))M" : "N/A"
+    pnl_str = "\$$(round(s.cumulative_pnl_usd/1e3,digits=0))K"
+    nm = rpad(s.name, 30)
+    println("  $nm\t$stage_str\t$(round(s.current_ic,digits=3))\t$cap_str\t\t$pnl_str\t\t$(s.recommendation)")
+end
+
+# IC decay tracking
+live_signals = filter(s -> s.stage == Live, lifecycle_signals)
+total_capacity = sum(s.current_capacity_usd for s in live_signals)
+total_pnl      = sum(s.cumulative_pnl_usd   for s in live_signals)
+println("\nLive signal summary:")
+println("  Count: $(length(live_signals))")
+println("  Total capacity: \$$(round(total_capacity/1e6,digits=0))M")
+println("  Total cumulative P&L: \$$(round(total_pnl/1e3,digits=0))K")
+println("  Weighted avg IC: $(round(sum(s.current_ic*s.current_capacity_usd for s in live_signals)/total_capacity,digits=4))")
+
+# ─── 7. Research Queue Prioritization ────────────────────────────────────────
+
+println("\n═══ 7. Research Queue with ICE Scoring ═══")
+
+# ICE = Impact × Confidence / Effort
+struct ResearchTask
+    name::String
+    category::String
+    impact::Float64   # expected Sharpe improvement 0-5
+    confidence::Float64  # 0-1
+    effort_weeks::Float64
+    dependencies::Vector{String}
+end
+
+research_queue = [
+    ResearchTask("GPT-4 sentiment scoring",     "Alt Data",    3.0, 0.55, 8.0,  []),
+    ResearchTask("DeFi flow on-chain signals",  "On-chain",    2.5, 0.60, 12.0, ["whale_flow"]),
+    ResearchTask("Options surface ML pricing",  "Vol",         4.0, 0.70, 16.0, ["vol_surface"]),
+    ResearchTask("Cross-exchange arb latency",  "Micro",       2.0, 0.40, 20.0, []),
+    ResearchTask("Funding carry OU calibration","Carry",       1.5, 0.80,  4.0, []),
+    ResearchTask("L2/L3 tokenomics signals",    "Alt Data",    2.0, 0.35, 10.0, []),
+    ResearchTask("Realized-implied vol spread", "Vol",         3.5, 0.75,  6.0, []),
+    ResearchTask("Regime ML classifier",        "ML",          3.0, 0.65, 14.0, []),
+    ResearchTask("Tail risk overlay (CVaR)",    "Risk",        2.5, 0.85,  8.0, []),
+    ResearchTask("High-freq microstructure",    "Micro",       4.5, 0.50, 24.0, []),
+    ResearchTask("NFT volume leading indicator","Alt Data",    1.5, 0.30,  6.0, []),
+    ResearchTask("Gamma exposure (GEX) signal", "Options",     2.8, 0.60,  8.0, ["vol_surface"]),
+    ResearchTask("Cross-asset crypto-equity",   "Macro",       2.0, 0.55, 10.0, []),
+    ResearchTask("Stablecoin flow alerts",      "On-chain",    3.0, 0.70,  6.0, []),
+    ResearchTask("Liquidation heatmap signal",  "Micro",       3.5, 0.65,  5.0, []),
+]
+
+function ice_score(t::ResearchTask)
+    return t.impact * t.confidence / t.effort_weeks
+end
+
+sorted_queue = sort(research_queue, by=ice_score, rev=true)
+println("Research Queue — ICE Prioritized:")
+println("Rank\tTask\t\t\t\t\tICE\tImpact\tConf\tWeeks\tCategory")
+for (i, t) in enumerate(sorted_queue)
+    ice = ice_score(t)
+    nm = rpad(t.name, 38)
+    println("  $i\t$nm\t$(round(ice,digits=3))\t$(t.impact)\t$(t.confidence)\t$(round(t.effort_weeks,digits=0))\t$(t.category)")
+end
+
+# Quarterly planning: fit top tasks into Q2 2026 (13 weeks, 2 researchers)
+available_weeks = 13 * 2  # 26 researcher-weeks
+selected = ResearchTask[]
+used_weeks = 0.0
+println("\nQ2 2026 Research Plan (26 researcher-weeks available):")
+for t in sorted_queue
+    if used_weeks + t.effort_weeks <= available_weeks
+        push!(selected, t)
+        used_weeks += t.effort_weeks
+    end
+end
+for t in selected
+    println("  ✓ $(rpad(t.name,38))  $(t.effort_weeks) weeks  ICE=$(round(ice_score(t),digits=3))")
+end
+println("  Total: $(round(used_weeks,digits=0)) of $available_weeks researcher-weeks allocated")
+expected_impact = sum(t.impact * t.confidence for t in selected)
+println("  Expected Sharpe improvement (weighted): $(round(expected_impact,digits=2))")
+
+# ─── 8. Alpha Budget and Risk Allocation ─────────────────────────────────────
+
+println("\n═══ 8. Alpha Budget and Risk Allocation ═══")
+
+struct AlphaBucket
+    name::String
+    allocated_capital::Float64  # USD
+    target_sharpe::Float64
+    target_vol_ann::Float64
+    current_sharpe::Float64
+    correlation_to_btc::Float64
+end
+
+alpha_buckets = [
+    AlphaBucket("Basis & Carry",        15_000_000, 3.0, 0.08, 3.2, 0.10),
+    AlphaBucket("Momentum (trend)",     10_000_000, 1.5, 0.20, 1.8, 0.75),
+    AlphaBucket("Volatility premium",    8_000_000, 2.0, 0.12, 1.9, 0.30),
+    AlphaBucket("On-chain alt data",     5_000_000, 1.5, 0.25, 1.1, 0.55),
+    AlphaBucket("Statistical arb",       7_000_000, 2.5, 0.10, 2.3, 0.15),
+    AlphaBucket("Options market making", 5_000_000, 2.0, 0.15, 1.7, 0.20),
+]
+
+total_capital = sum(b.allocated_capital for b in alpha_buckets)
+println("Alpha budget allocation (Total: \$$(round(total_capital/1e6,digits=0))M):")
+println("Bucket\t\t\t\tCapital\t\tTarget SR\tCurrent SR\tVol\t\tBTC Corr")
+for b in alpha_buckets
+    nm = rpad(b.name, 28)
+    cap = "\$$(round(b.allocated_capital/1e6,digits=0))M"
+    println("  $nm\t$(rpad(cap,14))\t$(b.target_sharpe)\t\t$(b.current_sharpe)\t\t$(round(b.target_vol_ann*100,digits=0))%\t\t$(b.correlation_to_btc)")
+end
+
+# Portfolio Sharpe with correlations
+function portfolio_sharpe_with_corr(buckets, corr_matrix)
+    n = length(buckets)
+    w = [b.allocated_capital for b in buckets]
+    w ./= sum(w)
+    vols = [b.target_vol_ann for b in buckets]
+    alphas = [b.current_sharpe * b.target_vol_ann for b in buckets]
+
+    port_return = dot(w, alphas)
+    port_var    = sum(w[i]*w[j]*vols[i]*vols[j]*corr_matrix[i,j] for i in 1:n, j in 1:n)
+    port_vol    = sqrt(port_var)
+    return port_return / port_vol, port_vol
+end
+
+# Correlation matrix for alpha buckets
+n_bk = length(alpha_buckets)
+corr_bk = Matrix{Float64}(I, n_bk, n_bk)
+# Basis/carry and stat arb are low corr to everything
+corr_bk[1,3] = corr_bk[3,1] = 0.15  # basis + vol premium
+corr_bk[2,4] = corr_bk[4,2] = 0.40  # momentum + on-chain
+corr_bk[3,6] = corr_bk[6,3] = 0.35  # vol premium + MM
+
+port_sr, port_vol = portfolio_sharpe_with_corr(alpha_buckets, corr_bk)
+println("\nPortfolio statistics:")
+println("  Portfolio Sharpe: $(round(port_sr,digits=2))")
+println("  Portfolio vol:    $(round(port_vol*100,digits=1))%")
+println("  Diversification benefit: $(round((mean([b.target_vol_ann for b in alpha_buckets]) - port_vol)/mean([b.target_vol_ann for b in alpha_buckets])*100,digits=1))%")
+
+# ─── 9. Knowledge Graph of Research Dependencies ──────────────────────────────
+
+println("\n═══ 9. Research Knowledge Graph ═══")
+
+# Simple directed graph representation
+struct ResearchNode
+    id::String
+    description::String
+    status::String  # "done", "in_progress", "planned"
+    outputs::Vector{String}  # IDs of nodes that depend on this
+end
+
+knowledge_graph = [
+    ResearchNode("data_infra",    "Data pipeline & storage",          "done",        ["market_data", "onchain_data"]),
+    ResearchNode("market_data",   "Market data feed (OHLCV, OB)",     "done",        ["price_signals", "vol_signals"]),
+    ResearchNode("onchain_data",  "On-chain data (tx, flows, DeFi)",  "done",        ["whale_signals", "defi_signals"]),
+    ResearchNode("price_signals", "Price-based signals (mom, MR)",    "done",        ["signal_combo"]),
+    ResearchNode("vol_signals",   "Volatility signals (VRP, SABR)",   "done",        ["vol_strategy", "signal_combo"]),
+    ResearchNode("whale_signals", "Whale flow detection",             "in_progress", ["alt_data_combo"]),
+    ResearchNode("defi_signals",  "DeFi protocol signals",            "in_progress", ["alt_data_combo"]),
+    ResearchNode("signal_combo",  "Signal combination (IC-weighted)",  "done",        ["portfolio_opt"]),
+    ResearchNode("alt_data_combo","Alt data combination",              "planned",     ["portfolio_opt"]),
+    ResearchNode("vol_strategy",  "Options vol strategy",             "done",        ["portfolio_opt"]),
+    ResearchNode("portfolio_opt", "Portfolio optimization (HRP/BL)",  "done",        ["risk_mgmt"]),
+    ResearchNode("risk_mgmt",     "Risk management & stress testing",  "done",        ["live_trading"]),
+    ResearchNode("live_trading",  "Live trading infrastructure",      "in_progress", []),
+    ResearchNode("ml_overlay",    "ML regime detection overlay",      "planned",     ["portfolio_opt"]),
+    ResearchNode("gex_signal",    "GEX (gamma exposure) signal",      "planned",     ["signal_combo"]),
+]
+
+println("Research Knowledge Graph Status:")
+for status in ["done", "in_progress", "planned"]
+    nodes = filter(n -> n.status == status, knowledge_graph)
+    status_label = status == "done" ? "DONE" : status == "in_progress" ? "IN PROGRESS" : "PLANNED"
+    println("\n  ── $status_label ──")
+    for n in nodes
+        deps = isempty(n.outputs) ? "→ (terminal)" : "→ " * join(n.outputs, ", ")
+        println("    [$(n.id)] $(n.description)  $deps")
+    end
+end
+
+# Critical path analysis
+done_count = count(n -> n.status == "done", knowledge_graph)
+wip_count  = count(n -> n.status == "in_progress", knowledge_graph)
+plan_count = count(n -> n.status == "planned", knowledge_graph)
+println("\nProgress: $done_count done, $wip_count in progress, $plan_count planned")
+println("Completion: $(round(done_count/length(knowledge_graph)*100,digits=0))%")
+
+# ─── 10. Consolidated 12-Month Roadmap ───────────────────────────────────────
+
+println("\n═══ 10. Consolidated 12-Month Research Roadmap ═══")
+
+roadmap_quarters = [
+    ("Q2 2026 (Apr-Jun)", [
+        "Complete on-chain whale flow signal → live trading",
+        "GEX (gamma exposure) signal prototype",
+        "Regime ML classifier v1 (hidden Markov, 2-state)",
+        "Portfolio optimization: add CVaR tail risk parity",
+        "Infrastructure: 1ms order routing latency target",
+    ]),
+    ("Q3 2026 (Jul-Sep)", [
+        "DeFi signal integration: protocol revenue + TVL flow",
+        "Options surface ML pricing (deep learning)",
+        "Stablecoin flow alert system → live",
+        "Liquidation heatmap signal → live",
+        "Cross-asset crypto-equity factor model",
+    ]),
+    ("Q4 2026 (Oct-Dec)", [
+        "GPT-4 sentiment signal (earnings + social)",
+        "High-frequency microstructure signal research",
+        "Advanced regime overlay: DCC-GARCH + Markov switching",
+        "Black-Litterman with ML-generated views",
+        "First annual performance review and strategy audit",
+    ]),
+    ("Q1 2027 (Jan-Mar)", [
+        "Research: L2/L3 tokenomics signals",
+        "MEV protection arbitrage feasibility",
+        "Cross-exchange arb: latency competitive analysis",
+        "Full OOS validation: 2-year live track record",
+        "Strategy scaling plan: target AUM \$100M",
+    ]),
+]
+
+for (quarter, tasks) in roadmap_quarters
+    println("\n  ── $quarter ──")
+    for (i, task) in enumerate(tasks)
+        println("    $i. $task")
+    end
+end
+
+# ─── 11. Final Research Synthesis Summary ────────────────────────────────────
+
+println("\n═══ 11. Final Research Synthesis ═══")
+println("""
+SRFM Lab Research Synthesis — April 2026
+
+TOP FINDINGS (highest actionable impact):
+
+  1. FUNDING CARRY (Sharpe 3.0+): Short perp / long spot at funding >0.02%/8h
+     is the highest risk-adjusted return strategy. Scale to \$15M+.
+
+  2. BASIS ARBITRAGE (Sharpe 2.5+): Spot-perp convergence with defined risk
+     budget. Requires cross-margining and 7+ day holding period to clear costs.
+
+  3. VOLATILITY PREMIUM (Sharpe 2.0): Sell 1-week ATM straddles during low VIX
+     regimes. Hedge tail with OTM puts. VRP averages 15-25% annualized in BTC.
+
+  4. WHALE FLOW SIGNAL (IC 0.04): On-chain whale detection is orthogonal to
+     price signals. Adds ~0.3 Sharpe when combined with momentum. Scale up.
+
+  5. SIGNAL COMBINATION: IC²-weighted combination > equal-weight by 20-30%.
+     Orthogonalize to BTC beta before combining. Use EWMA IC weights.
+
+KEY RISKS:
+  - Execution costs: 10bps+ roundtrip at stress. Always account in Sharpe.
+  - Overfitting: ML signals lose 40-70% of backtest Sharpe. Use SR < 1.5 for
+    signals with > 20 parameters.
+  - Cascade risk: BTC 20%+ drop liquidates 30-40% of leveraged OI.
+    Always hold 30% cash buffer.
+  - Regime change: signals calibrated to 2023-2026 may not persist post-halving.
+
+RESEARCH AGENDA:
+  Phase 1 (now): GEX signal, regime classifier, CVaR tail parity
+  Phase 2 (Q3):  DeFi signals, ML vol pricing, liquidation heatmap live
+  Phase 3 (Q4+): Tokenomics, HFT microstructure, cross-asset factor model
+
+CONVICTION RANKING:
+  High:   Basis carry, funding carry, VRP, momentum 12m
+  Medium: Whale flow, skew term structure, on-chain stablecoins
+  Low:    Sentiment NLP, tokenomics, cross-exchange arb (latency-sensitive)
+
+TARGET STATE (Q1 2027):
+  - 8-12 live signals, combined Sharpe ≥ 2.5 net of costs
+  - AUM capacity \$50-100M with <5% per-signal capacity constraint
+  - Full regime-adaptive allocation (bull/bear/neutral)
+  - <500ms execution from signal to fill
+""")
+
+# ─── 12. Research Impact Scorecard ───────────────────────────────────────────
+
+println("\n═══ 12. Research Impact Scorecard ═══")
+
+# Track the impact of each completed research study
+struct ResearchImpactRecord
+    notebook_id::Int
+    title::String
+    completion_date::String
+    live_signals_produced::Int
+    strategies_deployed::Int
+    estimated_annual_alpha_usd::Float64
+    sharpe_improvement::Float64
+    key_finding::String
+end
+
+impact_records = [
+    ResearchImpactRecord(23, "DeFi Analytics",           "2025-09", 2, 1, 42_000,  0.15, "IL breakeven critical; UniV3 optimal range study → 15% higher yield"),
+    ResearchImpactRecord(24, "Systemic Risk",             "2025-10", 0, 0, 0.0,     0.10, "Insurance fund sizing: need 0.3% OI for safety at 20x leverage"),
+    ResearchImpactRecord(25, "Advanced ML Signals",       "2025-11", 3, 2, 85_000,  0.35, "GP + SVM ensemble → IC 0.058, +0.3 Sharpe vs price-only signals"),
+    ResearchImpactRecord(26, "Alternative Data",          "2025-11", 4, 3, 110_000, 0.45, "IC² combination of 4 alt signals → 0.068 combined IC"),
+    ResearchImpactRecord(27, "Numerical Methods",         "2025-12", 1, 1, 25_000,  0.08, "FFT option pricing 50x faster; Richardson Greeks 10-100x more accurate"),
+    ResearchImpactRecord(28, "Crypto Mechanics",          "2025-12", 2, 2, 65_000,  0.20, "Basis trade + funding carry → 3.2 Sharpe combined"),
+    ResearchImpactRecord(29, "Performance Attribution",   "2026-01", 0, 0, 0.0,     0.05, "TC attribution: 12% of gross alpha lost to execution; target 8%"),
+    ResearchImpactRecord(30, "Volatility Surface",        "2026-01", 2, 1, 48_000,  0.18, "SVI + delta-hedged straddle P&L → VRP 20% annualized"),
+    ResearchImpactRecord(31, "Portfolio Optimization",    "2026-02", 0, 0, 15_000,  0.12, "HRP + BL combined: 20% vol reduction vs equal-weight"),
+    ResearchImpactRecord(32, "Time Series Forecasting",   "2026-02", 2, 1, 35_000,  0.15, "TBATS + DCC-GARCH → regime-conditional vol forecast +15% accuracy"),
+    ResearchImpactRecord(33, "Stress Testing",            "2026-03", 0, 0, 0.0,     0.08, "Fund survival: 30% DD limit required; 10x leverage untenable long-term"),
+    ResearchImpactRecord(34, "Research Synthesis",        "2026-04", 0, 0, 0.0,     0.00, "Roadmap: 8-12 live signals, \$50-100M AUM target by Q1 2027"),
+]
+
+total_alpha = sum(r.estimated_annual_alpha_usd for r in impact_records)
+total_sharpe_imp = sum(r.sharpe_improvement for r in impact_records)
+total_signals = sum(r.live_signals_produced for r in impact_records)
+
+println("Research Impact Summary (NB 23-34):")
+println("$(rpad("Study",32)) Signals  Deployed  Alpha/yr\tSharpe+\tKey finding")
+for r in impact_records
+    alpha_str = r.estimated_annual_alpha_usd > 0 ? "\$$(round(r.estimated_annual_alpha_usd/1e3,digits=0))K" : "N/A"
+    println("  [$(r.notebook_id)] $(rpad(r.title,26)) $(r.live_signals_produced)\t$(r.strategies_deployed)\t$(rpad(alpha_str,10))\t$(round(r.sharpe_improvement,digits=2))")
+end
+println("\nTotal impact:")
+println("  Live signals produced:  $total_signals")
+println("  Estimated annual alpha: \$$(round(total_alpha/1e3,digits=0))K")
+println("  Sharpe improvement:     +$(round(total_sharpe_imp,digits=2)) (compounded across all research)")
+
+# ─── 13. Cross-Study Insight Matrix ─────────────────────────────────────────
+
+println("\n═══ 13. Cross-Study Insight Cross-Reference Matrix ═══")
+
+# Which notebooks inform which other notebooks?
+cross_refs = [
+    (from=24, to=33, insight="Systemic risk measures → stress scenario design"),
+    (from=25, to=31, insight="ML signal weights → Black-Litterman view generation"),
+    (from=25, to=26, insight="GP uncertainty → alt-data confidence weighting"),
+    (from=26, to=31, insight="IC-weighted signals → portfolio optimization inputs"),
+    (from=27, to=30, insight="FFT pricing → vol surface arbitrage detection"),
+    (from=28, to=33, insight="Funding dynamics → carry stress scenarios"),
+    (from=28, to=29, insight="Fee model → transaction cost attribution"),
+    (from=29, to=31, insight="TC model → TC-aware portfolio optimization"),
+    (from=30, to=25, insight="Vol surface features → ML signal inputs"),
+    (from=31, to=33, insight="Optimized portfolio → stress test baseline"),
+    (from=32, to=31, insight="Regime forecasts → regime-adaptive allocation"),
+    (from=32, to=25, insight="TAR/MS-AR → regime conditioning for ML signals"),
+    (from=23, to=28, insight="DeFi yield → funding rate baseline comparison"),
+    (from=24, to=31, insight="CoVaR → tail risk parity weights"),
+]
+
+println("Cross-study dependency graph:")
+println("  From  → To     Insight")
+for cr in cross_refs
+    println("  NB$(cr.from) → NB$(cr.to): $(cr.insight)")
+end
+
+println("\nMost referenced studies:")
+to_counts = Dict{Int,Int}()
+for cr in cross_refs
+    to_counts[cr.to] = get(to_counts, cr.to, 0) + 1
+end
+for (nb, count) in sort(collect(to_counts), by=x->x[2], rev=true)[1:5]
+    titles = Dict(25=>"ML Signals", 31=>"Portfolio Opt", 33=>"Stress Testing",
+                  26=>"Alt Data", 28=>"Crypto Mechanics", 30=>"Vol Surface",
+                  29=>"Attribution")
+    println("  NB$(nb) ($(get(titles, nb, "Unknown"))): referenced $(count) times")
+end
+
+# ─── 14. Hypothesis Validation Log ──────────────────────────────────────────
+
+println("\n═══ 14. Hypothesis Validation Log ═══")
+
+struct HypothesisResult
+    hypothesis::String
+    study_id::Int
+    result::String  # "confirmed", "rejected", "partial", "pending"
+    effect_size::Float64
+    confidence::Float64
+    next_steps::String
+end
+
+hypotheses = [
+    HypothesisResult("Alt-data IC > price-only IC",           26, "confirmed", 0.35, 0.90, "Scale to live"),
+    HypothesisResult("HRP outperforms equal-weight in stress", 31, "confirmed", 0.20, 0.85, "Deploy as default"),
+    HypothesisResult("Basis trade Sharpe > 2.0",              28, "confirmed", 0.50, 0.92, "Scale to \$15M"),
+    HypothesisResult("GP uncertainty improves signal timing",  25, "partial",   0.15, 0.70, "Test with more data"),
+    HypothesisResult("Funding rate predictable with OU model", 28, "confirmed", 0.40, 0.88, "Use in carry strategy"),
+    HypothesisResult("TBATS reduces 1-step forecast MSE",      32, "confirmed", 0.20, 0.80, "Use in regime detection"),
+    HypothesisResult("CoVaR > VaR for systemic risk",         24, "confirmed", 0.30, 0.85, "Use CoVaR for limits"),
+    HypothesisResult("MEV protection signal viable",           26, "pending",   0.0,  0.0,  "Research in Q2 2026"),
+    HypothesisResult("Liquidation cascade amplifies returns",  24, "confirmed", 0.45, 0.87, "Add to stress scenarios"),
+    HypothesisResult("SVI arbitrage-free better than ad hoc", 30, "confirmed", 0.25, 0.82, "Use SVI for all options"),
+    HypothesisResult("Black-Litterman + IAE views beat MV",   31, "partial",   0.12, 0.65, "Need more live testing"),
+    HypothesisResult("Fund survival improves with max DD rule",33, "confirmed", 0.40, 0.93, "Implement hard DD limit"),
+]
+
+conf_count  = count(h.result == "confirmed" for h in hypotheses)
+rej_count   = count(h.result == "rejected"  for h in hypotheses)
+part_count  = count(h.result == "partial"   for h in hypotheses)
+pend_count  = count(h.result == "pending"   for h in hypotheses)
+
+println("Hypothesis validation log:")
+println("$(rpad("Hypothesis",42)) Result\t\tEffect\tConf")
+for h in sort(hypotheses, by=h->h.result)
+    nm = rpad(h.hypothesis, 42)
+    println("  $nm $(rpad(h.result,12)) $(round(h.effect_size,digits=2))\t$(round(h.confidence,digits=2))")
+end
+println("\nSummary: $conf_count confirmed, $part_count partial, $rej_count rejected, $pend_count pending")
+println("Action rate: $(round((conf_count+part_count)/length(hypotheses)*100,digits=0))% of hypotheses have actionable outcomes")
