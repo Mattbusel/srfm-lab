@@ -79,10 +79,20 @@ DELTA_MAX_FRAC = 0.40
 OU_FRAC        = 0.08   # OU mean reversion position size (mirrors live trader)
 
 # IAE idea #2: block new entries during these UTC hours (chronic underperformers)
-BLOCKED_ENTRY_HOURS = {1, 13, 14, 15, 18}
+# IAE re-run added hour 17 as new chronic loser after dynamic CORR applied
+BLOCKED_ENTRY_HOURS = {1, 13, 14, 15, 17, 18}
 
 # IAE idea #6: winner protection threshold raised from 0.1% to 0.5%
 WINNER_PROTECTION_PCT = 0.005
+
+# IAE idea #8: disable OU mean-reversion for trending instruments (WR < 38%)
+# These instruments are momentum-driven -- OU z-score fights their natural direction
+OU_DISABLED_SYMS = {"AVAX", "DOT", "LINK"}
+
+# IAE idea #9: boost position size during high-quality entry hours
+# Hours 3, 9, 16, 19 UTC avg +$231/trade vs -$8 baseline, WR=47.9%
+BOOST_ENTRY_HOURS = {3, 9, 16, 19}
+HOUR_BOOST_MULTIPLIER = 1.25
 
 MC_SIMS     = 10_000
 MC_MONTHS   = 12
@@ -511,6 +521,12 @@ def run_backtest(data):
                 elif btc_d and btc_h and s != "BTC" and raw.get(s, 0.0) > 0:
                     raw[s] *= 1.4  # BTC-lead confirmed: boost alt sizing 1.4x
 
+            # IAE idea #9: boost sizing during high-quality entry hours
+            if _bar_hour in BOOST_ENTRY_HOURS:
+                for s in syms:
+                    if raw.get(s, 0.0) > 0 and np.isclose(last_frac[s], 0.0):  # new entries only
+                        raw[s] *= HOUR_BOOST_MULTIPLIER
+
             # IAE idea #2: during blocked hours, force existing targets to stay flat (no new opens)
             if _block_entries:
                 for s in syms:
@@ -536,6 +552,7 @@ def run_backtest(data):
             for s in syms:
                 if not warmup_done[s]: continue
                 if d_bh[s].active or h_bh[s].active: continue  # BH takes priority
+                if s in OU_DISABLED_SYMS: continue  # IAE idea #8: trending instruments -- no OU
                 if ou[s].long_signal and ou_pos[s] <= 0:
                     raw[s] = raw.get(s, 0.0) + OU_FRAC
                     ou_pos[s] = OU_FRAC
