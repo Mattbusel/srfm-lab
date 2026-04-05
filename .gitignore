@@ -47,3 +47,17 @@ __pycache__/
 *.pyc
 results/optuna_study.db
 *.whl
+
+# Live trading DB (contains live trade data, not source)
+tools/backtest_output/live_trades.db
+tools/backtest_output/live_trades.db-shm
+tools/backtest_output/live_trades.db-wal
+tools/backtest_output/crypto_data_cache.pkl
+
+# IAE runtime DB
+idea-engine/idea_engine.db
+idea-engine/logs/
+idea-engine/.pids/
+
+# Rust build artifacts (already in .gitignore via build/ but be explicit)
+target/

@@ -1,0 +1,162 @@
+version: "3.9"
+
+# =============================================================================
+# Idea Automation Engine — full stack
+# =============================================================================
+#
+# Services:
+#   idea-api      :8767   Go REST + WebSocket API
+#   idea-bus      :8768   Go event bus
+#   idea-scheduler:8769   Go experiment scheduler
+#   idea-dashboard:5175   TypeScript/React dashboard (Vite dev server)
+#   genome-engine         Rust binary (run as one-shot via `docker compose run`)
+#
+# Shared volume: iae-data mounted at /data on all services
+#   → idea_engine.db lives at /data/idea_engine.db
+#   → backtest outputs mounted read-only from host
+#
+# Usage:
+#   docker compose up -d                 # start all services
+#   docker compose run genome-engine     # run one evolution cycle
+#   docker compose logs -f idea-api      # tail API logs
+# =============================================================================
+
+x-common-env: &common-env
+  IAE_DB_PATH: /data/idea_engine.db
+  LAB_PATH: /lab
+
+volumes:
+  iae-data:
+
+networks:
+  iae-net:
+    driver: bridge
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Event Bus — :8768
+  # ---------------------------------------------------------------------------
+  idea-bus:
+    build:
+      context: ./bus
+      dockerfile: Dockerfile
+    image: srfm/idea-bus:latest
+    container_name: idea-bus
+    ports:
+      - "8768:8768"
+    environment:
+      <<: *common-env
+      BUS_PORT: "8768"
+    volumes:
+      - iae-data:/data
+    networks:
+      - iae-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8768/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Idea API — :8767
+  # ---------------------------------------------------------------------------
+  idea-api:
+    build:
+      context: ./idea-api
+      dockerfile: Dockerfile
+    image: srfm/idea-api:latest
+    container_name: idea-api
+    ports:
+      - "8767:8767"
+    environment:
+      <<: *common-env
+      API_PORT: "8767"
+      BUS_URL: "http://idea-bus:8768"
+    volumes:
+      - iae-data:/data
+    networks:
+      - iae-net
+    depends_on:
+      idea-bus:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8767/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Scheduler — :8769
+  # ---------------------------------------------------------------------------
+  idea-scheduler:
+    build:
+      context: ./scheduler
+      dockerfile: Dockerfile
+    image: srfm/idea-scheduler:latest
+    container_name: idea-scheduler
+    ports:
+      - "8769:8769"
+    environment:
+      <<: *common-env
+      SCHEDULER_PORT: "8769"
+      API_URL: "http://idea-api:8767"
+      BUS_URL: "http://idea-bus:8768"
+      LAB_PATH: /lab
+    volumes:
+      - iae-data:/data
+      - ..:/lab:ro          # mount entire lab read-only so scheduler can invoke backtest
+    networks:
+      - iae-net
+    depends_on:
+      idea-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # React Dashboard — :5175
+  # ---------------------------------------------------------------------------
+  idea-dashboard:
+    build:
+      context: ./idea-dashboard
+      dockerfile: Dockerfile
+    image: srfm/idea-dashboard:latest
+    container_name: idea-dashboard
+    ports:
+      - "5175:5175"
+    environment:
+      VITE_API_URL: "http://localhost:8767"
+      VITE_WS_URL: "ws://localhost:8767/ws"
+    networks:
+      - iae-net
+    depends_on:
+      - idea-api
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Genome Engine — Rust binary, run on-demand
+  # docker compose run --rm genome-engine --generations 50
+  # ---------------------------------------------------------------------------
+  genome-engine:
+    build:
+      context: ..
+      dockerfile: crates/idea-genome-engine/Dockerfile
+    image: srfm/genome-engine:latest
+    container_name: genome-engine
+    environment:
+      <<: *common-env
+    volumes:
+      - iae-data:/data
+      - ..:/lab:ro
+    networks:
+      - iae-net
+    profiles:
+      - tools    # only starts with: docker compose --profile tools run genome-engine
+    command: [
+      "--db-path", "/data/idea_engine.db",
+      "--lab-path", "/lab",
+      "--population-size", "30",
+      "--generations", "20"
+    ]

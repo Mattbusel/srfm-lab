@@ -217,8 +217,8 @@ class LiveTraderMonitor:
         today_str = today_start.strftime("%Y-%m-%d")
 
         df = self._query(
-            "SELECT sym, SUM(pnl) as sym_pnl FROM trades "
-            "WHERE DATE(fill_time) = ? GROUP BY sym",
+            "SELECT symbol as sym, SUM(pnl) as sym_pnl FROM trades "
+            "WHERE DATE(ts) = ? GROUP BY symbol",
             (today_str,),
         )
 
@@ -247,8 +247,8 @@ class LiveTraderMonitor:
         cutoff = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
 
         df = self._query(
-            "SELECT DATE(fill_time) as trade_date, SUM(pnl) as daily_pnl "
-            "FROM trades WHERE DATE(fill_time) >= ? "
+            "SELECT DATE(ts) as trade_date, SUM(pnl) as daily_pnl "
+            "FROM trades WHERE DATE(ts) >= ? "
             "GROUP BY trade_date ORDER BY trade_date",
             (cutoff,),
         )
@@ -267,10 +267,10 @@ class LiveTraderMonitor:
 
         Falls back to cumulative P&L + initial equity if table missing.
         """
-        if self._table_exists("equity_curve"):
+        if self._table_exists("equity_snapshots"):
             cutoff = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
             df = self._query(
-                "SELECT ts, equity FROM equity_curve WHERE DATE(ts) >= ? ORDER BY ts",
+                "SELECT ts, equity FROM equity_snapshots WHERE DATE(ts) >= ? ORDER BY ts",
                 (cutoff,),
             )
             if not df.empty:
@@ -334,8 +334,8 @@ class LiveTraderMonitor:
             best_pnl = float(pnls.max()) if n_trades > 0 else 0.0
             worst_pnl = float(pnls.min()) if n_trades > 0 else 0.0
 
-            if "fill_time" in trades_df.columns:
-                fill_times = pd.to_datetime(trades_df["fill_time"]).dropna()
+            if "ts" in trades_df.columns:
+                fill_times = pd.to_datetime(trades_df["ts"]).dropna()
                 if not fill_times.empty:
                     last_trade_time = fill_times.max().to_pydatetime()
 
@@ -343,7 +343,7 @@ class LiveTraderMonitor:
         today_pnl = sum(self.get_todays_pnl().values())
         weekly_cutoff = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
         weekly_df = self._query(
-            "SELECT SUM(pnl) as total FROM trades WHERE DATE(fill_time) >= ?",
+            "SELECT SUM(pnl) as total FROM trades WHERE DATE(ts) >= ?",
             (weekly_cutoff,),
         )
         weekly_pnl = float(weekly_df.iloc[0]["total"]) if not weekly_df.empty and weekly_df.iloc[0]["total"] is not None else 0.0
@@ -409,12 +409,15 @@ class LiveTraderMonitor:
         alerts: list[str] = []
         status = "OK"
 
-        now_utc = datetime.utcnow()
+        now_utc = datetime.now(tz=timezone.utc)
         is_market_hours = self._is_equity_market_hours(now_utc)
 
         # Check 1: No recent trades
         if live_metrics.last_trade_time:
-            hours_since_last = (now_utc - live_metrics.last_trade_time).total_seconds() / 3600
+            ltt = live_metrics.last_trade_time
+            if ltt.tzinfo is None:
+                ltt = ltt.replace(tzinfo=timezone.utc)
+            hours_since_last = (now_utc - ltt).total_seconds() / 3600
             if hours_since_last > 24 and is_market_hours:
                 alerts.append(
                     f"WARN: No trades in last {hours_since_last:.0f}h during market hours"
@@ -521,7 +524,7 @@ class LiveTraderMonitor:
             return pd.DataFrame()
         cutoff = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
         return self._query(
-            "SELECT * FROM trades WHERE DATE(fill_time) >= ? ORDER BY fill_time DESC",
+            "SELECT * FROM trades WHERE DATE(ts) >= ? ORDER BY ts DESC",
             (cutoff,),
         )
 

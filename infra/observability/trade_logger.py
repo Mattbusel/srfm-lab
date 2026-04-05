@@ -59,6 +59,18 @@ CREATE TABLE IF NOT EXISTS equity_snapshots (
 CREATE INDEX IF NOT EXISTS idx_equity_ts ON equity_snapshots(ts);
 """
 
+_DDL_POSITIONS = """
+CREATE TABLE IF NOT EXISTS positions (
+    sym            TEXT    PRIMARY KEY,
+    qty            REAL    NOT NULL,
+    avg_entry      REAL    NOT NULL DEFAULT 0.0,
+    current_price  REAL    NOT NULL DEFAULT 0.0,
+    unrealized_pnl REAL    NOT NULL DEFAULT 0.0,
+    bh_active      INTEGER NOT NULL DEFAULT 0,
+    last_updated   TEXT    NOT NULL
+);
+"""
+
 _DDL_REGIME = """
 CREATE TABLE IF NOT EXISTS regime_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,6 +123,7 @@ class TradeLogger:
         with self._lock:
             self._conn.executescript(_DDL_TRADES)
             self._conn.executescript(_DDL_EQUITY)
+            self._conn.executescript(_DDL_POSITIONS)
             self._conn.executescript(_DDL_REGIME)
             self._conn.commit()
 
@@ -169,6 +182,114 @@ class TradeLogger:
             "INSERT INTO equity_snapshots (ts, equity, positions) VALUES (?,?,?)",
             (ts, float(equity), json.dumps(positions)),
         )
+
+    def log_positions(
+        self,
+        positions: Dict[str, float],
+        prices: Dict[str, float],
+        avg_entries: Optional[Dict[str, float]] = None,
+        bh_active: Optional[Dict[str, bool]] = None,
+    ):
+        """
+        Upsert current open positions into the positions table.
+        Clears any symbols that are no longer held.
+
+        Parameters
+        ----------
+        positions : {sym: signed_qty}  — from broker.get_positions()
+        prices    : {sym: last_price}
+        avg_entries : {sym: avg_entry_price} — optional; 0.0 if unknown
+        bh_active   : {sym: bool}            — optional BH signal state
+        """
+        ts = datetime.now(timezone.utc).isoformat()
+        avg_entries = avg_entries or {}
+        bh_active = bh_active or {}
+
+        with self._lock:
+            # Remove positions that are now flat
+            held_syms = [s for s, q in positions.items() if abs(q) > 1e-9]
+            if held_syms:
+                placeholders = ",".join("?" * len(held_syms))
+                self._conn.execute(
+                    f"DELETE FROM positions WHERE sym NOT IN ({placeholders})",
+                    held_syms,
+                )
+            else:
+                self._conn.execute("DELETE FROM positions")
+
+            for sym, qty in positions.items():
+                if abs(qty) < 1e-9:
+                    continue
+                price = float(prices.get(sym, 0.0))
+                entry = float(avg_entries.get(sym, 0.0))
+                upnl = (price - entry) * qty if entry > 0 else 0.0
+                bh = int(bool(bh_active.get(sym, False)))
+                self._conn.execute(
+                    """
+                    INSERT INTO positions (sym, qty, avg_entry, current_price, unrealized_pnl, bh_active, last_updated)
+                    VALUES (?,?,?,?,?,?,?)
+                    ON CONFLICT(sym) DO UPDATE SET
+                        qty=excluded.qty,
+                        avg_entry=excluded.avg_entry,
+                        current_price=excluded.current_price,
+                        unrealized_pnl=excluded.unrealized_pnl,
+                        bh_active=excluded.bh_active,
+                        last_updated=excluded.last_updated
+                    """,
+                    (sym, float(qty), entry, price, upnl, bh, ts),
+                )
+            self._conn.commit()
+
+    def log_positions_full(
+        self,
+        pos_data: Dict[str, dict],
+        bh_active: Optional[Dict[str, bool]] = None,
+    ):
+        """
+        Upsert positions using pre-built data from Alpaca position objects.
+
+        Parameters
+        ----------
+        pos_data : {slash_sym: {qty, avg_entry, current_price, unrealized_pnl}}
+        bh_active : {slash_sym: bool}
+        """
+        ts = datetime.now(timezone.utc).isoformat()
+        bh_active = bh_active or {}
+        with self._lock:
+            held = [s for s, d in pos_data.items() if abs(d.get("qty", 0)) > 1e-9]
+            if held:
+                placeholders = ",".join("?" * len(held))
+                self._conn.execute(
+                    f"DELETE FROM positions WHERE sym NOT IN ({placeholders})", held)
+            else:
+                self._conn.execute("DELETE FROM positions")
+            for sym, d in pos_data.items():
+                if abs(d.get("qty", 0)) < 1e-9:
+                    continue
+                self._conn.execute(
+                    """
+                    INSERT INTO positions
+                        (sym, qty, avg_entry, current_price, unrealized_pnl, bh_active, last_updated)
+                    VALUES (?,?,?,?,?,?,?)
+                    ON CONFLICT(sym) DO UPDATE SET
+                        qty=excluded.qty,
+                        avg_entry=excluded.avg_entry,
+                        current_price=excluded.current_price,
+                        unrealized_pnl=excluded.unrealized_pnl,
+                        bh_active=excluded.bh_active,
+                        last_updated=excluded.last_updated
+                    """,
+                    (
+                        sym,
+                        float(d["qty"]),
+                        float(d.get("avg_entry", 0)),
+                        float(d.get("current_price", 0)),
+                        float(d.get("unrealized_pnl", 0)),
+                        int(bool(bh_active.get(sym, False))),
+                        ts,
+                    ),
+                )
+            self._conn.commit()
 
     def log_regime(
         self,

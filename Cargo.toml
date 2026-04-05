@@ -10,6 +10,8 @@ members = [
     "crates/options-engine",
     "crates/smart-order-router",
     "crates/tick-backtest",
+    "crates/idea-genome-engine",
+    "crates/counterfactual-engine",
 ]
 resolver = "2"
 

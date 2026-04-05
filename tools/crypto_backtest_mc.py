@@ -53,25 +53,27 @@ INSTRUMENTS = {
     "YFI":   {"ticker": "YFI/USD",   "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
 }
 
-BH_FORM     = 1.2   # lower threshold — fires faster
-BH_CTL_MIN  = 1     # activate after just 1 consecutive timelike bar
+BH_FORM     = 1.92  # EMA mass asymptotes to 2.0 — 1.92 is the effective reachable ceiling
+BH_CTL_MIN  = 3     # require 3 consecutive timelike bars
 
 START_DATE         = datetime(2021, 1, 1, tzinfo=timezone.utc)
 STARTING_EQUITY    = 1_000_000.0
-TAIL_FIXED_CAPITAL = 1_000_000.0  # no de-risk
-DAILY_RISK         = 0.05         # 5x aggression
+TAIL_FIXED_CAPITAL = 1_000_000.0
+DAILY_RISK         = 0.05
 N_INST             = 20
-CORR               = 0.65
+CORR               = 0.25   # matches live trader — lower corr = more diversification benefit
 CORR_FACTOR        = math.sqrt(N_INST + N_INST * (N_INST - 1) * CORR)
 PER_INST_RISK      = DAILY_RISK / CORR_FACTOR
 
 TF_CAP      = {7: 1.0, 6: 1.0, 4: 0.60, 3: 0.50, 2: 0.40, 1: 0.20, 0: 0.0}
-CRYPTO_CAP  = 0.40   # 40% per coin
-MIN_HOLD      = 1
-BH_DECAY      = 0.95
-BH_COLLAPSE   = 0.8
+CRYPTO_CAP  = 0.40
+MIN_HOLD      = 6
+BH_DECAY      = 0.924
+BH_COLLAPSE   = 0.992
 WARMUP_DAYS   = 20
-STALE_15M_MOVE = 0.001  # full volatility mode: cut losing positions moving < 0.1% per 15m
+STALE_15M_MOVE = 0.001
+DELTA_MAX_FRAC = 0.40
+OU_FRAC        = 0.08   # OU mean reversion position size (mirrors live trader)
 
 MC_SIMS     = 10_000
 MC_MONTHS   = 12
@@ -127,6 +129,116 @@ class BullScale:
     def scale(self):
         if any(x is None for x in [self.e12,self.e26,self.e50,self.e200]): return 1.0
         return 3.0 if (self.last>self.e200 and self.e12>self.e26 and self.e26>self.e50) else 1.0
+
+
+# ── GARCH Vol Forecaster (mirrors live trader) ───────────────────────────────
+class GARCHTracker:
+    """Online GARCH(1,1) vol forecaster. Scales positions down in vol spikes."""
+    def __init__(self, omega=1e-6, alpha=0.10, beta=0.85, warmup=30):
+        self.omega = omega; self.alpha = alpha; self.beta = beta; self._warmup = warmup
+        self._var = None; self._returns = deque(maxlen=100); self.vol = None
+
+    def update(self, ret: float):
+        self._returns.append(ret)
+        if len(self._returns) < self._warmup:
+            return
+        if self._var is None:
+            self._var = float(np.var(list(self._returns))) + 1e-12
+        else:
+            self._var = self.omega + self.alpha * ret**2 + self.beta * self._var
+        self.vol = math.sqrt(max(self._var, 1e-12) * 365)
+
+    @property
+    def vol_scale(self) -> float:
+        if self.vol is None or self.vol <= 0:
+            return 1.0
+        return min(2.0, max(0.3, 1.20 / self.vol))  # target 120% annual vol — normal crypto range
+
+
+# ── OU Mean Reversion Detector (mirrors live trader) ─────────────────────────
+class OUDetector:
+    """Ornstein-Uhlenbeck mean reversion detector. Trades when BH is flat."""
+    def __init__(self, window=50, entry_z=1.5, exit_z=0.3):
+        self.window = window; self.entry_z = entry_z; self.exit_z = exit_z
+        self._prices = deque(maxlen=window)
+        self.mean = self.std = self.zscore = self.half_life = None
+
+    def update(self, price: float):
+        self._prices.append(math.log(price + 1e-12))
+        if len(self._prices) < 20:
+            return
+        px = np.array(self._prices)
+        self.mean = float(np.mean(px))
+        self.std  = float(np.std(px)) + 1e-9
+        self.zscore = (px[-1] - self.mean) / self.std
+        # Estimate half-life via AR(1) regression
+        y = px[1:]; x = px[:-1]
+        if len(x) > 5:
+            rho = float(np.corrcoef(x, y)[0, 1])
+            rho = max(-0.9999, min(0.9999, rho))
+            self.half_life = -math.log(2) / math.log(abs(rho) + 1e-12) if rho < 1 else 999
+
+    @property
+    def long_signal(self) -> bool:
+        return (self.zscore is not None and self.zscore < -self.entry_z
+                and self.half_life is not None and 2 < self.half_life < 120)
+
+    @property
+    def short_signal(self) -> bool:
+        return (self.zscore is not None and self.zscore > self.entry_z
+                and self.half_life is not None and 2 < self.half_life < 120)
+
+    @property
+    def exit_signal(self) -> bool:
+        return self.zscore is not None and abs(self.zscore) < self.exit_z
+
+
+# ── PID Controller (mirrors live trader) ─────────────────────────────────────
+class PIDController:
+    """Adaptive sizing controller — same gains/setpoints as live trader."""
+    def __init__(self):
+        self.kp_stale = 0.002;  self.ki_stale = 0.0001;  self.kd_stale = 0.001
+        self.kp_conc  = 0.05;   self.ki_conc  = 0.002;   self.kd_conc  = 0.02
+        self.target_win_rate = 0.52
+        self.target_drawdown = 0.10
+        self.target_sharpe   = 0.5
+        self._i_stale = 0.0;  self._prev_e_stale = 0.0
+        self._i_conc  = 0.0;  self._prev_e_conc  = 0.0
+        self.stale_threshold = STALE_15M_MOVE
+        self.max_frac        = DELTA_MAX_FRAC
+        self._trade_pnls = deque(maxlen=50)
+        self._equity_peak = 1.0
+
+    def record_trade(self, pnl_pct: float):
+        self._trade_pnls.append(pnl_pct)
+
+    def update(self, equity: float):
+        self._equity_peak = max(self._equity_peak, equity)
+        drawdown = (self._equity_peak - equity) / (self._equity_peak + 1e-9)
+        if len(self._trade_pnls) < 5:
+            return self.stale_threshold, self.max_frac
+        pnls     = list(self._trade_pnls)
+        win_rate = sum(1 for p in pnls if p > 0) / len(pnls)
+        std_pnl  = float(np.std(pnls)) + 1e-9
+        sharpe   = float(np.mean(pnls)) / std_pnl * math.sqrt(252)
+        # PID 1: stale threshold
+        e_stale = self.target_win_rate - win_rate
+        self._i_stale = max(-0.005, min(0.005, self._i_stale + e_stale))
+        d_stale = e_stale - self._prev_e_stale
+        self._prev_e_stale = e_stale
+        delta_stale = (self.kp_stale * e_stale + self.ki_stale * self._i_stale +
+                       self.kd_stale * d_stale)
+        self.stale_threshold = float(np.clip(STALE_15M_MOVE + delta_stale, 0.0003, 0.005))
+        # PID 2: concentration cap
+        e_conc = max(0.0, drawdown - self.target_drawdown) + \
+                 max(0.0, self.target_sharpe - sharpe) * 0.1
+        self._i_conc = max(-0.3, min(0.3, self._i_conc + e_conc))
+        d_conc = e_conc - self._prev_e_conc
+        self._prev_e_conc = e_conc
+        delta_conc = (self.kp_conc * e_conc + self.ki_conc * self._i_conc +
+                      self.kd_conc * d_conc)
+        self.max_frac = float(np.clip(DELTA_MAX_FRAC - delta_conc, 0.25, 0.75))
+        return self.stale_threshold, self.max_frac
 
 
 # ── Download ──────────────────────────────────────────────────────────────────
@@ -185,13 +297,18 @@ def download_crypto():
 def run_backtest(data):
     syms = list(INSTRUMENTS.keys())
 
-    d_bh   = {s: BHState(INSTRUMENTS[s]["cf_1d"])  for s in syms}
-    h4_bh  = {s: BHState(INSTRUMENTS[s]["cf_4h"])  for s in syms}
-    h_bh   = {s: BHState(INSTRUMENTS[s]["cf_1h"])  for s in syms}
-    m_bh   = {s: BHState(INSTRUMENTS[s]["cf_15m"]) for s in syms}
+    d_bh   = {s: BHState(INSTRUMENTS[s]["cf_1d"],  INSTRUMENTS[s].get("bh_form", BH_FORM)) for s in syms}
+    h4_bh  = {s: BHState(INSTRUMENTS[s]["cf_4h"],  INSTRUMENTS[s].get("bh_form", BH_FORM)) for s in syms}
+    h_bh   = {s: BHState(INSTRUMENTS[s]["cf_1h"],  INSTRUMENTS[s].get("bh_form", BH_FORM)) for s in syms}
+    m_bh   = {s: BHState(INSTRUMENTS[s]["cf_15m"], INSTRUMENTS[s].get("bh_form", BH_FORM)) for s in syms}
     d_atr  = {s: ATRTracker() for s in syms}
     h_atr  = {s: ATRTracker() for s in syms}
     bull   = {s: BullScale() for s in syms}
+    garch  = {s: GARCHTracker() for s in syms}
+    ou     = {s: OUDetector() for s in syms}
+    # Mayer Multiple: BTC 200-day EMA for macro dampener
+    btc_e200 = None
+    ou_pos   = {s: 0.0 for s in syms}  # current OU position fraction
 
     dollar_pos   = {s: 0.0  for s in syms}
     entry_price  = {s: None for s in syms}
@@ -204,6 +321,7 @@ def run_backtest(data):
     peak   = STARTING_EQUITY
     equity_curve = []
     trades = []
+    pid = PIDController()
 
     # All daily timestamps as spine
     all_days = data["BTC"]["1d"].index
@@ -226,6 +344,15 @@ def run_backtest(data):
             d_count[s] += 1
             if d_count[s] >= WARMUP_DAYS:
                 warmup_done[s] = True
+            # GARCH update on daily return
+            if len(d_bh[s].prices) >= 2:
+                px = list(d_bh[s].prices)
+                garch[s].update((px[-1] - px[-2]) / (px[-2] + 1e-9))
+            # OU update on daily close
+            ou[s].update(row["Close"])
+            # Mayer Multiple: track BTC EMA200
+            if s == "BTC":
+                btc_e200 = _ema(btc_e200, row["Close"], _a(200))
 
         if not all(warmup_done.values()):
             equity_curve.append((day.date(), equity))
@@ -285,6 +412,9 @@ def run_backtest(data):
             equity_live = equity + mtm
             if equity_live > peak: peak = equity_live
 
+            # PID update each bar
+            stale_thresh, pid_max_frac = pid.update(equity_live)
+
             # Compute targets
             tail_frac = min(TAIL_FIXED_CAPITAL, equity_live) / equity_live
             raw = {}
@@ -310,21 +440,56 @@ def run_backtest(data):
                 atr = h_atr[s].atr or d_atr[s].atr
                 cp  = curr_price[s]
                 vol = (atr / cp * math.sqrt(6.5)) if (atr and cp > 0) else 0.01
-                raw[s] = min(PER_INST_RISK / (vol + 1e-9), ceiling)
+                base = min(PER_INST_RISK / (vol + 1e-9), min(ceiling, pid_max_frac))
+                # GARCH vol scaling: compress when vol elevated, expand when compressed
+                raw[s] = base * garch[s].vol_scale
 
-            # Stale-15m exit: losing position + tiny 15m move → close, seek volatility
+            # Mayer Multiple dampener: de-risk when BTC overbought vs 200-day EMA
+            mayer_damp = 1.0
+            if btc_e200 and btc_e200 > 0 and "BTC" in curr_price:
+                mayer = curr_price["BTC"] / btc_e200
+                if mayer > 2.4:
+                    mayer_damp = max(0.5, 1.0 - (mayer - 2.4) / 2.2)
+                elif mayer < 1.0:
+                    mayer_damp = min(1.2, 1.0 + (1.0 - mayer) * 0.3)
+            for s in syms:
+                raw[s] = raw.get(s, 0.0) * mayer_damp
+
+            # BTC cross-asset lead: pre-position alts when BTC hourly forming but daily not yet
+            btc_d = d_bh["BTC"].active; btc_h = h_bh["BTC"].active
+            btc_forming = (not btc_d) and d_bh["BTC"].mass > 0.8 and btc_h
+            for s in syms:
+                if btc_forming and s != "BTC" and warmup_done[s] and not d_bh[s].active:
+                    raw[s] = max(raw.get(s, 0.0), 0.05)
+
+            # Stale-15m exit: losing + tiny 15m move → close; protect winners
             for s in syms:
                 if raw.get(s, 0.0) == 0.0: continue
                 ep   = entry_price[s]
                 cp   = curr_price[s]
                 px15 = last_15m_px[s]
                 if ep and cp and px15:
-                    losing = cp < ep  # long-only, so losing = price below entry
-                    move15 = abs(cp - px15) / (px15 + 1e-9)
-                    if losing and move15 < STALE_15M_MOVE:
-                        raw[s] = 0.0
+                    pnl_pct = (cp - ep) / (ep + 1e-9)
+                    move15  = abs(cp - px15) / (px15 + 1e-9)
+                    if pnl_pct < 0 and move15 < stale_thresh:
+                        raw[s] = 0.0  # cut loser
+                    elif pnl_pct > 0.001:
+                        # Winner protection: hold at least current size
+                        raw[s] = max(abs(raw[s]), abs(last_frac[s])) * math.copysign(1, raw[s])
 
-            # pos_floor
+            # OU mean reversion: add positions when BH is flat
+            for s in syms:
+                if not warmup_done[s]: continue
+                if d_bh[s].active or h_bh[s].active: continue  # BH takes priority
+                if ou[s].long_signal and ou_pos[s] <= 0:
+                    raw[s] = raw.get(s, 0.0) + OU_FRAC
+                    ou_pos[s] = OU_FRAC
+                elif ou[s].exit_signal and ou_pos[s] > 0:
+                    ou_pos[s] = 0.0
+                elif ou[s].short_signal:
+                    ou_pos[s] = 0.0  # long-only: just flat on short signal
+
+            # pos_floor — with sign preservation fix
             for s in syms:
                 tgt = raw.get(s, 0.0)
                 d = d_bh[s].active; h = h_bh[s].active
@@ -332,7 +497,9 @@ def run_backtest(data):
                 if tf >= 6 and abs(tgt) > 0.15 and h_bh[s].ctl >= 5:
                     pos_floor[s] = max(pos_floor[s], 0.70 * abs(tgt))
                 if pos_floor[s] > 0 and tf >= 4 and not np.isclose(last_frac[s], 0.0):
-                    raw[s] = max(tgt, pos_floor[s]); pos_floor[s] *= 0.95
+                    # FIX: preserve sign when applying floor
+                    raw[s] = math.copysign(max(abs(tgt), pos_floor[s]), last_frac[s])
+                    pos_floor[s] *= 0.95
                 if tf < 4 or np.isclose(tgt, 0.0): pos_floor[s] = 0.0
                 if not d and not h: pos_floor[s] = 0.0
 
@@ -354,6 +521,7 @@ def run_backtest(data):
                         ret = (curr_price[s] - entry_price[s]) / entry_price[s]
                         pnl = dollar_pos[s] * ret
                         equity += pnl
+                        pid.record_trade(ret)
                         trades.append({
                             "exit_time":   bar_time if bar_time != day else day.date(),
                             "sym":         s,
@@ -563,8 +731,22 @@ def plot_all(dates, values, dd, mc_results):
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("Downloading crypto history (2021-present)...")
-    data = download_crypto()
+    import pickle, os
+    _CACHE = os.path.join(os.path.dirname(__file__), "backtest_output", "crypto_data_cache.pkl")
+    if os.path.exists(_CACHE):
+        print("Loading crypto history from cache...")
+        with open(_CACHE, "rb") as _f:
+            data = pickle.load(_f)
+        # Print bar counts to confirm
+        for sym, frames in data.items():
+            counts = " ".join(f"{tf}:{len(bars)}" for tf, bars in frames.items())
+            print(f"  {sym}... {counts}")
+    else:
+        print("Downloading crypto history (2021-present)...")
+        data = download_crypto()
+        with open(_CACHE, "wb") as _f:
+            pickle.dump(data, _f)
+        print(f"  Cached to {_CACHE}")
 
     print("\nRunning BH backtest...")
     eq_curve, trades, peak = run_backtest(data)

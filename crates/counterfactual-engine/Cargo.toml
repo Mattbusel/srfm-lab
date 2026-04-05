@@ -1,0 +1,20 @@
+[package]
+name = "counterfactual-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Fast parameter sweeping and sensitivity analysis for the IAE Counterfactual Oracle"
+
+[[bin]]
+name = "counterfactual-engine"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+rand = "0.8"
+rayon = "1"
+statrs = "0.16"
+anyhow = "1"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }

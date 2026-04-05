@@ -160,8 +160,8 @@ class LiveDashboard:
         conn = sqlite3.connect(str(db))
         try:
             df = pd.read_sql_query(
-                f"SELECT sym, side, fill_price, qty, pnl, fill_time "
-                f"FROM trades ORDER BY fill_time DESC LIMIT {self.max_recent_trades}",
+                f"SELECT symbol as sym, side, price as fill_price, qty, pnl, ts as fill_time "
+                f"FROM trades ORDER BY ts DESC LIMIT {self.max_recent_trades}",
                 conn,
             )
         except Exception:
