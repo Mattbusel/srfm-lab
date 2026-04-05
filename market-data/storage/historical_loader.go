@@ -132,7 +132,7 @@ func (l *HistoricalLoader) Load(ctx interface{ Done() <-chan struct{} }) error {
 	for _, j := range jobs {
 		select {
 		case <-ctx.Done():
-			break
+			goto done
 		default:
 		}
 		wg.Add(1)
@@ -149,6 +149,7 @@ func (l *HistoricalLoader) Load(ctx interface{ Done() <-chan struct{} }) error {
 		}()
 	}
 
+done:
 	go func() {
 		wg.Wait()
 		close(results)

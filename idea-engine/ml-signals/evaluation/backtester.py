@@ -48,7 +48,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-from ..models.base import MLSignal, SignalMetrics
+from models.base import MLSignal, SignalMetrics
 
 
 # ---------------------------------------------------------------------------

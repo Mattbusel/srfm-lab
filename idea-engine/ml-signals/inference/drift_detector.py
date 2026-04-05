@@ -329,8 +329,8 @@ class DriftDetector:
             return f"No PSI data for {instrument}"
         lines = [f"PSI summary for {instrument}:"]
         for feat, val in sorted(psi.items(), key=lambda x: -x[1]):
-            flag = ("🔴" if val >= self.psi_critical else
-                    "🟡" if val >= self.psi_moderate else "🟢")
+            flag = ("[RED]" if val >= self.psi_critical else
+                    "[YLW]" if val >= self.psi_moderate else "[GRN]")
             lines.append(f"  {flag} {feat:<30} PSI={val:.4f}")
         return "\n".join(lines)
 

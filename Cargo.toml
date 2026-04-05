@@ -17,6 +17,8 @@ members = [
     "crates/fractal-engine",
     "crates/rl-exit-optimizer",
     "crates/order-flow-engine",
+    "crates/parallel-backtest",
+    "crates/network-graph",
 ]
 resolver = "2"
 

@@ -34,11 +34,11 @@ from typing import Dict, List, Optional, Type
 import numpy as np
 import pandas as pd
 
-from ..models.base import MLSignal, SignalMetrics
-from ..models.lstm_signal import LSTMSignal
-from ..models.transformer_signal import TransformerSignal
-from ..models.xgboost_signal import XGBoostSignal
-from ..models.ensemble import EnsembleSignal
+from models.base import MLSignal, SignalMetrics
+from models.lstm_signal import LSTMSignal
+from models.transformer_signal import TransformerSignal
+from models.xgboost_signal import XGBoostSignal
+from models.ensemble import EnsembleSignal
 
 
 @dataclass

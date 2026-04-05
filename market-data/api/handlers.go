@@ -40,13 +40,13 @@ type FeedManagerI interface {
 
 // Handlers holds all HTTP handler dependencies.
 type Handlers struct {
-	store      BarQuerier
-	cache      BarCacher
-	subMgr     *streaming.SubscriptionManager
-	metrics    *monitoring.Metrics
-	hub        *streaming.WebSocketHub
-	symbols    []string
-	replayer   *streaming.Replayer
+	store    BarQuerier
+	cache    BarCacher
+	subMgr   *streaming.SubscriptionManager
+	metrics  *monitoring.Metrics
+	hub      *streaming.WebSocketHub
+	symbols  []string
+	replayer *streaming.Replayer
 }
 
 // NewHandlers creates handlers.
@@ -147,7 +147,6 @@ func (h *Handlers) GetSnapshot(w http.ResponseWriter, r *http.Request) {
 	for _, tf := range aggregator.Timeframes {
 		latest := h.cache.Latest(symbol, tf)
 		if latest == nil {
-			// Fall back to store
 			bar, err := h.store.LatestBar(symbol, tf)
 			if err == nil && bar != nil {
 				latest = bar
@@ -195,12 +194,12 @@ func (h *Handlers) GetStatus(mgr FeedManagerI) http.HandlerFunc {
 		}
 
 		writeJSON(w, map[string]interface{}{
-			"primary_feed":  mgr.PrimaryFeed(),
-			"feeds":         []feedStatus{fmtFeed(alpacaH), fmtFeed(binanceH)},
-			"ws_clients":    h.hub.ClientCount(),
+			"primary_feed":   mgr.PrimaryFeed(),
+			"feeds":          []feedStatus{fmtFeed(alpacaH), fmtFeed(binanceH)},
+			"ws_clients":     h.hub.ClientCount(),
 			"cache_hit_rate": h.cache.HitRate(),
-			"metrics":       h.metrics.Snapshot(),
-			"timestamp":     time.Now().UTC().Format(time.RFC3339),
+			"metrics":        h.metrics.Snapshot(),
+			"timestamp":      time.Now().UTC().Format(time.RFC3339),
 		})
 	}
 }
@@ -315,18 +314,18 @@ func writeJSONCompressed(w http.ResponseWriter, r *http.Request, v interface{}) 
 		w.Header().Set("Content-Type", "application/json")
 		gz := gzip.NewWriter(w)
 		defer gz.Close()
-		gz.Write(data)
+		gz.Write(data) //nolint:errcheck
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	w.Write(data) //nolint:errcheck
 }
 
 func writeError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
 		"error": msg,
 		"code":  code,
 	})
@@ -355,7 +354,3 @@ func parseTimeDefault(s string, def time.Time) time.Time {
 	}
 	return def
 }
-
-// Ensure unused imports don't break build
-var _ context.Context
-var _ io.Reader
