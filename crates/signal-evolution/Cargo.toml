@@ -1,0 +1,22 @@
+[package]
+name = "signal-evolution"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "signal-evolution"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1"
+rand = { version = "0.8", features = ["small_rng"] }
+rand_distr = "0.4"
+statrs = "0.17"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+csv = "1"
+
+[dev-dependencies]
+approx = "0.5"
