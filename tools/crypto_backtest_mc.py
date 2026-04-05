@@ -731,22 +731,114 @@ def plot_all(dates, values, dd, mc_results):
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    import pickle, os
-    _CACHE = os.path.join(os.path.dirname(__file__), "backtest_output", "crypto_data_cache.pkl")
-    if os.path.exists(_CACHE):
+    import argparse, pickle, os
+    from datetime import date as _date
+
+    parser = argparse.ArgumentParser(
+        description="Crypto BH Backtest + Monte Carlo",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--start-date", default="2023-01-01",
+        help="Backtest start date (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--end-date", default=str(_date.today()),
+        help="Backtest end date (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--mc-paths", type=int, default=1000,
+        help="Number of Monte Carlo simulation paths",
+    )
+    parser.add_argument(
+        "--symbols", default="",
+        help="Comma-separated list of symbols to backtest (default: all)",
+    )
+    parser.add_argument(
+        "--bh-form", type=float, default=BH_FORM,
+        help="BH formation threshold (mass >= this to activate)",
+    )
+    parser.add_argument(
+        "--corr", type=float, default=CORR,
+        help="Cross-asset correlation assumption for portfolio risk sizing",
+    )
+    parser.add_argument(
+        "--garch-target-vol", type=float, default=1.20,
+        help="GARCH target annualized volatility (e.g. 1.20 = 120%%)",
+    )
+    parser.add_argument(
+        "--ou-frac", type=float, default=OU_FRAC,
+        help="OU mean-reversion position fraction of equity",
+    )
+    parser.add_argument(
+        "--output-dir", default="tools/backtest_output",
+        help="Output directory for CSV, PNG, and cache files",
+    )
+    parser.add_argument(
+        "--no-plot", action="store_true",
+        help="Skip generating plot PNG",
+    )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Enable verbose output",
+    )
+    args = parser.parse_args()
+
+    # Apply CLI overrides to module-level constants
+    if args.bh_form != BH_FORM:
+        BH_FORM = args.bh_form
+    if args.corr != CORR:
+        CORR = args.corr
+        N_INST_eff = len(INSTRUMENTS)
+        CORR_FACTOR = math.sqrt(N_INST_eff + N_INST_eff * (N_INST_eff - 1) * CORR)
+        PER_INST_RISK = DAILY_RISK / CORR_FACTOR
+    if args.ou_frac != OU_FRAC:
+        OU_FRAC = args.ou_frac
+    if args.mc_paths != MC_SIMS:
+        MC_SIMS = args.mc_paths
+
+    # Override output directory
+    OUT_DIR = Path(args.output_dir)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Filter symbols if specified
+    _active_instruments = INSTRUMENTS
+    if args.symbols:
+        _syms = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+        _active_instruments = {k: v for k, v in INSTRUMENTS.items() if k in _syms}
+        if not _active_instruments:
+            print(f"[ERROR] None of the requested symbols found: {_syms}")
+            print(f"  Available: {list(INSTRUMENTS.keys())}")
+            raise SystemExit(1)
+
+    # Override start date if non-default
+    if args.start_date != "2023-01-01":
+        _sd = datetime.fromisoformat(args.start_date).replace(tzinfo=timezone.utc)
+        START_DATE = _sd
+
+    if args.verbose:
+        print(f"Config: bh_form={BH_FORM}  corr={CORR}  ou_frac={OU_FRAC}  "
+              f"mc_paths={MC_SIMS}  start={args.start_date}  end={args.end_date}")
+        print(f"Instruments: {list(_active_instruments.keys())}")
+
+    _CACHE = OUT_DIR / "crypto_data_cache.pkl"
+    if _CACHE.exists():
         print("Loading crypto history from cache...")
         with open(_CACHE, "rb") as _f:
             data = pickle.load(_f)
-        # Print bar counts to confirm
+        # Filter to requested symbols
+        data = {k: v for k, v in data.items() if k in _active_instruments}
         for sym, frames in data.items():
             counts = " ".join(f"{tf}:{len(bars)}" for tf, bars in frames.items())
-            print(f"  {sym}... {counts}")
+            if args.verbose:
+                print(f"  {sym}... {counts}")
     else:
         print("Downloading crypto history (2021-present)...")
         data = download_crypto()
         with open(_CACHE, "wb") as _f:
             pickle.dump(data, _f)
         print(f"  Cached to {_CACHE}")
+        data = {k: v for k, v in data.items() if k in _active_instruments}
 
     print("\nRunning BH backtest...")
     eq_curve, trades, peak = run_backtest(data)
@@ -759,6 +851,7 @@ if __name__ == "__main__":
     if mc_out:
         mc_results, blowup_rate, tpm = mc_out
         print_mc_stats(mc_results, blowup_rate, tpm)
-        plot_all(dates, values, dd, mc_results)
+        if not args.no_plot:
+            plot_all(dates, values, dd, mc_results)
         pd.DataFrame(trades).to_csv(OUT_DIR / "crypto_trades.csv", index=False)
         print(f"  Trades CSV: {OUT_DIR / 'crypto_trades.csv'}")

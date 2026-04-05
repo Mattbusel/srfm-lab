@@ -415,3 +415,116 @@ class IngestionPipeline:
             len(result.errors),
         )
         return result
+
+
+# ── CLI entry point ───────────────────────────────────────────────────────────
+
+def _main() -> None:
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="IAE Ingestion Pipeline — mine patterns from backtest + live trade history",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--db", default=str(DB_PATH), metavar="PATH",
+        help="Path to idea_engine.db (SQLite)",
+    )
+    parser.add_argument(
+        "--live-db", default=None, metavar="PATH",
+        help="Path to live_trades.db (overrides config default)",
+    )
+    parser.add_argument(
+        "--miners", default="",
+        help=(
+            "Comma-separated list of miners to enable "
+            "(time_of_day, regime_cluster, bh_physics, drawdown). "
+            "Default: all enabled."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Run loaders and miners but do not write patterns to the database",
+    )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Enable DEBUG-level logging",
+    )
+    args = parser.parse_args()
+
+    # Configure logging
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+        level=log_level,
+        stream=sys.stderr,
+    )
+
+    # Build miner config overrides
+    miner_cfg: Dict[str, bool] = {}
+    if args.miners:
+        _all_miners = {"time_of_day", "regime_cluster", "bh_physics", "drawdown"}
+        _requested = {m.strip() for m in args.miners.split(",") if m.strip()}
+        _unknown = _requested - _all_miners
+        if _unknown:
+            parser.error(f"Unknown miners: {_unknown}. Valid: {sorted(_all_miners)}")
+        miner_cfg = {m: (m in _requested) for m in _all_miners}
+
+    # Build pipeline config
+    pipeline_config: Dict[str, Any] = {}
+    if miner_cfg:
+        pipeline_config["miners"] = miner_cfg
+
+    # Override live trades DB path in config if provided
+    if args.live_db:
+        from . import config as _cfg
+        _cfg.LIVE_TRADES_DB = Path(args.live_db)
+        logger.info("Live trades DB overridden: %s", args.live_db)
+
+    db_path = Path(args.db)
+
+    if args.verbose:
+        logger.debug("DB path: %s", db_path)
+        logger.debug("Miners config: %s", miner_cfg or "all (defaults)")
+        logger.debug("Dry run: %s", args.dry_run)
+
+    pipe = IngestionPipeline(config=pipeline_config or None, db_path=db_path)
+
+    if args.dry_run:
+        # Run all stages up to (but not including) persistence
+        from datetime import datetime, timezone as _tz
+        _start = time.monotonic()
+        _run_ts = datetime.now(_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        result = PipelineResult(run_ts=_run_ts)
+        bt, live, wf = pipe._load_data(result)
+        all_patterns = pipe._run_miners(bt, live, wf, result)
+        result.n_patterns_raw = len(all_patterns)
+        confirmed = pipe._filter(all_patterns)
+        result.n_patterns_confirmed = len([p for p in confirmed if p.status.value == "confirmed"])
+        result.confirmed_patterns = confirmed
+        result.duration_s = time.monotonic() - _start
+        print(
+            f"[dry-run] pipeline complete in {result.duration_s:.2f}s | "
+            f"raw={result.n_patterns_raw} confirmed={result.n_patterns_confirmed} "
+            f"written=0 (dry run) errors={len(result.errors)}"
+        )
+        sys.exit(0)
+
+    result = pipe.run()
+
+    # Summary to stdout
+    print(
+        f"Pipeline complete in {result.duration_s:.2f}s | "
+        f"raw={result.n_patterns_raw} confirmed={result.n_patterns_confirmed} "
+        f"written={result.n_patterns_written} errors={len(result.errors)}"
+    )
+    if result.errors:
+        for err in result.errors:
+            print(f"  [ERROR] {err}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    _main()

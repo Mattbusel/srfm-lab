@@ -12,6 +12,7 @@ members = [
     "crates/tick-backtest",
     "crates/idea-genome-engine",
     "crates/counterfactual-engine",
+    "crates/monte-carlo-engine",
 ]
 resolver = "2"
 

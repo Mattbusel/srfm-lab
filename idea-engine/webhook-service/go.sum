@@ -1,0 +1,8 @@
+github.com/go-chi/chi/v5 v5.0.10 h1:rLz5avzKpjqaBR9IRpI9dCrBHX7Di7F4GPiAeZWkMis=
+github.com/go-chi/chi/v5 v5.0.10/go.mod h1:DslCQbL2OYiznFReuXYUmovuv+y9p/oDEqxtcJPzybI=
+github.com/google/uuid v1.4.0 h1:MtMxsa51/r9yyhkyLsVeVt0B+BGQZzpQiTQ4eHZ8bc4=
+github.com/google/uuid v1.4.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=
+go.uber.org/multierr v1.11.0/go.mod h1:20+QjH8BoIl4hbFqH4BYQN0nVFMIbm/8V7Wd+eTBOtk=
+go.uber.org/zap v1.26.0 h1:sI7k6L95XOKS281NhVKOFCUDDayStHVDqgggqnR1fNI=
+go.uber.org/zap v1.26.0/go.mod h1:dtElttAiwGvoJ/vj4IwHBS/gXsEu/pZ50mUIRWuG0so=
