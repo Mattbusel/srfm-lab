@@ -61,3 +61,4 @@ idea-engine/.pids/
 
 # Rust build artifacts (already in .gitignore via build/ but be explicit)
 target/
+research/reports/
