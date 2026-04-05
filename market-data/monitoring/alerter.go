@@ -1,6 +1,7 @@
 package monitoring
 
 import (
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -13,11 +14,6 @@ const (
 	alertCooldown            = 5 * time.Minute
 )
 
-// FeedHealther provides feed health for alerter checks.
-type FeedHealther interface {
-	GetHealth() (interface{ LastBarTime() time.Time }, interface{ LastBarTime() time.Time })
-}
-
 // AlertEvent records an alert occurrence.
 type AlertEvent struct {
 	Level     string    `json:"level"`
@@ -26,33 +22,27 @@ type AlertEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// FeedStatusProvider returns feed status for alerter.
-type FeedStatusProvider interface {
-	GetHealthRaw() (name1 string, connected1 bool, lastBar1 time.Time, name2 string, connected2 bool, lastBar2 time.Time)
-	WSClientCount() int
-}
-
 // Alerter monitors system state and fires alerts.
 type Alerter struct {
-	mu          sync.Mutex
-	lastAlerts  map[string]time.Time
+	mu           sync.Mutex
+	lastAlerts   map[string]time.Time
 	recentAlerts []AlertEvent
-	maxHistory  int
+	maxHistory   int
 
-	// Channels for feeding alerts to external sinks
+	// Channel for feeding alerts to external sinks
 	alertCh chan AlertEvent
 }
 
 // NewAlerter creates an Alerter.
 func NewAlerter() *Alerter {
 	return &Alerter{
-		lastAlerts:  make(map[string]time.Time),
-		maxHistory:  200,
-		alertCh:     make(chan AlertEvent, 64),
+		lastAlerts: make(map[string]time.Time),
+		maxHistory: 200,
+		alertCh:    make(chan AlertEvent, 64),
 	}
 }
 
-// Run starts the alerter's periodic check loop.
+// Run starts the alerter's log drain loop. Blocks until ctx is cancelled.
 func (a *Alerter) Run(ctx interface{ Done() <-chan struct{} }, provider interface{}) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -70,8 +60,7 @@ func (a *Alerter) Run(ctx interface{ Done() <-chan struct{} }, provider interfac
 			close(a.alertCh)
 			return
 		case <-ticker.C:
-			// Periodic checks are driven by FeedDisconnect / FeedFailover calls
-			// from the FeedManager, so nothing extra here.
+			// Periodic health checks driven by FeedManager calls
 		}
 	}
 }
@@ -106,7 +95,7 @@ func (a *Alerter) StorageError(err error) {
 func (a *Alerter) ClientPileup(count int) {
 	key := "client_pileup"
 	a.fire(key, "warning", "ws_pileup",
-		"WebSocket client count high: "+itoa(count))
+		"WebSocket client count high: "+fmt.Sprintf("%d", count))
 }
 
 func (a *Alerter) fire(key, level, category, message string) {
@@ -126,13 +115,11 @@ func (a *Alerter) fire(key, level, category, message string) {
 		Timestamp: time.Now().UTC(),
 	}
 
-	// Append to history
 	a.recentAlerts = append(a.recentAlerts, evt)
 	if len(a.recentAlerts) > a.maxHistory {
 		a.recentAlerts = a.recentAlerts[len(a.recentAlerts)-a.maxHistory:]
 	}
 
-	// Non-blocking send
 	select {
 	case a.alertCh <- evt:
 	default:
@@ -151,8 +138,4 @@ func (a *Alerter) RecentAlerts(n int) []AlertEvent {
 	out := make([]AlertEvent, n)
 	copy(out, a.recentAlerts[len(a.recentAlerts)-n:])
 	return out
-}
-
-func itoa(n int) string {
-	return string([]byte{byte('0' + n/100), byte('0' + (n/10)%10), byte('0' + n%10)})
 }

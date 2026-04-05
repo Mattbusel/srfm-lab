@@ -2,7 +2,6 @@ package streaming
 
 import (
 	"log"
-	"net/http"
 	"sync"
 	"time"
 
@@ -12,19 +11,11 @@ import (
 )
 
 const (
-	maxClients    = 100
-	pingInterval  = 30 * time.Second
-	writeTimeout  = 10 * time.Second
-	writeWait     = 10 * time.Second
-	pongWait      = 60 * time.Second
-	maxMessageSize = 512 * 1024 // 512 KB
+	maxClients   = 100
+	pingInterval = 30 * time.Second
+	writeWait    = 10 * time.Second
+	pongWait     = 60 * time.Second
 )
-
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
-	ReadBufferSize:  1024,
-	WriteBufferSize: 8192,
-}
 
 // Client represents a connected WebSocket consumer.
 type Client struct {
@@ -98,7 +89,6 @@ func (h *WebSocketHub) Run() {
 				select {
 				case c.send <- msg:
 				default:
-					// Slow client; drop message
 					log.Printf("[hub] slow client %s, dropping message", c.id)
 				}
 			}
@@ -107,10 +97,8 @@ func (h *WebSocketHub) Run() {
 		case <-pingTicker.C:
 			h.mu.RLock()
 			for c := range h.clients {
-				c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-				if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-					// Will be cleaned up by reader
-				}
+				c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+				c.conn.WriteMessage(websocket.PingMessage, nil) //nolint
 			}
 			h.mu.RUnlock()
 		}
@@ -137,7 +125,6 @@ func (h *WebSocketHub) BroadcastFiltered(key SubscriptionKey, msg []byte) {
 	defer h.mu.RUnlock()
 	for c := range h.clients {
 		if c.filters == nil {
-			// subscribed to everything
 			select {
 			case c.send <- msg:
 			default:
@@ -153,7 +140,7 @@ func (h *WebSocketHub) BroadcastFiltered(key SubscriptionKey, msg []byte) {
 	}
 }
 
-// Register adds a new client and starts its read/write pumps.
+// Register adds a new client and starts its write pump.
 func (h *WebSocketHub) Register(conn *websocket.Conn, id string) *Client {
 	c := &Client{
 		id:   id,
@@ -187,15 +174,7 @@ func (h *WebSocketHub) SetFilters(c *Client, filters map[SubscriptionKey]struct{
 
 // writePump pumps messages from the send channel to the WebSocket connection.
 func (c *Client) writePump() {
-	defer func() {
-		c.conn.Close()
-	}()
-
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
+	defer c.conn.Close()
 
 	for msg := range c.send {
 		c.conn.SetWriteDeadline(time.Now().Add(writeWait))
@@ -204,3 +183,4 @@ func (c *Client) writePump() {
 		}
 	}
 }
+

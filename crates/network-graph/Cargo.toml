@@ -1,0 +1,26 @@
+[package]
+name = "network-graph"
+version = "0.1.0"
+edition = "2021"
+description = "Crypto market network analysis: correlation, lead-lag, community detection, Granger causality"
+license = "MIT"
+
+[[bin]]
+name = "network-graph"
+path = "src/main.rs"
+
+[lib]
+name = "network_graph"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+statrs = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+csv = "1"
+
+[dev-dependencies]
+approx = "0.5"
