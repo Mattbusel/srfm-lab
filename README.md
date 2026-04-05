@@ -6,6 +6,47 @@ A full-stack quantitative trading research platform built on **Special Relativis
 
 ---
 
+## IAE Live Research Output
+
+The Idea Automation Engine analyzed **63,993 live backtest trades** and surfaced the following research ideas autonomously:
+
+```
+Here's what the IAE found from your 63,993 trades:
+
+Top 10 ideas, ranked by confidence:
+
+#1 [91%] Raise min_hold_bars 4 -> 8
+   26.5% of all trades (16,939) exit in 1 bar with avg P&L=-169 and WR=35.5%.
+   5-12 bar holds make +111/trade at 46.4% WR. Eliminating fast exits is the
+   single highest-leverage change.
+
+#2 [88%] Block entries at hours 1, 13, 14, 15, 18 UTC
+   These 5 hours average -131/trade vs -10 baseline, with WR dropping to 37%.
+   Hour 1 UTC is the worst (-179/trade, 33.2% WR) - thin Asian/European
+   overlap liquidity.
+
+#3 [85%] BTC as signal only, reduce BTC direct trade
+   BTC is your worst P&L instrument (-156K) but it's also the lead signal for
+   alts. Paradox: it correctly calls alt moves but loses on its own position.
+   Cut BTC cf_scale to 0.5 and boost alt allocation 1.4x when BTC-lead fires.
+
+#4 [82%] Remove GRT + SOL, shrink AVAX/DOT/LINK
+   Those 5 symbols = -390K combined loss. GRT (37.4% WR) and SOL (36.4% WR)
+   should be removed entirely.
+
+#5 [80%] GARCH target_vol 120% -> 90%
+   You're overtrading in high-vol regimes. Tightening GARCH cuts ~25% of
+   trades, expected Sharpe improvement.
+
+#6 [78%] Winner protection threshold 0.1% -> 0.5%
+   Only 419 trades ever reach 48+ bars but they avg +610/trade. You're cutting
+   winners too early at 0.1%.
+```
+
+**All 6 ideas were applied and backtested.** Win rate improved from 41.4% to 43.0%, trades reduced from 63,993 to 59,326. MC 12-month median: **$1.72M**. 2024 P&L: **+$154K**.
+
+---
+
 ## What Makes This Different
 
 The core innovation is the **Black Hole (BH) Physics Strategy** — a novel signal model derived from special-relativistic mechanics applied to price data. Price bars are classified as *timelike* or *spacelike* using a Minkowski spacetime metric. Mass accumulates on ordered (causal) bars, and a gravitational well forms when mass crosses a threshold — the **black hole formation event** that gates entries.

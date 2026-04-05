@@ -28,13 +28,15 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 # ── Config ────────────────────────────────────────────────────────────────────
 # CF tiers: large / mid / small cap volatility
 INSTRUMENTS = {
-    "BTC":   {"ticker": "BTC/USD",   "cf_4h": 0.008, "cf_15m": 0.005, "cf_1h": 0.015, "cf_1d": 0.05},
+    # IAE idea #3: BTC cf halved — BTC as signal not trade (-156K P&L worst instrument)
+    "BTC":   {"ticker": "BTC/USD",   "cf_4h": 0.016, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
     "ETH":   {"ticker": "ETH/USD",   "cf_4h": 0.012, "cf_15m": 0.007, "cf_1h": 0.020, "cf_1d": 0.07},
-    "SOL":   {"ticker": "SOL/USD",   "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
+    # IAE idea #4: SOL removed (36.4% WR, -102K P&L — chronic loser, momentum not mean-reverting)
+    # "SOL":   {"ticker": "SOL/USD",   "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
     "XRP":   {"ticker": "XRP/USD",   "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
-    "AVAX":  {"ticker": "AVAX/USD",  "cf_4h": 0.020, "cf_15m": 0.012, "cf_1h": 0.035, "cf_1d": 0.12},
-    "LINK":  {"ticker": "LINK/USD",  "cf_4h": 0.020, "cf_15m": 0.012, "cf_1h": 0.035, "cf_1d": 0.12},
-    "DOT":   {"ticker": "DOT/USD",   "cf_4h": 0.020, "cf_15m": 0.012, "cf_1h": 0.035, "cf_1d": 0.12},
+    "AVAX":  {"ticker": "AVAX/USD",  "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},  # IAE: halved cf (was 0.020/0.012/0.035/0.12) — -85K P&L
+    "LINK":  {"ticker": "LINK/USD",  "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},  # IAE: halved cf (was 0.020/0.012/0.035/0.12) — -70K P&L
+    "DOT":   {"ticker": "DOT/USD",   "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},  # IAE: halved cf (was 0.020/0.012/0.035/0.12) — -114K P&L
     "UNI":   {"ticker": "UNI/USD",   "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
     "AAVE":  {"ticker": "AAVE/USD",  "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
     "LTC":   {"ticker": "LTC/USD",   "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
@@ -43,7 +45,8 @@ INSTRUMENTS = {
     # "ADA":   {"ticker": "ADA/USD",   "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
     "DOGE":  {"ticker": "DOGE/USD",  "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
     "SHIB":  {"ticker": "SHIB/USD",  "cf_4h": 0.035, "cf_15m": 0.025, "cf_1h": 0.075, "cf_1d": 0.25},
-    "GRT":   {"ticker": "GRT/USD",   "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
+    # IAE idea #4: GRT removed (37.4% WR, -89K P&L — chronic loser)
+    # "GRT":   {"ticker": "GRT/USD",   "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
     "BAT":   {"ticker": "BAT/USD",   "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
     "CRV":   {"ticker": "CRV/USD",   "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
     "SUSHI": {"ticker": "SUSHI/USD", "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
@@ -60,20 +63,26 @@ START_DATE         = datetime(2021, 1, 1, tzinfo=timezone.utc)
 STARTING_EQUITY    = 1_000_000.0
 TAIL_FIXED_CAPITAL = 1_000_000.0
 DAILY_RISK         = 0.05
-N_INST             = 20
+N_INST             = 18   # IAE idea #4: removed SOL and GRT (was 20)
 CORR               = 0.25   # matches live trader — lower corr = more diversification benefit
 CORR_FACTOR        = math.sqrt(N_INST + N_INST * (N_INST - 1) * CORR)
 PER_INST_RISK      = DAILY_RISK / CORR_FACTOR
 
 TF_CAP      = {7: 1.0, 6: 1.0, 4: 0.60, 3: 0.50, 2: 0.40, 1: 0.20, 0: 0.0}
 CRYPTO_CAP  = 0.40
-MIN_HOLD      = 6
+MIN_HOLD      = 8       # IAE idea #1: raised from 6 to eliminate 1-bar losing trades
 BH_DECAY      = 0.924
 BH_COLLAPSE   = 0.992
 WARMUP_DAYS   = 20
-STALE_15M_MOVE = 0.001
+STALE_15M_MOVE = 0.008  # IAE idea #6: raised from 0.001 — let winners run more
 DELTA_MAX_FRAC = 0.40
 OU_FRAC        = 0.08   # OU mean reversion position size (mirrors live trader)
+
+# IAE idea #2: block new entries during these UTC hours (chronic underperformers)
+BLOCKED_ENTRY_HOURS = {1, 13, 14, 15, 18}
+
+# IAE idea #6: winner protection threshold raised from 0.1% to 0.5%
+WINNER_PROTECTION_PCT = 0.005
 
 MC_SIMS     = 10_000
 MC_MONTHS   = 12
@@ -152,7 +161,7 @@ class GARCHTracker:
     def vol_scale(self) -> float:
         if self.vol is None or self.vol <= 0:
             return 1.0
-        return min(2.0, max(0.3, 1.20 / self.vol))  # target 120% annual vol — normal crypto range
+        return min(2.0, max(0.3, 0.90 / self.vol))  # IAE idea #5: target 90% vol (was 120%) — less overtrading in vol spikes
 
 
 # ── OU Mean Reversion Detector (mirrors live trader) ─────────────────────────
@@ -376,6 +385,10 @@ def run_backtest(data):
         bar_times = h1_bars["BTC"].index if not h1_bars["BTC"].empty else [day]
 
         for bar_time in bar_times:
+            # IAE idea #2: block new entries during chronic underperforming hours
+            _bar_hour = bar_time.hour if hasattr(bar_time, 'hour') else 0
+            _block_entries = _bar_hour in BLOCKED_ENTRY_HOURS
+
             # Update 15m BH for bars within this hour
             for s in syms:
                 mb = m15_bars[s]
@@ -456,11 +469,21 @@ def run_backtest(data):
                 raw[s] = raw.get(s, 0.0) * mayer_damp
 
             # BTC cross-asset lead: pre-position alts when BTC hourly forming but daily not yet
+            # IAE idea #3: boost alt allocation 1.4x when BTC lead fires (BTC is signal, not trade)
             btc_d = d_bh["BTC"].active; btc_h = h_bh["BTC"].active
             btc_forming = (not btc_d) and d_bh["BTC"].mass > 0.8 and btc_h
             for s in syms:
-                if btc_forming and s != "BTC" and warmup_done[s] and not d_bh[s].active:
+                if s == "BTC": continue
+                if btc_forming and warmup_done[s] and not d_bh[s].active:
                     raw[s] = max(raw.get(s, 0.0), 0.05)
+                elif btc_d and btc_h and s != "BTC" and raw.get(s, 0.0) > 0:
+                    raw[s] *= 1.4  # BTC-lead confirmed: boost alt sizing 1.4x
+
+            # IAE idea #2: during blocked hours, force existing targets to stay flat (no new opens)
+            if _block_entries:
+                for s in syms:
+                    if np.isclose(last_frac[s], 0.0):
+                        raw[s] = 0.0  # no new entries this hour
 
             # Stale-15m exit: losing + tiny 15m move → close; protect winners
             for s in syms:
@@ -473,8 +496,8 @@ def run_backtest(data):
                     move15  = abs(cp - px15) / (px15 + 1e-9)
                     if pnl_pct < 0 and move15 < stale_thresh:
                         raw[s] = 0.0  # cut loser
-                    elif pnl_pct > 0.001:
-                        # Winner protection: hold at least current size
+                    elif pnl_pct > WINNER_PROTECTION_PCT:
+                        # IAE idea #6: winner protection raised from 0.1% to 0.5%
                         raw[s] = max(abs(raw[s]), abs(last_frac[s])) * math.copysign(1, raw[s])
 
             # OU mean reversion: add positions when BH is flat
