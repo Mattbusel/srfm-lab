@@ -100,7 +100,7 @@ class SignalAnalysisTemplate:
             df[date_col] = pd.to_datetime(df[date_col])
             df["period"] = df[date_col].dt.to_period("D")
             ic_series = (
-                df.groupby("period")
+                df.groupby("period")[["signal_value", "forward_return"]]
                 .apply(lambda g: g["signal_value"].corr(g["forward_return"], method="spearman"))
                 .dropna()
             )
