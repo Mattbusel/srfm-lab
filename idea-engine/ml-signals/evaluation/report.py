@@ -43,12 +43,12 @@ def _bar(value: float, max_val: float, width: int = 30) -> str:
     if max_val < 1e-9:
         return " " * width
     filled = int(round(width * min(1.0, value / max_val)))
-    return "█" * filled + "░" * (width - filled)
+    return "#" * filled + "." * (width - filled)
 
 
 def _sparkline(values: np.ndarray, width: int = 60) -> str:
     """Render a fixed-width sparkline using block characters."""
-    blocks = " ▁▂▃▄▅▆▇█"
+    blocks = " .,:;+=xX#"
     if len(values) == 0:
         return ""
     # Down-sample to width
