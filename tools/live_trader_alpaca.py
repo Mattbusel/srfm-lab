@@ -51,6 +51,7 @@ try:
     from observability.health  import HealthServer as _HealthServer
     _OBS_METRICS  = _get_metrics()
     _OBS_HEALTH   = _HealthServer()
+    _OBS_HEALTH.attach_metrics(_OBS_METRICS)
     _OBS_HEALTH.start()
     _OBS_METRICS.start_server()
 except Exception as _e:
@@ -1279,7 +1280,7 @@ class LiveTrader:
                 any_filled = True
             except Exception as exc:
                 log.error("%s submit_order failed: %s", sym, exc)
-                break
+                continue  # Don't cascade failure — try remaining slices
 
             remaining -= slice_qty
 
@@ -1625,7 +1626,9 @@ class LiveTrader:
             st.last_frac  = frac
             st.entry_px   = avg_px
             st.dollar_pos = mkt_val
-            # Treat synced positions as having just entered so MIN_HOLD_MINUTES applies
+            # Reset hold clock on sync — prevents immediate exit after restart.
+            # Alpaca doesn't provide original entry time, so we conservatively
+            # start the MIN_HOLD_MINUTES clock from now.
             st.entry_time = datetime.now(timezone.utc)
             if self._last_price.get(sym) is None:
                 st._prev_close = avg_px

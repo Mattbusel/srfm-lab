@@ -67,7 +67,7 @@
       "type": "stat",
       "title": "Active BH Count (all TFs)",
       "gridPos": { "x": 0, "y": 17, "w": 6, "h": 4 },
-      "targets": [{ "expr": "sum(larsa_bh_active)", "legendFormat": "Active" }],
+      "targets": [{ "expr": "sum(larsa_bh_active_count)", "legendFormat": "Active" }],
       "fieldConfig": {
         "defaults": {
           "thresholds": { "steps": [
@@ -85,7 +85,7 @@
       "title": "Current BH Signal State",
       "gridPos": { "x": 6, "y": 17, "w": 18, "h": 10 },
       "targets": [
-        { "expr": "larsa_bh_active", "legendFormat": "{{symbol}} {{timeframe}}", "instant": true },
+        { "expr": "larsa_bh_active_count", "legendFormat": "{{symbol}} {{timeframe}}", "instant": true },
         { "expr": "larsa_bh_mass",   "legendFormat": "{{symbol}} {{timeframe}}", "instant": true }
       ],
       "fieldConfig": {
