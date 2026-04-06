@@ -653,6 +653,9 @@ class LiveTrader:
         # Price snapshot per symbol for order sizing
         self._last_price: dict[str, float] = {}
 
+        # Set True during _bootstrap_history to suppress order placement
+        self._bootstrapping: bool = False
+
         log.info("LiveTrader initialised — %d instruments", N_INST)
 
     # ── Environment / credentials ──────────────────────────────────────────────
@@ -1074,6 +1077,8 @@ class LiveTrader:
 
     def _act_on_targets(self, bar_time: datetime) -> None:
         """Compare targets to current positions, place orders for meaningful changes."""
+        if self._bootstrapping:
+            return   # indicator-only replay — no orders, no state mutation
         targets = self.compute_targets(bar_time)
         equity  = self._get_equity()
 
@@ -1461,6 +1466,7 @@ class LiveTrader:
                 all_bars.append((b.timestamp, ticker, b))
         all_bars.sort(key=lambda x: x[0])
 
+        self._bootstrapping = True
         n_replayed = 0
         for ts, ticker, bar in all_bars:
             sym = self._ticker_to_sym(ticker)
@@ -1471,6 +1477,7 @@ class LiveTrader:
                 n_replayed += 1
             except Exception as exc:
                 log.debug("Bootstrap bar error [%s]: %s", ticker, exc)
+        self._bootstrapping = False
 
         # Mark all states as warmup_done after bootstrap
         active_count = 0
