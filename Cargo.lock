@@ -1190,6 +1190,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "real-time-analytics"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "nalgebra 0.33.3",
+ "rayon",
+ "serde",
+ "serde_json",
+ "statrs 0.17.1",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"

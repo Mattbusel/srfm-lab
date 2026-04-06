@@ -1,0 +1,114 @@
+{
+  "uid": "srfm-bh-physics",
+  "title": "LARSA Black Hole Physics State",
+  "tags": ["bh-physics", "signals", "larsa"],
+  "timezone": "utc",
+  "refresh": "15s",
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "heatmap",
+      "title": "BH Mass Heatmap (all symbols)",
+      "description": "BH mass per symbol — brighter = higher mass / stronger signal",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 10 },
+      "targets": [{ "expr": "larsa_bh_mass", "legendFormat": "{{symbol}} {{timeframe}}" }],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "spectrum", "scheme": "RdYlGn" } }
+      },
+      "options": {
+        "yAxis": { "unit": "short", "decimals": 2 },
+        "rowsFrame": { "layout": "auto" },
+        "color": { "mode": "spectrum", "scheme": "Plasma", "fill": "value", "scale": "linear" }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "BH Mass Time Series — BTC",
+      "gridPos": { "x": 0, "y": 10, "w": 8, "h": 7 },
+      "targets": [
+        { "expr": "larsa_bh_mass{symbol='BTC',timeframe='15m'}", "legendFormat": "BTC 15m" },
+        { "expr": "larsa_bh_mass{symbol='BTC',timeframe='1h'}",  "legendFormat": "BTC 1h" },
+        { "expr": "larsa_bh_mass{symbol='BTC',timeframe='4h'}",  "legendFormat": "BTC 4h" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "lineWidth": 2 },
+          "thresholds": { "steps": [{ "value": 1.92, "color": "red" }] }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "BH Mass Time Series — ETH",
+      "gridPos": { "x": 8, "y": 10, "w": 8, "h": 7 },
+      "targets": [
+        { "expr": "larsa_bh_mass{symbol='ETH',timeframe='15m'}", "legendFormat": "ETH 15m" },
+        { "expr": "larsa_bh_mass{symbol='ETH',timeframe='1h'}",  "legendFormat": "ETH 1h" },
+        { "expr": "larsa_bh_mass{symbol='ETH',timeframe='4h'}",  "legendFormat": "ETH 4h" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2 } } }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "BH Mass Time Series — SPY / QQQ",
+      "gridPos": { "x": 16, "y": 10, "w": 8, "h": 7 },
+      "targets": [
+        { "expr": "larsa_bh_mass{symbol='SPY',timeframe='1h'}", "legendFormat": "SPY 1h" },
+        { "expr": "larsa_bh_mass{symbol='QQQ',timeframe='1h'}", "legendFormat": "QQQ 1h" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2 } } }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Active BH Count (all TFs)",
+      "gridPos": { "x": 0, "y": 17, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sum(larsa_bh_active)", "legendFormat": "Active" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "steps": [
+            { "value": 0,  "color": "gray" },
+            { "value": 5,  "color": "yellow" },
+            { "value": 10, "color": "green" }
+          ]}
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Current BH Signal State",
+      "gridPos": { "x": 6, "y": 17, "w": 18, "h": 10 },
+      "targets": [
+        { "expr": "larsa_bh_active", "legendFormat": "{{symbol}} {{timeframe}}", "instant": true },
+        { "expr": "larsa_bh_mass",   "legendFormat": "{{symbol}} {{timeframe}}", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Value #A" },
+            "properties": [
+              { "id": "displayName", "value": "Active" },
+              { "id": "mappings", "value": [
+                { "type": "value", "options": { "0": { "text": "●", "color": "gray" } } },
+                { "type": "value", "options": { "1": { "text": "●", "color": "green" } } }
+              ]}
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Value #B" },
+            "properties": [{ "id": "displayName", "value": "Mass" }]
+          }
+        ]
+      },
+      "options": { "sortBy": [{ "displayName": "Mass", "desc": true }] }
+    }
+  ],
+  "schemaVersion": 38
+}

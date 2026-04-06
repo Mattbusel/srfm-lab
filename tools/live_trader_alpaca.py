@@ -43,6 +43,20 @@ from typing import Any
 
 import numpy as np
 
+# ── Optional observability suite ──────────────────────────────────────────────
+try:
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent))
+    from observability.metrics import get_metrics as _get_metrics
+    from observability.health  import HealthServer as _HealthServer
+    _OBS_METRICS  = _get_metrics()
+    _OBS_HEALTH   = _HealthServer()
+    _OBS_HEALTH.start()
+    _OBS_METRICS.start_server()
+except Exception as _e:
+    _OBS_METRICS = None
+    _OBS_HEALTH  = None
+
 # ── Logging setup ─────────────────────────────────────────────────────────────
 logging.basicConfig(
     stream=sys.stderr,
@@ -890,6 +904,14 @@ class LiveTrader:
         # BullScale update (daily proxy using close)
         st.bull.update(c)
 
+        # Emit BH state metrics
+        if _OBS_METRICS and not self._bootstrapping:
+            try:
+                for _tf, _bh in (("15m", st.bh_15m), ("1h", st.bh_1h), ("4h", st.bh_4h)):
+                    _OBS_METRICS.bh_mass.labels(symbol=sym, timeframe=_tf).set(_bh.mass)
+                    _OBS_METRICS.bh_active_count.labels(symbol=sym, timeframe=_tf).set(int(_bh.active))
+            except Exception: pass
+
         # Compute and act on targets
         self._act_on_targets(ts)
 
@@ -1096,9 +1118,21 @@ class LiveTrader:
             if not self._dd_halted and dd >= DD_HALT_PCT:
                 self._dd_halted = True
                 log.warning("CIRCUIT BREAKER: drawdown %.1f%% >= %.1f%% — halting new entries", dd*100, DD_HALT_PCT*100)
+                if _OBS_METRICS:
+                    try: _OBS_METRICS.circuit_breaker_state.set(1)
+                    except Exception: pass
             elif self._dd_halted and dd <= DD_RESUME_PCT:
                 self._dd_halted = False
                 log.info("CIRCUIT BREAKER: drawdown recovered to %.1f%% — resuming", dd*100)
+                if _OBS_METRICS:
+                    try: _OBS_METRICS.circuit_breaker_state.set(0)
+                    except Exception: pass
+        if _OBS_METRICS:
+            try:
+                _OBS_METRICS.equity.set(equity)
+                if self._equity_peak > 0:
+                    _OBS_METRICS.drawdown_pct.set(-(self._equity_peak - equity) / self._equity_peak)
+            except Exception: pass
 
         # ── Option overlay ────────────────────────────────────────────────────
         for sym in list(targets.keys()):
@@ -1311,6 +1345,11 @@ class LiveTrader:
             self._db.commit()
             log.info("Fill logged: %s %s %.6f @ $%.4f  notional=$%.0f",
                      sym, side.upper(), qty, price, notional)
+            if _OBS_METRICS:
+                try:
+                    _OBS_METRICS.fills_total.labels(symbol=sym).inc()
+                    _OBS_METRICS.order_notional.labels(symbol=sym, side=side).observe(notional)
+                except Exception: pass
 
             # FIFO P&L tracking
             st = self._states.get(sym)
@@ -1603,14 +1642,23 @@ class LiveTrader:
         """Main entry point — blocks until interrupted."""
         log.info("LARSA v17 LiveTrader starting (strategy_version=%s)", STRATEGY_VERSION)
         self._bootstrap_history()
+        if _OBS_HEALTH:
+            try: _OBS_HEALTH.set_state(broker_connected=True)
+            except Exception: pass
         while True:
             try:
+                if _OBS_HEALTH:
+                    try: _OBS_HEALTH.set_state(stream_connected=True)
+                    except Exception: pass
                 asyncio.run(self._run_stream())
             except KeyboardInterrupt:
                 log.info("Shutdown requested — exiting.")
                 break
             except Exception as exc:
                 log.error("Stream crashed: %s — reconnecting in 10s", exc, exc_info=True)
+                if _OBS_HEALTH:
+                    try: _OBS_HEALTH.set_state(stream_connected=False)
+                    except Exception: pass
                 time.sleep(10)
 
 

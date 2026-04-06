@@ -1,0 +1,15 @@
+[package]
+name = "real-time-analytics"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+rayon = "1"
+statrs = "0.17"
+nalgebra = "0.33"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+thiserror = "1"

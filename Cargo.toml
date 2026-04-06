@@ -19,6 +19,9 @@ members = [
     "crates/order-flow-engine",
     "crates/parallel-backtest",
     "crates/network-graph",
+    "crates/real-time-analytics",
+    "crates/microstructure-engine",
+    "crates/execution-optimizer",
 ]
 resolver = "2"
 

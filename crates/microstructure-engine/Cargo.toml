@@ -1,0 +1,19 @@
+[package]
+name = "microstructure-engine"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance market microstructure analytics for SRFM-Lab"
+
+[dependencies]
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+chrono      = { workspace = true }
+nalgebra    = { workspace = true }
+statrs      = { workspace = true }
+rayon       = { workspace = true }
+anyhow      = { workspace = true }
+thiserror   = { workspace = true }
+
+[lib]
+name = "microstructure_engine"
+crate-type = ["lib", "cdylib"]   # cdylib for optional Python binding via PyO3

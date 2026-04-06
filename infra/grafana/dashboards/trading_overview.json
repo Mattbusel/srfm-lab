@@ -1,0 +1,194 @@
+{
+  "uid": "srfm-trading-overview",
+  "title": "LARSA Trading Overview",
+  "tags": ["trading", "larsa", "live"],
+  "timezone": "utc",
+  "refresh": "10s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Portfolio Equity",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "larsa_equity_dollars", "legendFormat": "Equity" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "thresholds": { "steps": [
+            { "value": 0,      "color": "red" },
+            { "value": 800000, "color": "yellow" },
+            { "value": 900000, "color": "green" }
+          ]},
+          "mappings": []
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Drawdown %",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "larsa_drawdown_pct * 100", "legendFormat": "DD%" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": { "steps": [
+            { "value": -100, "color": "green" },
+            { "value": -5,   "color": "yellow" },
+            { "value": -10,  "color": "red" }
+          ]}
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Open Positions",
+      "gridPos": { "x": 8, "y": 0, "w": 3, "h": 4 },
+      "targets": [{ "expr": "larsa_open_positions", "legendFormat": "Positions" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "steps": [
+            { "value": 0,  "color": "green" },
+            { "value": 15, "color": "yellow" },
+            { "value": 20, "color": "red" }
+          ]}
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Circuit Breaker",
+      "gridPos": { "x": 11, "y": 0, "w": 3, "h": 4 },
+      "targets": [{ "expr": "larsa_circuit_breaker_active", "legendFormat": "Halted" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "ACTIVE", "color": "green" } } },
+            { "type": "value", "options": { "1": { "text": "HALTED", "color": "red" } } }
+          ]
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Fills Today",
+      "gridPos": { "x": 14, "y": 0, "w": 3, "h": 4 },
+      "targets": [{ "expr": "increase(larsa_fills_total[24h])", "legendFormat": "Fills" }],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Orders Rejected",
+      "gridPos": { "x": 17, "y": 0, "w": 3, "h": 4 },
+      "targets": [{ "expr": "increase(larsa_orders_rejected_total[24h])", "legendFormat": "Rejected" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "steps": [
+            { "value": 0,  "color": "green" },
+            { "value": 10, "color": "yellow" },
+            { "value": 50, "color": "red" }
+          ]}
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Equity Curve",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "larsa_equity_dollars", "legendFormat": "Portfolio Equity" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": { "lineWidth": 2, "fillOpacity": 15, "gradientMode": "opacity" },
+          "color": { "mode": "fixed", "fixedColor": "green" }
+        }
+      },
+      "options": { "tooltip": { "mode": "single" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Drawdown",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "larsa_drawdown_pct * 100", "legendFormat": "Drawdown %" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": { "lineWidth": 2, "fillOpacity": 30 },
+          "color": { "mode": "fixed", "fixedColor": "red" }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "BH Active Signals by Timeframe",
+      "description": "Number of instruments with active BH signal per timeframe",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 7 },
+      "targets": [
+        { "expr": "sum(larsa_bh_active{timeframe='15m'})", "legendFormat": "15m BH" },
+        { "expr": "sum(larsa_bh_active{timeframe='1h'})",  "legendFormat": "1h BH" },
+        { "expr": "sum(larsa_bh_active{timeframe='4h'})",  "legendFormat": "4h BH" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Fill Latency (p95)",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 7 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, rate(larsa_fill_latency_ms_bucket[5m]))", "legendFormat": "p95 latency ms" },
+        { "expr": "histogram_quantile(0.99, rate(larsa_fill_latency_ms_bucket[5m]))", "legendFormat": "p99 latency ms" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } }
+      }
+    },
+    {
+      "id": 11,
+      "type": "bargauge",
+      "title": "Position Allocation by Symbol",
+      "gridPos": { "x": 0, "y": 19, "w": 12, "h": 8 },
+      "targets": [{ "expr": "larsa_position_frac", "legendFormat": "{{symbol}}" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": { "steps": [
+            { "value": -1,   "color": "red" },
+            { "value": -0.01,"color": "semi-dark-red" },
+            { "value": 0,    "color": "green" },
+            { "value": 0.15, "color": "yellow" }
+          ]}
+        }
+      },
+      "options": { "orientation": "horizontal", "displayMode": "gradient" }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Order Notional Distribution",
+      "gridPos": { "x": 12, "y": 19, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(larsa_order_notional_bucket[10m]))", "legendFormat": "p50 notional" },
+        { "expr": "histogram_quantile(0.95, rate(larsa_order_notional_bucket[10m]))", "legendFormat": "p95 notional" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } }
+    }
+  ],
+  "schemaVersion": 38
+}

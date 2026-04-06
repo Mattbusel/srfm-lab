@@ -1,0 +1,14 @@
+[package]
+name = "execution-optimizer"
+version = "0.1.0"
+edition = "2021"
+description = "Optimal execution scheduling — Almgren-Chriss, TWAP, VWAP, IS"
+
+[dependencies]
+serde       = { workspace = true }
+anyhow      = { workspace = true }
+thiserror   = { workspace = true }
+nalgebra    = { workspace = true }
+
+[lib]
+name = "execution_optimizer"

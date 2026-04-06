@@ -37,6 +37,18 @@ dependencies = [
     "loguru>=0.7.0",
     "orjson>=3.9.0",
     "pyyaml>=6.0.1",
+    # Observability
+    "prometheus-client>=0.19.0",
+    "opentelemetry-sdk>=1.22.0",
+    "opentelemetry-api>=1.22.0",
+    "opentelemetry-exporter-otlp>=1.22.0",
+    "opentelemetry-instrumentation-fastapi>=0.43b0",
+    "structlog>=24.1.0",
+    "psutil>=5.9.0",
+    # Streaming / async
+    "aiohttp>=3.9.0",
+    "redis>=5.0.0",
+    "aiokafka>=0.10.0",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +63,8 @@ dev = [
     "ipython>=8.17.0",
     "jupyter>=1.0.0",
     "sqlfluff>=2.3.0",
+    "memray>=1.5.0",            # memory profiler
+    "py-spy>=0.3.14",           # sampling profiler
 ]
 ml = [
     "xgboost>=2.0.0",
@@ -58,18 +72,41 @@ ml = [
     "shap>=0.43.0",
     "optuna>=3.4.0",
     "hmmlearn>=0.3.0",
-    "arch>=6.2.0",          # GARCH models
+    "arch>=6.2.0",              # GARCH models
+    "river>=0.21.0",            # online/streaming ML
+    "ruptures>=1.1.9",          # changepoint detection
+    "stumpy>=1.12.0",           # matrix profile
+    "tsfresh>=0.20.0",          # time series feature extraction
+    "PyWavelets>=1.5.0",        # wavelet transforms
+    "nolds>=0.5.2",             # nonlinear dynamics (Hurst, Lyapunov)
+    "numba>=0.58.0",            # JIT compilation
+    "bottleneck>=1.3.7",        # fast NumPy reductions
+    "cvxpy>=1.4.0",             # convex optimization
+    "networkx>=3.2.0",          # graph/network analysis
 ]
 reporting = [
     "quantstats>=0.0.62",
     "streamlit>=1.28.0",
     "dash>=2.14.0",
     "plotly>=5.18.0",
-    "kaleido>=0.2.1",       # plotly static image export
-    "weasyprint>=60.0",     # PDF report generation
+    "kaleido>=0.2.1",           # plotly static image export
+    "weasyprint>=60.0",         # PDF report generation
+    "empyrical>=0.5.5",         # performance analytics
+    "pyfolio-reloaded>=0.9.5",  # portfolio analytics tearsheets
+    "alphalens-reloaded>=0.4.4",# factor analysis
+    "bokeh>=3.3.0",             # interactive charts
+    "panel>=1.3.0",             # dashboarding
+    "pyvis>=0.3.2",             # interactive network graphs
+    "jinja2>=3.1.0",            # HTML report templating
+    "ffn>=0.3.6",               # financial functions
+]
+options = [
+    "py-vollib>=1.0.2",         # options pricing (Black-Scholes, greeks)
+    "mibian>=0.1.3",            # options greeks
+    "QuantLib>=1.32",           # sophisticated derivatives pricing
 ]
 all = [
-    "srfm-lab[dev,ml,reporting]",
+    "srfm-lab[dev,ml,reporting,options]",
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
