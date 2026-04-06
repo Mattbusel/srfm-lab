@@ -1105,40 +1105,39 @@ class LiveTrader:
                 asyncio.create_task(asyncio.to_thread(self._opt_overlay._submit_close, *args))
 
         # ── Equity / crypto positions ─────────────────────────────────────────
+        # Build order list; process SELLS before BUYS so proceeds free up cash
+        order_items = []
         for sym, tgt_frac in targets.items():
             st = self._states[sym]
-
-            # Skip if an order is already in-flight for this symbol
             if sym in self._pending_orders:
                 st.bars_held += 1
                 continue
-
-            # Min-hold gate (no reversal within MIN_HOLD bars)
             if (not math.isclose(st.last_frac, 0.0) and
                     not math.isclose(tgt_frac, 0.0) and
                     math.copysign(1, tgt_frac) != math.copysign(1, st.last_frac) and
                     st.bars_held < MIN_HOLD):
                 tgt_frac = st.last_frac
-
             delta = tgt_frac - st.last_frac
             if abs(delta) < MIN_TRADE_FRAC:
                 st.bars_held += 1
                 continue
-
             cp = self._last_price.get(sym)
             if not cp or cp <= 0:
                 log.warning("%s: no price — skipping order", sym)
                 continue
-
-            qty = (tgt_frac - st.last_frac) * equity / cp
-
+            qty = delta * equity / cp
             if abs(qty * cp) < 1.0:
                 continue
+            order_items.append((sym, tgt_frac, qty, cp))
 
+        # Sells first (qty < 0), then buys
+        order_items.sort(key=lambda x: x[2])   # ascending: negatives first
+
+        for sym, tgt_frac, qty, cp in order_items:
             side = "buy" if qty > 0 else "sell"
             log.info(
                 "%s %s %.6f units @ ~$%.2f  (frac %.3f→%.3f)",
-                sym, side.upper(), abs(qty), cp, st.last_frac, tgt_frac,
+                sym, side.upper(), abs(qty), cp, self._states[sym].last_frac, tgt_frac,
             )
             self._pending_orders.add(sym)
             asyncio.create_task(
@@ -1517,8 +1516,16 @@ class LiveTrader:
 
         synced = 0
         for pos in positions:
-            ticker = pos.symbol          # e.g. "BTC/USD" or "AAPL"
-            sym    = self._ticker_to_sym(ticker)
+            raw_ticker = pos.symbol      # Alpaca may return "BTCUSD" or "BTC/USD"
+            # Normalise: if no slash and ends with USD/USDT, try inserting slash
+            if "/" not in raw_ticker and raw_ticker.endswith("USD"):
+                base   = raw_ticker[:-3]
+                ticker = f"{base}/USD"
+            else:
+                ticker = raw_ticker
+            sym = self._ticker_to_sym(ticker)
+            if sym is None:
+                sym = self._ticker_to_sym(raw_ticker)   # fallback: try as-is
             if sym is None:
                 continue
             st = self._states[sym]
