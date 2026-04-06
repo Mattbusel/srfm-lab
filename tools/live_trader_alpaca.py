@@ -1369,9 +1369,116 @@ class LiveTrader:
             trading_stream._run_forever(),
         )
 
+    # ── Historical bootstrap ───────────────────────────────────────────────────
+
+    def _bootstrap_history(self) -> None:
+        """
+        Pre-warm BH/ATR/GARCH states by replaying the last 250 hourly bars
+        from Alpaca's historical API before the live stream starts.
+
+        Without this, bh_1h never activates (needs ~105 capture bars) and
+        compute_targets always returns direction=0, so no trades ever fire.
+        """
+        from alpaca.data.historical.crypto import CryptoHistoricalDataClient
+        from alpaca.data.historical.stock  import StockHistoricalDataClient
+        from alpaca.data.requests import (
+            CryptoBarsRequest,
+            StockBarsRequest,
+        )
+        from alpaca.data.timeframe import TimeFrame
+        import pandas as pd
+
+        end   = datetime.now(timezone.utc)
+        start = end - timedelta(days=15)   # 15d × 24h = 360 hourly bars > 250
+
+        crypto_client = CryptoHistoricalDataClient(
+            api_key    = self._api_key,
+            secret_key = self._secret_key,
+        )
+        stock_client = StockHistoricalDataClient(
+            api_key    = self._api_key,
+            secret_key = self._secret_key,
+        )
+
+        crypto_tickers = [cfg["ticker"] for sym, cfg in INSTRUMENTS.items()
+                          if cfg.get("asset_class", "crypto") == "crypto"]
+        equity_tickers = [cfg["ticker"] for sym, cfg in INSTRUMENTS.items()
+                          if cfg.get("asset_class") == "equity"]
+
+        bars_by_ticker: dict[str, list] = {}
+
+        # Fetch crypto hourly bars
+        try:
+            resp = crypto_client.get_crypto_bars(
+                CryptoBarsRequest(
+                    symbol_or_symbols = crypto_tickers,
+                    timeframe         = TimeFrame.Hour,
+                    start             = start,
+                    end               = end,
+                )
+            )
+            for ticker, bar_list in resp.items():
+                bars_by_ticker[ticker] = sorted(bar_list, key=lambda b: b.timestamp)
+            log.info("Bootstrap: fetched hourly bars for %d crypto tickers", len(bars_by_ticker))
+        except Exception as exc:
+            log.warning("Bootstrap crypto fetch failed: %s", exc)
+
+        # Fetch equity hourly bars
+        try:
+            resp = stock_client.get_stock_bars(
+                StockBarsRequest(
+                    symbol_or_symbols = equity_tickers,
+                    timeframe         = TimeFrame.Hour,
+                    start             = start,
+                    end               = end,
+                )
+            )
+            n = 0
+            for ticker, bar_list in resp.items():
+                bars_by_ticker[ticker] = sorted(bar_list, key=lambda b: b.timestamp)
+                n += 1
+            log.info("Bootstrap: fetched hourly bars for %d equity tickers", n)
+        except Exception as exc:
+            log.warning("Bootstrap equity fetch failed: %s", exc)
+
+        if not bars_by_ticker:
+            log.warning("Bootstrap: no historical bars fetched — BH states will warm up slowly")
+            return
+
+        # Merge all bars across all tickers into chronological order and replay
+        all_bars: list[tuple] = []
+        for ticker, bar_list in bars_by_ticker.items():
+            for b in bar_list:
+                all_bars.append((b.timestamp, ticker, b))
+        all_bars.sort(key=lambda x: x[0])
+
+        n_replayed = 0
+        for ts, ticker, bar in all_bars:
+            sym = self._ticker_to_sym(ticker)
+            if sym is None:
+                continue
+            try:
+                self.on_bar(ticker, bar)
+                n_replayed += 1
+            except Exception as exc:
+                log.debug("Bootstrap bar error [%s]: %s", ticker, exc)
+
+        # Mark all states as warmup_done after bootstrap
+        active_count = 0
+        for sym, st in self._states.items():
+            st.warmup_done = True
+            if st.bh_1h.active or st.bh_4h.active:
+                active_count += 1
+
+        log.info(
+            "Bootstrap complete — %d bars replayed, %d/%d instruments have active 1h/4h BH signal",
+            n_replayed, active_count, N_INST,
+        )
+
     def run(self) -> None:
         """Main entry point — blocks until interrupted."""
         log.info("LARSA v17 LiveTrader starting (strategy_version=%s)", STRATEGY_VERSION)
+        self._bootstrap_history()
         while True:
             try:
                 asyncio.run(self._run_stream())
