@@ -605,6 +605,9 @@ class OptionOverlay:
             self._pending_opens.add(sym)   # mark pending before returning so next bar skips
             return ("open", (sym, direction, spot, equity))
 
+        if tf < OPT_MIN_TF or direction == 0:
+            log.debug("OPT SKIP %s: tf=%d dir=%+d", sym, tf, direction)
+
         return None
 
 
@@ -1493,6 +1496,18 @@ class LiveTrader:
             "Bootstrap complete — %d bars replayed, %d/%d instruments have active 1h/4h BH signal",
             n_replayed, active_count, N_INST,
         )
+
+        # Diagnostic: show equity signal states after bootstrap
+        for sym, st in self._states.items():
+            if INSTRUMENTS[sym].get("asset_class") != "equity":
+                continue
+            tf = (4 if st.bh_4h.active else 0) + (2 if st.bh_1h.active else 0) + (1 if st.bh_15m.active else 0)
+            direction = st.bh_1h.bh_dir or st.bh_4h.bh_dir
+            px = self._last_price.get(sym, 0.0)
+            log.info(
+                "EQUITY STATE: %s  tf=%d  dir=%+d  1h_active=%s  4h_active=%s  spot=%.2f",
+                sym, tf, direction, st.bh_1h.active, st.bh_4h.active, px,
+            )
 
         self._sync_positions_from_broker()
 
