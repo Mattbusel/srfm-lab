@@ -1491,6 +1491,54 @@ class LiveTrader:
             n_replayed, active_count, N_INST,
         )
 
+        self._sync_positions_from_broker()
+
+    def _sync_positions_from_broker(self) -> None:
+        """
+        Pull current broker positions and set last_frac / entry_px so the
+        strategy knows what it already owns.  Without this, last_frac stays 0
+        after a restart and the strategy never generates SELLs for existing
+        positions — it just tries to buy more and hits insufficient buying power.
+        """
+        try:
+            positions = self._trading_client.get_all_positions()
+        except Exception as exc:
+            log.warning("Could not fetch broker positions for sync: %s", exc)
+            return
+
+        if not positions:
+            log.info("Position sync: no open positions at broker")
+            return
+
+        try:
+            equity = float(self._trading_client.get_account().equity)
+        except Exception:
+            equity = self._equity
+
+        synced = 0
+        for pos in positions:
+            ticker = pos.symbol          # e.g. "BTC/USD" or "AAPL"
+            sym    = self._ticker_to_sym(ticker)
+            if sym is None:
+                continue
+            st = self._states[sym]
+            mkt_val  = float(pos.market_value)   # signed (neg for short)
+            avg_px   = float(pos.avg_entry_price)
+            frac     = mkt_val / equity if equity > 0 else 0.0
+            st.last_frac  = frac
+            st.entry_px   = avg_px
+            st.dollar_pos = mkt_val
+            if self._last_price.get(sym) is None:
+                st._prev_close = avg_px
+                self._last_price[sym] = avg_px
+            synced += 1
+            log.info(
+                "Position sync: %s  frac=%.3f  avg_px=%.4f  mkt_val=$%.0f",
+                sym, frac, avg_px, mkt_val,
+            )
+
+        log.info("Position sync complete — %d positions loaded", synced)
+
     def run(self) -> None:
         """Main entry point — blocks until interrupted."""
         log.info("LARSA v17 LiveTrader starting (strategy_version=%s)", STRATEGY_VERSION)
