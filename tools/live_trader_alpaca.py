@@ -1,18 +1,23 @@
 """
 tools/live_trader_alpaca.py
 ===========================
-LARSA v16 — Live Crypto Trader (Alpaca Paper)
+LARSA v17 — Multi-Asset Live Trader (Alpaca Paper)
 
-Streams 15-minute bars for a universe of crypto instruments, runs
-Black-Hole physics + GARCH vol scaling + OU mean reversion detection
-across three timeframes (15m, 1h, 4h), computes target fractional
-positions, and places orders when targets change meaningfully.
+Streams 15-minute bars for crypto, stocks/ETFs, and trades options
+using Black-Hole physics + GARCH vol scaling + OU mean reversion
+across three timeframes (15m, 1h, 4h).
 
-New features:
-  • Reads bridge/signal_overrides.json every 5 minutes and applies
-    per-symbol and global size multipliers / blocked hour overrides.
-  • Logs every fill to execution/live_trades.db (SQLite) and maintains
-    a trade P&L table with FIFO matching.
+Asset classes:
+  • crypto  — BTC, ETH, XRP, … (24/7, GTC orders, fractional)
+  • equity  — SPY, QQQ, GLD, … (RTH only, DAY orders, fractional)
+  • option  — ATM directional overlay on equity BH signals (tf≥6),
+              ~35 DTE, rolls 7 days before expiry
+
+New features vs v16:
+  • StockDataStream runs alongside CryptoDataStream
+  • OptionOverlay selects ATM contracts and manages expiry
+  • Market-hours gate for equity/option orders
+  • Per-asset-class TF_CAP and sizing caps
 
 Run:
   python tools/live_trader_alpaca.py
@@ -53,27 +58,44 @@ _ENV_FILE       = Path(__file__).parent / ".env"
 _OVERRIDES_FILE = _REPO_ROOT / "config" / "signal_overrides.json"
 _DB_PATH        = _REPO_ROOT / "execution" / "live_trades.db"
 
-STRATEGY_VERSION = "larsa_v16"
+STRATEGY_VERSION = "larsa_v17"
 
 # ── Strategy constants ─────────────────────────────────────────────────────────
+# asset_class: "crypto" | "equity"
+# options_overlay: True → OptionOverlay will trade ATM options on this ticker
+#                  when BH fires at tf>=6 (in addition to the equity position)
 INSTRUMENTS = {
-    "BTC":   {"ticker": "BTC/USD",   "cf_4h": 0.016, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
-    "ETH":   {"ticker": "ETH/USD",   "cf_4h": 0.012, "cf_15m": 0.007, "cf_1h": 0.020, "cf_1d": 0.07},
-    "XRP":   {"ticker": "XRP/USD",   "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
-    "AVAX":  {"ticker": "AVAX/USD",  "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},
-    "LINK":  {"ticker": "LINK/USD",  "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},
-    "DOT":   {"ticker": "DOT/USD",   "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},
-    "UNI":   {"ticker": "UNI/USD",   "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
-    "AAVE":  {"ticker": "AAVE/USD",  "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
-    "LTC":   {"ticker": "LTC/USD",   "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
-    "BCH":   {"ticker": "BCH/USD",   "cf_4h": 0.020, "cf_15m": 0.012, "cf_1h": 0.035, "cf_1d": 0.12},
-    "DOGE":  {"ticker": "DOGE/USD",  "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
-    "SHIB":  {"ticker": "SHIB/USD",  "cf_4h": 0.035, "cf_15m": 0.025, "cf_1h": 0.075, "cf_1d": 0.25},
-    "BAT":   {"ticker": "BAT/USD",   "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
-    "CRV":   {"ticker": "CRV/USD",   "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
-    "SUSHI": {"ticker": "SUSHI/USD", "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
-    "MKR":   {"ticker": "MKR/USD",   "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
-    "YFI":   {"ticker": "YFI/USD",   "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
+    # ── Crypto (24/7, GTC, fractional) ───────────────────────────────────────
+    "BTC":   {"ticker": "BTC/USD",   "asset_class": "crypto", "cf_4h": 0.016, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
+    "ETH":   {"ticker": "ETH/USD",   "asset_class": "crypto", "cf_4h": 0.012, "cf_15m": 0.007, "cf_1h": 0.020, "cf_1d": 0.07},
+    "XRP":   {"ticker": "XRP/USD",   "asset_class": "crypto", "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
+    "AVAX":  {"ticker": "AVAX/USD",  "asset_class": "crypto", "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},
+    "LINK":  {"ticker": "LINK/USD",  "asset_class": "crypto", "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},
+    "DOT":   {"ticker": "DOT/USD",   "asset_class": "crypto", "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},
+    "UNI":   {"ticker": "UNI/USD",   "asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
+    "AAVE":  {"ticker": "AAVE/USD",  "asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
+    "LTC":   {"ticker": "LTC/USD",   "asset_class": "crypto", "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
+    "BCH":   {"ticker": "BCH/USD",   "asset_class": "crypto", "cf_4h": 0.020, "cf_15m": 0.012, "cf_1h": 0.035, "cf_1d": 0.12},
+    "DOGE":  {"ticker": "DOGE/USD",  "asset_class": "crypto", "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
+    "SHIB":  {"ticker": "SHIB/USD",  "asset_class": "crypto", "cf_4h": 0.035, "cf_15m": 0.025, "cf_1h": 0.075, "cf_1d": 0.25},
+    "BAT":   {"ticker": "BAT/USD",   "asset_class": "crypto", "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
+    "CRV":   {"ticker": "CRV/USD",   "asset_class": "crypto", "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
+    "SUSHI": {"ticker": "SUSHI/USD", "asset_class": "crypto", "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
+    "MKR":   {"ticker": "MKR/USD",   "asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
+    "YFI":   {"ticker": "YFI/USD",   "asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
+
+    # ── Equities / ETFs (RTH only, DAY orders, fractional) ───────────────────
+    "SPY":   {"ticker": "SPY",  "asset_class": "equity", "options_overlay": True,  "cf_4h": 0.003, "cf_15m": 0.0003, "cf_1h": 0.001,  "cf_1d": 0.005},
+    "QQQ":   {"ticker": "QQQ",  "asset_class": "equity", "options_overlay": True,  "cf_4h": 0.004, "cf_15m": 0.0004, "cf_1h": 0.0012, "cf_1d": 0.006},
+    "IWM":   {"ticker": "IWM",  "asset_class": "equity", "options_overlay": True,  "cf_4h": 0.005, "cf_15m": 0.0005, "cf_1h": 0.0015, "cf_1d": 0.007},
+    "GLD":   {"ticker": "GLD",  "asset_class": "equity", "options_overlay": True,  "cf_4h": 0.004, "cf_15m": 0.0004, "cf_1h": 0.0012, "cf_1d": 0.005},
+    "TLT":   {"ticker": "TLT",  "asset_class": "equity", "options_overlay": True,  "cf_4h": 0.003, "cf_15m": 0.0003, "cf_1h": 0.0010, "cf_1d": 0.004},
+    "SLV":   {"ticker": "SLV",  "asset_class": "equity", "options_overlay": True,  "cf_4h": 0.006, "cf_15m": 0.0006, "cf_1h": 0.0018, "cf_1d": 0.008},
+    "USO":   {"ticker": "USO",  "asset_class": "equity", "options_overlay": True,  "cf_4h": 0.008, "cf_15m": 0.0008, "cf_1h": 0.0025, "cf_1d": 0.010},
+    "NVDA":  {"ticker": "NVDA", "asset_class": "equity", "options_overlay": True,  "cf_4h": 0.012, "cf_15m": 0.0012, "cf_1h": 0.004,  "cf_1d": 0.015},
+    "AAPL":  {"ticker": "AAPL", "asset_class": "equity", "options_overlay": True,  "cf_4h": 0.006, "cf_15m": 0.0006, "cf_1h": 0.002,  "cf_1d": 0.008},
+    "TSLA":  {"ticker": "TSLA", "asset_class": "equity", "options_overlay": True,  "cf_4h": 0.015, "cf_15m": 0.0015, "cf_1h": 0.005,  "cf_1d": 0.018},
+    "MSFT":  {"ticker": "MSFT", "asset_class": "equity", "options_overlay": True,  "cf_4h": 0.005, "cf_15m": 0.0005, "cf_1h": 0.0016, "cf_1d": 0.007},
 }
 N_INST = len(INSTRUMENTS)
 
@@ -81,7 +103,7 @@ BH_FORM     = 1.92
 BH_CTL_MIN  = 3
 BH_DECAY    = 0.924
 BH_COLLAPSE = 0.992
-MIN_HOLD    = 8
+MIN_HOLD    = 80
 
 DAILY_RISK              = 0.05
 CORR_NORMAL             = 0.25
@@ -92,7 +114,7 @@ MIN_TRADE_FRAC          = 0.003
 GARCH_TARGET_VOL        = 0.90
 OU_FRAC                 = 0.08
 DELTA_MAX_FRAC          = 0.40
-STALE_15M_MOVE          = 0.008
+STALE_15M_MOVE          = 0.002
 WINNER_PROTECTION_PCT   = 0.005
 BLOCKED_ENTRY_HOURS_UTC = {1, 13, 14, 15, 17, 18}
 BOOST_ENTRY_HOURS_UTC   = {3, 9, 16, 19}
@@ -100,6 +122,21 @@ HOUR_BOOST_MULTIPLIER   = 1.25
 OU_DISABLED_SYMS        = {"AVAX", "DOT", "LINK"}
 
 TF_CAP = {7: 1.0, 6: 1.0, 4: 0.60, 3: 0.50, 2: 0.40, 1: 0.20, 0: 0.0}
+
+# ── Equity / options constants ─────────────────────────────────────────────────
+EQUITY_CAP_FRAC         = 0.20   # max fraction of portfolio per equity position
+EQUITY_LONG_SHORT       = True   # allow short equities (sells via negative fraction)
+# RTH window (US Eastern) — equities only trade inside this
+RTH_OPEN_ET  = (9, 30)           # (hour, minute)
+RTH_CLOSE_ET = (16, 0)
+
+# Options overlay
+OPT_TARGET_DTE          = 35     # aim for ~35 days to expiry when opening
+OPT_ROLL_DTE            = 7      # roll/close when DTE drops below this
+OPT_NOTIONAL_FRAC       = 0.015  # fraction of equity per option position (smaller = more concurrent)
+OPT_MIN_TF              = 2      # minimum tf score to OPEN  (low = aggressive, fires on any BH signal)
+OPT_EXIT_TF             = 0      # close when tf drops AT OR BELOW this (0 = only close when fully off)
+OPT_MAX_HOLD_BARS       = 96     # hard liquidation after N x 15m bars (96 = 24 hours), keeps turnover high
 
 MAX_ORDER_NOTIONAL = 195_000.0   # split into slices above this
 OVERRIDES_TTL_SECS = 300         # re-read signal_overrides.json every 5 min
@@ -218,7 +255,7 @@ class GARCHTracker:
 class OUDetector:
     """Ornstein-Uhlenbeck mean-reversion detector."""
 
-    def __init__(self, window: int = 50, entry_z: float = 1.5, exit_z: float = 0.3) -> None:
+    def __init__(self, window: int = 50, entry_z: float = 1.5, exit_z: float = 0.05) -> None:
         self.window    = window
         self.entry_z   = entry_z
         self.exit_z    = exit_z
@@ -290,7 +327,8 @@ class InstrumentState:
         self._bar_count: int      = 0
         # FIFO queue for P&L tracking: list of (qty, price, time)
         self._fifo: list[tuple[float, float, str]] = []
-        self.hold_bars: int = 0
+        # Previous bar close — used for single-bar GARCH log-return
+        self._prev_close: float | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -311,7 +349,7 @@ def _init_db(db_path: Path) -> sqlite3.Connection:
             notional         REAL    NOT NULL,
             fill_time        TEXT    NOT NULL,
             order_id         TEXT,
-            strategy_version TEXT    DEFAULT 'larsa_v16'
+            strategy_version TEXT    DEFAULT 'larsa_v17'
         )
     """)
     conn.execute("""
@@ -332,17 +370,262 @@ def _init_db(db_path: Path) -> sqlite3.Connection:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Market-hours helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore
+
+_ET = ZoneInfo("America/New_York")
+
+def _is_rth(ts: datetime) -> bool:
+    """Return True if ts falls within regular trading hours (Mon–Fri, 9:30–16:00 ET)."""
+    et = ts.astimezone(_ET)
+    if et.weekday() >= 5:          # Saturday=5, Sunday=6
+        return False
+    open_mins  = RTH_OPEN_ET[0]  * 60 + RTH_OPEN_ET[1]
+    close_mins = RTH_CLOSE_ET[0] * 60 + RTH_CLOSE_ET[1]
+    now_mins   = et.hour * 60 + et.minute
+    return open_mins <= now_mins < close_mins
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OptionOverlay — ATM directional options on equity underlyings
+# ─────────────────────────────────────────────────────────────────────────────
+
+class OptionPosition:
+    """Tracks a single open option position."""
+    __slots__ = ("sym", "contract_sym", "option_type", "strike", "expiry",
+                 "qty", "entry_price", "entry_time", "bars_held")
+
+    def __init__(self, sym: str, contract_sym: str, option_type: str,
+                 strike: float, expiry: "date", qty: int,
+                 entry_price: float, entry_time: datetime) -> None:
+        self.sym           = sym
+        self.contract_sym  = contract_sym
+        self.option_type   = option_type   # "call" or "put"
+        self.strike        = strike
+        self.expiry        = expiry
+        self.qty           = qty
+        self.entry_price   = entry_price
+        self.entry_time    = entry_time
+        self.bars_held     = 0             # incremented every 15m bar
+
+
+class OptionOverlay:
+    """
+    Aggressive ATM directional options overlay on all 11 equity instruments.
+
+    Entry : tf >= OPT_MIN_TF (2)  — any single BH timeframe active
+    Exits : signal fully off  |  direction flip  |  24h max hold  |  DTE roll
+    Sizing: OPT_NOTIONAL_FRAC (1.5%) of equity per underlying
+
+    IMPORTANT: update() never calls submit_order directly — it returns a
+    pending action tuple that _act_on_targets dispatches via asyncio.to_thread,
+    keeping all HTTP calls off the event loop.
+    """
+
+    def __init__(self, trading_client: Any) -> None:
+        self._client: Any = trading_client
+        self._positions: dict[str, OptionPosition] = {}   # sym → open position
+        # sym → contract_sym mapping so fills can be routed back to the underlying
+        self.contract_to_underlying: dict[str, str] = {}
+        # Symbols with an in-flight open order — prevents double-open between bars
+        self._pending_opens: set[str] = set()
+
+    # ── Find ATM contract ──────────────────────────────────────────────────────
+
+    def _find_contract(self, underlying: str, direction: int, spot: float) -> Any | None:
+        """Return the best option contract object from Alpaca, or None on failure."""
+        from alpaca.trading.requests import GetOptionContractsRequest
+        from alpaca.trading.enums import ContractType
+        from datetime import date, timedelta
+
+        target_expiry = date.today() + timedelta(days=OPT_TARGET_DTE)
+        opt_type = ContractType.CALL if direction > 0 else ContractType.PUT
+
+        try:
+            req = GetOptionContractsRequest(
+                underlying_symbols=[underlying],
+                expiration_date_gte=str(target_expiry - timedelta(days=7)),
+                expiration_date_lte=str(target_expiry + timedelta(days=7)),
+                type=opt_type,
+                limit=50,
+            )
+            contracts = self._client.get_option_contracts(req).option_contracts
+        except Exception as exc:
+            log.warning("OptionOverlay: could not fetch contracts for %s: %s", underlying, exc)
+            return None
+
+        if not contracts:
+            return None
+
+        # Pick contract with strike closest to spot
+        return min(contracts, key=lambda c: abs(float(c.strike_price) - spot))
+
+    # ── Submit open (blocking — called via asyncio.to_thread) ─────────────────
+
+    def _submit_open(self, sym: str, direction: int, spot: float, equity: float) -> None:
+        """Blocking HTTP call — must be run in a thread, not on the event loop."""
+        from alpaca.trading.requests import MarketOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        from datetime import date
+        try:
+            if sym in self._positions:
+                return
+
+            contract = self._find_contract(sym, direction, spot)
+            if contract is None:
+                return
+
+            notional  = equity * OPT_NOTIONAL_FRAC
+            opt_price = float(getattr(contract, "close_price", None) or
+                              getattr(contract, "last_price", None) or 1.0)
+            if opt_price <= 0:
+                opt_price = 1.0
+            qty = max(1, int(notional / (opt_price * 100)))
+
+            req = MarketOrderRequest(
+                symbol        = contract.symbol,
+                qty           = qty,
+                side          = OrderSide.BUY,
+                time_in_force = TimeInForce.DAY,
+            )
+            self._client.submit_order(req)
+            expiry = contract.expiration_date
+            if isinstance(expiry, str):
+                expiry = date.fromisoformat(expiry)
+            pos = OptionPosition(
+                sym          = sym,
+                contract_sym = contract.symbol,
+                option_type  = "call" if direction > 0 else "put",
+                strike       = float(contract.strike_price),
+                expiry       = expiry,
+                qty          = qty,
+                entry_price  = opt_price,
+                entry_time   = datetime.now(timezone.utc),
+            )
+            self._positions[sym] = pos
+            self.contract_to_underlying[contract.symbol] = sym
+            log.info(
+                "OPT OPEN: %s %s x%d  strike=%.2f  expiry=%s  contract=%s  ~$%.0f notional",
+                sym, pos.option_type.upper(), qty, pos.strike, pos.expiry,
+                contract.symbol, qty * opt_price * 100,
+            )
+        except Exception as exc:
+            log.error("OPT OPEN failed [%s]: %s", sym, exc)
+        finally:
+            self._pending_opens.discard(sym)
+
+    # ── Submit close (blocking — called via asyncio.to_thread) ────────────────
+
+    def _submit_close(self, sym: str, reason: str) -> None:
+        """Blocking HTTP call — must be run in a thread, not on the event loop."""
+        pos = self._positions.pop(sym, None)
+        if pos is None:
+            return
+        self.contract_to_underlying.pop(pos.contract_sym, None)
+
+        from alpaca.trading.requests import MarketOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+
+        req = MarketOrderRequest(
+            symbol        = pos.contract_sym,
+            qty           = pos.qty,
+            side          = OrderSide.SELL,
+            time_in_force = TimeInForce.DAY,
+        )
+        try:
+            self._client.submit_order(req)
+            log.info("OPT CLOSE: %s %s x%d  contract=%s  reason=%s",
+                     sym, pos.option_type.upper(), pos.qty, pos.contract_sym, reason)
+        except Exception as exc:
+            log.error("OPT CLOSE failed [%s]: %s", sym, exc)
+            # Re-insert so we try again next bar
+            self._positions[sym] = pos
+            self.contract_to_underlying[pos.contract_sym] = sym
+
+    # ── Roll check ────────────────────────────────────────────────────────────
+
+    def pending_rolls(self, now: datetime) -> list[str]:
+        """Return list of syms that need rolling (DTE < OPT_ROLL_DTE). Caller submits."""
+        from datetime import date
+        today = now.date() if hasattr(now, "date") else now
+        due = []
+        for sym, pos in self._positions.items():
+            if (pos.expiry - today).days < OPT_ROLL_DTE:
+                due.append(sym)
+        return due
+
+    # ── Update — returns pending action for caller to dispatch async ──────────
+
+    def update(self, sym: str, tf: int, direction: int, spot: float,
+               equity: float, now: datetime) -> tuple[str, Any] | None:
+        """
+        Decide what to do with the option position for this underlying.
+        Returns one of:
+          ("open",  (sym, direction, spot, equity))
+          ("close", (sym, reason))
+          None  — no action needed
+
+        NEVER calls submit_order — caller dispatches via asyncio.to_thread.
+        """
+        if not _is_rth(now):
+            return None
+
+        # Check rolls — schedule close if due
+        for roll_sym in self.pending_rolls(now):
+            if roll_sym == sym:
+                log.info("OPT ROLL queued: %s", sym)
+                return ("close", (sym, "roll"))
+
+        has_pos = sym in self._positions
+
+        if has_pos:
+            pos = self._positions[sym]
+            pos.bars_held += 1
+
+            if pos.bars_held >= OPT_MAX_HOLD_BARS:
+                return ("close", (sym, f"max_hold_{pos.bars_held}bars"))
+
+            if tf <= OPT_EXIT_TF:
+                return ("close", (sym, "signal_off"))
+
+            if direction != 0:
+                expected = "call" if direction > 0 else "put"
+                if pos.option_type != expected:
+                    return ("close", (sym, "direction_flip"))
+
+            return None   # hold
+
+        # No position — open if signal present and no in-flight open
+        if tf >= OPT_MIN_TF and direction != 0 and sym not in self._pending_opens:
+            self._pending_opens.add(sym)   # mark pending before returning so next bar skips
+            return ("open", (sym, direction, spot, equity))
+
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # LiveTrader
 # ─────────────────────────────────────────────────────────────────────────────
 
 class LiveTrader:
-    """LARSA v16 live trading engine."""
+    """LARSA v17 multi-asset live trading engine."""
 
     def __init__(self) -> None:
         self._load_env()
         self._setup_alpaca()
         self._db: sqlite3.Connection = _init_db(_DB_PATH)
         log.info("SQLite DB ready at %s", _DB_PATH)
+
+        # Option overlay
+        self._opt_overlay: OptionOverlay = OptionOverlay(self._trading_client)
+
+        # Pending order guard — symbols with an in-flight order; cleared on fill or error
+        self._pending_orders: set[str] = set()
 
         # Instrument state
         self._states: dict[str, InstrumentState] = {
@@ -391,17 +674,24 @@ class LiveTrader:
     def _setup_alpaca(self) -> None:
         from alpaca.trading.client import TradingClient
         from alpaca.data.live.crypto import CryptoDataStream
+        from alpaca.data.live.stock import StockDataStream
 
         self._trading_client = TradingClient(
             api_key    = self._api_key,
             secret_key = self._secret_key,
             paper      = self._paper,
         )
-        self._stream = CryptoDataStream(
+        self._crypto_stream = CryptoDataStream(
             api_key    = self._api_key,
             secret_key = self._secret_key,
         )
-        log.info("Alpaca clients created")
+        self._stock_stream = StockDataStream(
+            api_key    = self._api_key,
+            secret_key = self._secret_key,
+        )
+        # Keep backward-compat alias used elsewhere
+        self._stream = self._crypto_stream
+        log.info("Alpaca clients created (crypto + stock streams)")
 
     # ── Signal overrides ───────────────────────────────────────────────────────
 
@@ -553,12 +843,10 @@ class LiveTrader:
         # Update 15m BH
         st.bh_15m.update(c)
 
-        # GARCH update
-        if st.entry_px and st.entry_px > 0:
-            st.garch.update(math.log(c / st.entry_px))
-        elif len(st.bh_15m.prices) >= 2:
-            px = list(st.bh_15m.prices)
-            st.garch.update(math.log(px[-1] / (px[-2] + 1e-12)))
+        # GARCH update — always use single-bar log return (prev close → this close)
+        if st._prev_close and st._prev_close > 0:
+            st.garch.update(math.log(c / st._prev_close))
+        st._prev_close = c
 
         # OU update
         st.ou.update(c)
@@ -639,7 +927,16 @@ class LiveTrader:
 
         raw: dict[str, float] = {}
 
+        is_rth_now = _is_rth(bar_time)
+
         for sym, st in self._states.items():
+            asset_class = INSTRUMENTS[sym].get("asset_class", "crypto")
+
+            # Equity instruments only trade during RTH
+            if asset_class == "equity" and not is_rth_now:
+                raw[sym] = 0.0
+                continue
+
             if not st.warmup_done:
                 raw[sym] = 0.0
                 continue
@@ -648,7 +945,11 @@ class LiveTrader:
             h_active = st.bh_1h.active
             m_active = st.bh_15m.active
             tf       = (4 if d_active else 0) + (2 if h_active else 0) + (1 if m_active else 0)
-            ceiling  = min(TF_CAP.get(tf, 0.0), CRYPTO_CAP_FRAC)
+
+            if asset_class == "equity":
+                ceiling = min(TF_CAP.get(tf, 0.0), EQUITY_CAP_FRAC)
+            else:
+                ceiling = min(TF_CAP.get(tf, 0.0), CRYPTO_CAP_FRAC)
 
             if ceiling == 0.0:
                 raw[sym] = 0.0
@@ -661,8 +962,11 @@ class LiveTrader:
             elif d_active and st.bh_4h.bh_dir:
                 direction = st.bh_4h.bh_dir
 
-            # Long-only: skip bearish
-            if direction <= 0:
+            # Crypto: long-only.  Equities: long/short allowed.
+            if asset_class == "crypto" and direction <= 0:
+                raw[sym] = 0.0
+                continue
+            if direction == 0:
                 raw[sym] = 0.0
                 continue
 
@@ -671,9 +975,9 @@ class LiveTrader:
             cp  = self._last_price.get(sym, 1.0)
             vol = (atr / cp * math.sqrt(6.5)) if (atr and cp > 0) else 0.01
             base  = min(per_inst_risk / (vol + 1e-9), min(ceiling, DELTA_MAX_FRAC))
-            raw[sym] = base * st.garch.vol_scale
+            raw[sym] = base * st.garch.vol_scale * direction
 
-        # Mayer Multiple dampener
+        # Mayer Multiple dampener — crypto only
         mayer_damp = 1.0
         btc_px = self._last_price.get("BTC", 0.0)
         if self._btc_e200 and self._btc_e200 > 0 and btc_px > 0:
@@ -683,11 +987,14 @@ class LiveTrader:
             elif mayer < 1.0:
                 mayer_damp = min(1.2, 1.0 + (1.0 - mayer) * 0.3)
         for sym in raw:
-            raw[sym] = raw.get(sym, 0.0) * mayer_damp
+            if INSTRUMENTS[sym].get("asset_class", "crypto") == "crypto":
+                raw[sym] = raw.get(sym, 0.0) * mayer_damp
 
-        # BTC cross-asset lead: 1.4x on confirmed lead
+        # BTC cross-asset lead: 1.4x boost on other crypto only
         for sym, st in self._states.items():
             if sym == "BTC":
+                continue
+            if INSTRUMENTS[sym].get("asset_class", "crypto") != "crypto":
                 continue
             if btc_lead and raw.get(sym, 0.0) > 0:
                 raw[sym] *= 1.4
@@ -770,8 +1077,36 @@ class LiveTrader:
         targets = self.compute_targets(bar_time)
         equity  = self._get_equity()
 
+        # ── Option overlay ────────────────────────────────────────────────────
+        for sym in list(targets.keys()):
+            if not (INSTRUMENTS[sym].get("options_overlay") and
+                    INSTRUMENTS[sym].get("asset_class") == "equity"):
+                continue
+            st        = self._states[sym]
+            d_active  = st.bh_4h.active
+            h_active  = st.bh_1h.active
+            tf        = (4 if d_active else 0) + (2 if h_active else 0) + (1 if st.bh_15m.active else 0)
+            direction = st.bh_1h.bh_dir or st.bh_4h.bh_dir
+            spot      = self._last_price.get(sym, 0.0)
+            if spot <= 0:
+                continue
+            action = self._opt_overlay.update(sym, tf, direction, spot, equity, bar_time)
+            if action is None:
+                continue
+            kind, args = action
+            if kind == "open":
+                asyncio.create_task(asyncio.to_thread(self._opt_overlay._submit_open, *args))
+            elif kind == "close":
+                asyncio.create_task(asyncio.to_thread(self._opt_overlay._submit_close, *args))
+
+        # ── Equity / crypto positions ─────────────────────────────────────────
         for sym, tgt_frac in targets.items():
             st = self._states[sym]
+
+            # Skip if an order is already in-flight for this symbol
+            if sym in self._pending_orders:
+                st.bars_held += 1
+                continue
 
             # Min-hold gate (no reversal within MIN_HOLD bars)
             if (not math.isclose(st.last_frac, 0.0) and
@@ -790,19 +1125,17 @@ class LiveTrader:
                 log.warning("%s: no price — skipping order", sym)
                 continue
 
-            tgt_dollar  = tgt_frac  * equity
-            curr_dollar = st.last_frac * equity
-            delta_dollar = tgt_dollar - curr_dollar
-            qty = delta_dollar / cp
+            qty = (tgt_frac - st.last_frac) * equity / cp
 
             if abs(qty * cp) < 1.0:
                 continue
 
             side = "buy" if qty > 0 else "sell"
             log.info(
-                "%s → %s %.6f units @ ~$%.2f  (frac %.3f→%.3f)",
+                "%s %s %.6f units @ ~$%.2f  (frac %.3f→%.3f)",
                 sym, side.upper(), abs(qty), cp, st.last_frac, tgt_frac,
             )
+            self._pending_orders.add(sym)
             asyncio.create_task(
                 self._place_order_async(sym, side, abs(qty), cp, tgt_frac)
             )
@@ -810,13 +1143,15 @@ class LiveTrader:
     async def _place_order_async(
         self, sym: str, side: str, qty: float, price: float, new_frac: float
     ) -> None:
-        """Place order(s), splitting if notional > MAX_ORDER_NOTIONAL."""
+        """Place order(s) in a thread; always clears the pending guard when done."""
         try:
             await asyncio.to_thread(
                 self._place_order, sym, side, qty, price, new_frac
             )
         except Exception as exc:
             log.error("%s order error: %s", sym, exc, exc_info=True)
+        finally:
+            self._pending_orders.discard(sym)
 
     def _place_order(
         self, sym: str, side: str, qty: float, price: float, new_frac: float
@@ -825,56 +1160,100 @@ class LiveTrader:
         from alpaca.trading.enums import OrderSide, TimeInForce
 
         ticker      = INSTRUMENTS[sym]["ticker"]
-        notional    = qty * price
+        asset_class = INSTRUMENTS[sym].get("asset_class", "crypto")
         max_slice   = MAX_ORDER_NOTIONAL
         remaining   = qty
+        any_filled  = False
 
-        while remaining > 1e-8:
-            slice_qty     = min(remaining, max_slice / price)
-            slice_notional = slice_qty * price
+        # Equities: DAY TIF, 2dp fractional.  Crypto: GTC, 8dp fractional.
+        if asset_class == "equity":
+            tif       = TimeInForce.DAY
+            qty_round = 2
+            min_qty   = 0.01
+        else:
+            tif       = TimeInForce.GTC
+            qty_round = 8
+            min_qty   = 1e-7
 
-            order_side = OrderSide.BUY if side == "buy" else OrderSide.SELL
+        order_side = OrderSide.BUY if side == "buy" else OrderSide.SELL
+
+        while remaining > min_qty:
+            slice_qty = min(remaining, max_slice / price)
+            rounded   = round(slice_qty, qty_round)
+
+            # Guard: rounding could produce 0 → break to avoid infinite loop
+            if rounded <= 0:
+                break
+
+            slice_notional = rounded * price
+            # Alpaca minimum notional check ($1)
+            if slice_notional < 1.0:
+                break
+
             req = MarketOrderRequest(
-                symbol       = ticker,
-                qty          = round(slice_qty, 8),
-                side         = order_side,
-                time_in_force= TimeInForce.GTC,
+                symbol        = ticker,
+                qty           = rounded,
+                side          = order_side,
+                time_in_force = tif,
             )
             try:
                 resp = self._trading_client.submit_order(req)
                 log.info(
-                    "%s order submitted: id=%s side=%s qty=%.6f notional=$%.0f",
-                    sym, resp.id, side, float(slice_qty), float(slice_notional),
+                    "%s submitted: id=%s %s %.6f units notional=$%.0f",
+                    sym, resp.id, side.upper(), float(rounded), float(slice_notional),
                 )
+                any_filled = True
             except Exception as exc:
                 log.error("%s submit_order failed: %s", sym, exc)
                 break
 
             remaining -= slice_qty
 
-        # Optimistically update last_frac (fills will confirm via trade_updates)
-        st = self._states[sym]
-        st.last_frac = new_frac
-        st.bars_held = 0
-        if side == "buy":
-            st.entry_px = price
-        elif math.isclose(new_frac, 0.0):
-            st.entry_px = None
+        # Only update state if at least one slice was accepted by the broker.
+        # This prevents phantom positions from failed orders.
+        if any_filled:
+            st = self._states[sym]
+            st.last_frac = new_frac
+            st.bars_held = 0
+            if side == "buy":
+                st.entry_px = price
+            elif math.isclose(new_frac, 0.0):
+                st.entry_px = None
 
     # ── Fill handling ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_side(raw_side: Any) -> str:
+        """Normalize Alpaca OrderSide enum or string to 'buy' or 'sell'."""
+        if hasattr(raw_side, "value"):          # OrderSide.BUY → "buy"
+            return str(raw_side.value).lower()
+        s = str(raw_side).lower()
+        if "buy" in s:
+            return "buy"
+        if "sell" in s:
+            return "sell"
+        return s
 
     def _on_fill(self, fill_event: Any) -> None:
         """
         Handle a fill / trade_update event from Alpaca.
         Logs to live_trades and updates trade_pnl via FIFO matching.
+        Handles equity, crypto, and option contract fills.
         """
         try:
             order  = fill_event.order if hasattr(fill_event, "order") else fill_event
             ticker = str(order.symbol)
-            sym    = self._ticker_to_sym(ticker) or ticker
-            side   = str(order.side).lower().replace("orderside.", "")
-            qty    = float(order.filled_qty or 0)
-            price  = float(order.filled_avg_price or 0)
+
+            # Route: try equity/crypto lookup first, then option contract map
+            sym = self._ticker_to_sym(ticker)
+            if sym is None:
+                sym = self._opt_overlay.contract_to_underlying.get(ticker)
+            if sym is None:
+                sym = ticker   # unknown — log it anyway
+
+            side  = self._parse_side(order.side)
+            qty   = float(order.filled_qty or 0)
+            price = float(order.filled_avg_price or 0)
             if qty <= 0 or price <= 0:
                 return
             notional  = qty * price
@@ -942,21 +1321,28 @@ class LiveTrader:
     # ── Stream entry point ─────────────────────────────────────────────────────
 
     async def _run_stream(self) -> None:
-        from alpaca.data.live.crypto import CryptoDataStream
         from alpaca.trading.stream import TradingStream
 
-        tickers = [cfg["ticker"] for cfg in INSTRUMENTS.values()]
+        crypto_tickers = [cfg["ticker"] for sym, cfg in INSTRUMENTS.items()
+                          if cfg.get("asset_class", "crypto") == "crypto"]
+        equity_tickers = [cfg["ticker"] for sym, cfg in INSTRUMENTS.items()
+                          if cfg.get("asset_class") == "equity"]
 
-        # ── 15-minute bar handler
+        # ── Shared 15-minute bar handler (works for both crypto and equity bars)
         async def bar_handler(bar: Any) -> None:
             try:
                 self.on_bar(bar.symbol, bar)
             except Exception as exc:
                 log.error("bar_handler error [%s]: %s", bar.symbol, exc, exc_info=True)
 
-        # Subscribe bars
-        self._stream.subscribe_bars(bar_handler, *tickers)
-        log.info("Subscribed to %d crypto bar feeds", len(tickers))
+        # Subscribe crypto bars
+        self._crypto_stream.subscribe_bars(bar_handler, *crypto_tickers)
+        log.info("Subscribed to %d crypto bar feeds", len(crypto_tickers))
+
+        # Subscribe equity bars
+        if equity_tickers:
+            self._stock_stream.subscribe_bars(bar_handler, *equity_tickers)
+            log.info("Subscribed to %d equity bar feeds", len(equity_tickers))
 
         # ── Trade update handler (fills)
         trading_stream = TradingStream(
@@ -968,7 +1354,7 @@ class LiveTrader:
         async def trade_update_handler(event: Any) -> None:
             try:
                 event_type = str(getattr(event, "event", "")).lower()
-                if event_type == "fill":
+                if event_type in ("fill", "partial_fill"):
                     self._on_fill(event)
             except Exception as exc:
                 log.error("trade_update_handler error: %s", exc, exc_info=True)
@@ -976,15 +1362,16 @@ class LiveTrader:
         trading_stream.subscribe_trade_updates(trade_update_handler)
         log.info("Subscribed to trade_updates")
 
-        # Run both streams concurrently
+        # Run all three streams concurrently
         await asyncio.gather(
-            self._stream._run_forever(),
+            self._crypto_stream._run_forever(),
+            self._stock_stream._run_forever(),
             trading_stream._run_forever(),
         )
 
     def run(self) -> None:
         """Main entry point — blocks until interrupted."""
-        log.info("LARSA v16 LiveTrader starting (strategy_version=%s)", STRATEGY_VERSION)
+        log.info("LARSA v17 LiveTrader starting (strategy_version=%s)", STRATEGY_VERSION)
         while True:
             try:
                 asyncio.run(self._run_stream())
