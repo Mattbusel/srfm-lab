@@ -84,7 +84,10 @@ const StatusBar: React.FC<{ wsStatus: WsStatus }> = ({ wsStatus }) => {
 const App: React.FC = () => {
   const [route, setRoute] = useState<Route>('overview')
 
-  const { status: wsStatus } = useWebSocket({ enabled: false })  // disabled until backend available
+  const { status: wsStatus } = useWebSocket({
+    enabled: true,
+    url: import.meta.env.VITE_WS_URL ?? 'ws://localhost:8765/ws/live',
+  })
 
   const renderPage = () => {
     switch (route) {

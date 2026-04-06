@@ -23,6 +23,14 @@ References:
   Peyré & Cuturi (2019) "Computational Optimal Transport"
 """
 
+import Pkg
+let _required = ["Distributions", "Plots", "StatsBase"]
+    _installed = keys(Pkg.project().dependencies)
+    for pkg in _required
+        pkg ∉ _installed && Pkg.add(pkg; io=devnull)
+    end
+end
+
 using LinearAlgebra
 using Statistics
 using Random

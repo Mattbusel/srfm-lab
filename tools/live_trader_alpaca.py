@@ -722,7 +722,8 @@ class LiveTrader:
     def _load_signal_overrides(self) -> dict[str, Any]:
         """Read and cache signal_overrides.json; refresh every OVERRIDES_TTL_SECS."""
         now = time.monotonic()
-        if now - self._overrides_loaded_at < OVERRIDES_TTL_SECS and self._overrides_cache:
+        # Return cache if fresh — including when cache is intentionally empty (expired overrides)
+        if now - self._overrides_loaded_at < OVERRIDES_TTL_SECS:
             return self._overrides_cache
 
         if not _OVERRIDES_FILE.exists():

@@ -22,17 +22,15 @@
 #
 # Packages: multitaper, WaveletComp, astsa, ggplot2, dplyr, zoo
 
-suppressPackageStartupMessages({
-  library(multitaper)    # Thomson multitaper spectral estimate
-  library(WaveletComp)   # CWT, wavelet power, coherence
-  library(astsa)         # Shumway-Stoffer time series (mvspec)
-  library(ggplot2)
-  library(dplyr)
-  library(gridExtra)
-  library(zoo)
-  library(RColorBrewer)
-  library(scales)
-})
+.require_pkg <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    message("Installing missing package: ", pkg)
+    install.packages(pkg, repos = "https://cloud.r-project.org", quiet = TRUE)
+  }
+  suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+}
+invisible(lapply(c("multitaper", "WaveletComp", "astsa", "ggplot2", "dplyr",
+                   "gridExtra", "zoo", "RColorBrewer", "scales"), .require_pkg))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PERIODOGRAM: RAW AND SMOOTHED

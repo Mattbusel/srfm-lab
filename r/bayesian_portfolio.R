@@ -25,16 +25,15 @@
 # Packages: MASS, quadprog, PortfolioAnalytics, covRobust, PerformanceAnalytics,
 #           ggplot2, dplyr, reshape2
 
-suppressPackageStartupMessages({
-  library(MASS)                  # mvrnorm, ginv
-  library(quadprog)              # solve.QP for mean-variance optimization
-  library(PerformanceAnalytics)  # portfolio analytics utilities
-  library(ggplot2)
-  library(dplyr)
-  library(reshape2)
-  library(gridExtra)
-  library(scales)
-})
+.require_pkg <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    message("Installing missing package: ", pkg)
+    install.packages(pkg, repos = "https://cloud.r-project.org", quiet = TRUE)
+  }
+  suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+}
+invisible(lapply(c("MASS", "quadprog", "PerformanceAnalytics", "ggplot2",
+                   "dplyr", "reshape2", "gridExtra", "scales"), .require_pkg))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UTILITY FUNCTIONS

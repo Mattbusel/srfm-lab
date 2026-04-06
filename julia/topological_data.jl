@@ -21,6 +21,14 @@ References:
   Gidea & Katz (2018) "Topological Data Analysis of Financial Time Series"
 """
 
+import Pkg
+let _required = ["Distances", "Plots", "StatsBase"]
+    _installed = keys(Pkg.project().dependencies)
+    for pkg in _required
+        pkg ∉ _installed && Pkg.add(pkg; io=devnull)
+    end
+end
+
 using LinearAlgebra
 using Statistics
 using Random

@@ -26,6 +26,14 @@ References:
   Shumway & Stoffer (2000) "Time Series Analysis and Its Applications"
 """
 
+import Pkg
+let _required = ["Distributions", "Optim", "Plots"]
+    _installed = keys(Pkg.project().dependencies)
+    for pkg in _required
+        pkg ∉ _installed && Pkg.add(pkg; io=devnull)
+    end
+end
+
 using LinearAlgebra
 using Statistics
 using Random

@@ -59,6 +59,12 @@ import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
+
+
+class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    """Thread-per-request HTTP server — handles concurrent health probes."""
+    daemon_threads = True
 from typing import Any, Callable, Dict, Optional
 
 log = logging.getLogger(__name__)
@@ -294,8 +300,7 @@ class HealthServer:
                     )
 
         try:
-            httpd = HTTPServer(("0.0.0.0", self._port), Handler)
-            httpd.timeout = 1.0
+            httpd = _ThreadingHTTPServer(("0.0.0.0", self._port), Handler)
         except OSError as exc:
             log.error("HealthServer failed to bind on port %d: %s",
                       self._port, exc)
@@ -306,17 +311,17 @@ class HealthServer:
 
         def _serve():
             log.info("HealthServer: listening on :%d", self._port)
-            while self._running:
-                try:
-                    httpd.handle_request()
-                except Exception as exc:
-                    if self._running:
-                        log.debug("HealthServer handler error: %s", exc)
             try:
-                httpd.server_close()
-            except Exception:
-                pass
-            log.info("HealthServer: stopped")
+                httpd.serve_forever(poll_interval=0.5)
+            except Exception as exc:
+                if self._running:
+                    log.error("HealthServer crashed: %s", exc)
+            finally:
+                try:
+                    httpd.server_close()
+                except Exception:
+                    pass
+                log.info("HealthServer: stopped")
 
         self._thread = threading.Thread(
             target=_serve, name="health-server", daemon=True
@@ -328,7 +333,7 @@ class HealthServer:
         self._running = False
         if self._server:
             try:
-                self._server.server_close()
+                self._server.shutdown()   # unblocks serve_forever()
             except Exception:
                 pass
         if self._thread and self._thread.is_alive():

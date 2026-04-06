@@ -20,15 +20,15 @@
 #
 # Packages: evd, ismev, extRemes, ggplot2, dplyr
 
-suppressPackageStartupMessages({
-  library(evd)         # Extreme value distributions (GEV, GPD, bivariate)
-  library(ismev)       # Coles (2001) package: gev.fit, gpd.fit, pot
-  library(extRemes)    # Gilleland & Katz EVT toolkit
-  library(ggplot2)
-  library(dplyr)
-  library(gridExtra)
-  library(scales)
-})
+.require_pkg <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    message("Installing missing package: ", pkg)
+    install.packages(pkg, repos = "https://cloud.r-project.org", quiet = TRUE)
+  }
+  suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+}
+invisible(lapply(c("evd", "ismev", "extRemes", "ggplot2", "dplyr",
+                   "gridExtra", "scales"), .require_pkg))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GEV FITTING WITH PROFILE LIKELIHOOD CIs

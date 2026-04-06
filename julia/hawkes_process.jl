@@ -18,6 +18,16 @@ References:
   Embrechts et al. (2011) "Multivariate Hawkes processes"
 """
 
+import Pkg
+
+# Auto-install missing packages on first load
+let _required = ["Optim", "Distributions", "HypothesisTests", "Plots", "SQLite", "DataFrames"]
+    _installed = keys(Pkg.project().dependencies)
+    for pkg in _required
+        pkg ∉ _installed && Pkg.add(pkg; io=devnull)
+    end
+end
+
 using Optim
 using LinearAlgebra
 using Statistics

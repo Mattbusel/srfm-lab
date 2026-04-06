@@ -18,15 +18,15 @@
 #
 # Package dependencies: VineCopula, copula, ggplot2, reshape2, dplyr
 
-suppressPackageStartupMessages({
-  library(VineCopula)     # Vine copula estimation and simulation
-  library(copula)         # Parametric copula families
-  library(ggplot2)
-  library(reshape2)
-  library(dplyr)
-  library(gridExtra)
-  library(RColorBrewer)
-})
+.require_pkg <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    message("Installing missing package: ", pkg)
+    install.packages(pkg, repos = "https://cloud.r-project.org", quiet = TRUE)
+  }
+  suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+}
+invisible(lapply(c("VineCopula", "copula", "ggplot2", "reshape2", "dplyr",
+                   "gridExtra", "RColorBrewer"), .require_pkg))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PSEUDO-OBSERVATIONS (UNIFORM MARGINALS)

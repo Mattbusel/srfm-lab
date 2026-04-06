@@ -23,6 +23,14 @@ References:
   de Haan & Ferreira (2006) "Extreme Value Theory: An Introduction"
 """
 
+import Pkg
+let _required = ["Optim", "Distributions", "Plots", "HypothesisTests"]
+    _installed = keys(Pkg.project().dependencies)
+    for pkg in _required
+        pkg ∉ _installed && Pkg.add(pkg; io=devnull)
+    end
+end
+
 using Optim
 using Distributions
 using Statistics
