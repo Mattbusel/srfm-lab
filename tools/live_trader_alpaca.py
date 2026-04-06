@@ -1126,6 +1126,10 @@ class LiveTrader:
                 log.warning("%s: no price — skipping order", sym)
                 continue
             qty = delta * equity / cp
+            # For sells, cap at 99.9% of held notional to avoid rounding over-sells
+            if qty < 0:
+                max_sell = abs(self._states[sym].last_frac) * equity / cp * 0.999
+                qty = -min(abs(qty), max_sell)
             if abs(qty * cp) < 1.0:
                 continue
             order_items.append((sym, tgt_frac, qty, cp))
