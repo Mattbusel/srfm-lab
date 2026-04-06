@@ -66,21 +66,16 @@ STRATEGY_VERSION = "larsa_v17"
 #                  when BH fires at tf>=6 (in addition to the equity position)
 INSTRUMENTS = {
     # ── Crypto (24/7, GTC, fractional) ───────────────────────────────────────
+    # Removed penny/micro-cap tokens: SHIB, CRV, SUSHI, BAT, UNI, DOT, DOGE
+    # — sub-cent prices cause runaway qty math and catastrophic fill churn
     "BTC":   {"ticker": "BTC/USD",   "asset_class": "crypto", "cf_4h": 0.016, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
     "ETH":   {"ticker": "ETH/USD",   "asset_class": "crypto", "cf_4h": 0.012, "cf_15m": 0.007, "cf_1h": 0.020, "cf_1d": 0.07},
     "XRP":   {"ticker": "XRP/USD",   "asset_class": "crypto", "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
     "AVAX":  {"ticker": "AVAX/USD",  "asset_class": "crypto", "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},
     "LINK":  {"ticker": "LINK/USD",  "asset_class": "crypto", "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},
-    "DOT":   {"ticker": "DOT/USD",   "asset_class": "crypto", "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018, "cf_1d": 0.06},
-    "UNI":   {"ticker": "UNI/USD",   "asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
     "AAVE":  {"ticker": "AAVE/USD",  "asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
     "LTC":   {"ticker": "LTC/USD",   "asset_class": "crypto", "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030, "cf_1d": 0.10},
     "BCH":   {"ticker": "BCH/USD",   "asset_class": "crypto", "cf_4h": 0.020, "cf_15m": 0.012, "cf_1h": 0.035, "cf_1d": 0.12},
-    "DOGE":  {"ticker": "DOGE/USD",  "asset_class": "crypto", "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
-    "SHIB":  {"ticker": "SHIB/USD",  "asset_class": "crypto", "cf_4h": 0.035, "cf_15m": 0.025, "cf_1h": 0.075, "cf_1d": 0.25},
-    "BAT":   {"ticker": "BAT/USD",   "asset_class": "crypto", "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
-    "CRV":   {"ticker": "CRV/USD",   "asset_class": "crypto", "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
-    "SUSHI": {"ticker": "SUSHI/USD", "asset_class": "crypto", "cf_4h": 0.030, "cf_15m": 0.020, "cf_1h": 0.060, "cf_1d": 0.20},
     "MKR":   {"ticker": "MKR/USD",   "asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
     "YFI":   {"ticker": "YFI/USD",   "asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045, "cf_1d": 0.15},
 
@@ -103,7 +98,7 @@ BH_FORM     = 1.92
 BH_CTL_MIN  = 3
 BH_DECAY    = 0.924
 BH_COLLAPSE = 0.992
-MIN_HOLD    = 80
+MIN_HOLD_MINUTES = 240        # minimum hold = 4 hours wall-clock time (replaces bar-count gate)
 
 DAILY_RISK              = 0.05
 CORR_NORMAL             = 0.25
@@ -111,6 +106,10 @@ CORR_STRESS             = 0.60
 CORR_STRESS_THRESHOLD   = 0.60
 CRYPTO_CAP_FRAC         = 0.40
 MIN_TRADE_FRAC          = 0.003
+
+# ── Drawdown circuit breaker ───────────────────────────────────────────────────
+DD_HALT_PCT  = 0.10   # halt ALL new entries if portfolio drops >10% from peak
+DD_RESUME_PCT = 0.05  # resume once equity recovers to within 5% of peak
 GARCH_TARGET_VOL        = 0.90
 OU_FRAC                 = 0.08
 DELTA_MAX_FRAC          = 0.40
@@ -317,11 +316,11 @@ class InstrumentState:
         self._last_h1_close: datetime | None = None
         self._last_h4_close: datetime | None = None
         # Position tracking
-        self.last_frac: float     = 0.0
-        self.bars_held: int       = 0
-        self.ou_pos: float        = 0.0
-        self.pos_floor: float     = 0.0
-        self.entry_px: float | None = None
+        self.last_frac: float             = 0.0
+        self.entry_time: datetime | None  = None   # wall-clock entry time for MIN_HOLD_MINUTES
+        self.ou_pos: float                = 0.0
+        self.pos_floor: float             = 0.0
+        self.entry_px: float | None       = None
         self.last_15m_px: float | None = None
         self.warmup_done: bool    = False
         self._bar_count: int      = 0
@@ -658,6 +657,10 @@ class LiveTrader:
 
         # Set True during _bootstrap_history to suppress order placement
         self._bootstrapping: bool = False
+
+        # Drawdown circuit breaker
+        self._equity_peak: float  = 0.0   # populated on first equity fetch
+        self._dd_halted:   bool   = False
 
         log.info("LiveTrader initialised — %d instruments", N_INST)
 
@@ -1085,6 +1088,18 @@ class LiveTrader:
         targets = self.compute_targets(bar_time)
         equity  = self._get_equity()
 
+        # ── Drawdown circuit breaker ──────────────────────────────────────────
+        if equity > self._equity_peak:
+            self._equity_peak = equity
+        if self._equity_peak > 0:
+            dd = (self._equity_peak - equity) / self._equity_peak
+            if not self._dd_halted and dd >= DD_HALT_PCT:
+                self._dd_halted = True
+                log.warning("CIRCUIT BREAKER: drawdown %.1f%% >= %.1f%% — halting new entries", dd*100, DD_HALT_PCT*100)
+            elif self._dd_halted and dd <= DD_RESUME_PCT:
+                self._dd_halted = False
+                log.info("CIRCUIT BREAKER: drawdown recovered to %.1f%% — resuming", dd*100)
+
         # ── Option overlay ────────────────────────────────────────────────────
         for sym in list(targets.keys()):
             if not (INSTRUMENTS[sym].get("options_overlay") and
@@ -1109,20 +1124,34 @@ class LiveTrader:
 
         # ── Equity / crypto positions ─────────────────────────────────────────
         # Build order list; process SELLS before BUYS so proceeds free up cash
+        now_utc = datetime.now(timezone.utc)
+
         order_items = []
         for sym, tgt_frac in targets.items():
             st = self._states[sym]
             if sym in self._pending_orders:
-                st.bars_held += 1
                 continue
-            if (not math.isclose(st.last_frac, 0.0) and
-                    not math.isclose(tgt_frac, 0.0) and
-                    math.copysign(1, tgt_frac) != math.copysign(1, st.last_frac) and
-                    st.bars_held < MIN_HOLD):
-                tgt_frac = st.last_frac
+
+            # Time-based min-hold gate: no exit/reversal within MIN_HOLD_MINUTES
+            held_minutes = 0.0
+            if st.entry_time is not None:
+                held_minutes = (now_utc - st.entry_time).total_seconds() / 60.0
+
+            is_exit    = math.isclose(tgt_frac, 0.0) and not math.isclose(st.last_frac, 0.0)
+            is_reversal = (not math.isclose(st.last_frac, 0.0) and
+                           not math.isclose(tgt_frac, 0.0) and
+                           math.copysign(1, tgt_frac) != math.copysign(1, st.last_frac))
+
+            if (is_exit or is_reversal) and held_minutes < MIN_HOLD_MINUTES:
+                continue   # hold — too soon to exit/reverse
+
+            # Circuit breaker: no new entries when halted (exits/reduces still allowed)
+            is_new_entry = math.isclose(st.last_frac, 0.0) and not math.isclose(tgt_frac, 0.0)
+            if self._dd_halted and is_new_entry:
+                continue
+
             delta = tgt_frac - st.last_frac
             if abs(delta) < MIN_TRADE_FRAC:
-                st.bars_held += 1
                 continue
             cp = self._last_price.get(sym)
             if not cp or cp <= 0:
@@ -1225,11 +1254,12 @@ class LiveTrader:
         if any_filled:
             st = self._states[sym]
             st.last_frac = new_frac
-            st.bars_held = 0
             if side == "buy":
-                st.entry_px = price
+                st.entry_px   = price
+                st.entry_time = datetime.now(timezone.utc)
             elif math.isclose(new_frac, 0.0):
-                st.entry_px = None
+                st.entry_px   = None
+                st.entry_time = None
 
     # ── Fill handling ──────────────────────────────────────────────────────────
 
@@ -1296,12 +1326,14 @@ class LiveTrader:
                     entry_qty, entry_price, entry_time = st._fifo[0]
                     matched = min(remaining, entry_qty)
                     pnl     = matched * (price - entry_price)
-                    hold_b  = st.bars_held
+                    hold_mins = 0
+                    if st.entry_time is not None:
+                        hold_mins = int((datetime.now(timezone.utc) - st.entry_time).total_seconds() / 60)
                     self._db.execute(
                         """INSERT INTO trade_pnl
                            (symbol, entry_time, exit_time, entry_price, exit_price, qty, pnl, hold_bars)
                            VALUES (?,?,?,?,?,?,?,?)""",
-                        (sym, entry_time, fill_time, entry_price, price, matched, round(pnl, 6), hold_b),
+                        (sym, entry_time, fill_time, entry_price, price, matched, round(pnl, 6), hold_mins),
                     )
                     self._db.commit()
                     log.info("P&L: %s  entry=%.4f exit=%.4f qty=%.6f pnl=$%.2f",
@@ -1554,6 +1586,8 @@ class LiveTrader:
             st.last_frac  = frac
             st.entry_px   = avg_px
             st.dollar_pos = mkt_val
+            # Treat synced positions as having just entered so MIN_HOLD_MINUTES applies
+            st.entry_time = datetime.now(timezone.utc)
             if self._last_price.get(sym) is None:
                 st._prev_close = avg_px
                 self._last_price[sym] = avg_px
