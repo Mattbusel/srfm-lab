@@ -1407,6 +1407,14 @@ class LiveTrader:
 
         bars_by_ticker: dict[str, list] = {}
 
+        def _iter_barset(resp) -> dict:
+            """BarSet can be dict-like or have a .data attr — handle both."""
+            if hasattr(resp, "data"):
+                return resp.data
+            if hasattr(resp, "items"):
+                return dict(resp.items())
+            return {}
+
         # Fetch crypto hourly bars
         try:
             resp = crypto_client.get_crypto_bars(
@@ -1417,13 +1425,13 @@ class LiveTrader:
                     end               = end,
                 )
             )
-            for ticker, bar_list in resp.items():
+            for ticker, bar_list in _iter_barset(resp).items():
                 bars_by_ticker[ticker] = sorted(bar_list, key=lambda b: b.timestamp)
             log.info("Bootstrap: fetched hourly bars for %d crypto tickers", len(bars_by_ticker))
         except Exception as exc:
             log.warning("Bootstrap crypto fetch failed: %s", exc)
 
-        # Fetch equity hourly bars
+        # Fetch equity hourly bars (IEX feed — available on free plan)
         try:
             resp = stock_client.get_stock_bars(
                 StockBarsRequest(
@@ -1431,10 +1439,11 @@ class LiveTrader:
                     timeframe         = TimeFrame.Hour,
                     start             = start,
                     end               = end,
+                    feed              = "iex",
                 )
             )
             n = 0
-            for ticker, bar_list in resp.items():
+            for ticker, bar_list in _iter_barset(resp).items():
                 bars_by_ticker[ticker] = sorted(bar_list, key=lambda b: b.timestamp)
                 n += 1
             log.info("Bootstrap: fetched hourly bars for %d equity tickers", n)
