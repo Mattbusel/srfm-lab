@@ -1143,6 +1143,59 @@ class LiveTrader:
         self._equity_start_of_day: float | None = None
         self._daily_loss_halted: bool = False
 
+        # Declare global early so the yaml-loader block below can reassign it
+        # without Python complaining about use-before-global.
+        global BLOCKED_ENTRY_HOURS_UTC  # noqa: PLW0603
+
+        # ── Wire execution framework ───────────────────────────────────────────
+        # CircuitBreakerRegistry
+        try:
+            import sys as _sys
+            _sys.path.insert(0, str(_REPO_ROOT))
+            from execution.monitoring.circuit_breaker import CircuitBreakerRegistry, CircuitBreakerConfig
+            self._cb_registry = CircuitBreakerRegistry.get_instance()
+            # Ensure alpaca_orders circuit exists with our thresholds
+            self._cb_registry.register("alpaca_orders", CircuitBreakerConfig(
+                failure_threshold=5, window_seconds=60.0, timeout_seconds=120.0, probe_success_threshold=2
+            ))
+            self._alpaca_cb = self._cb_registry.get_or_create("alpaca_orders")
+        except Exception as _e:
+            log.warning("execution.circuit_breaker not available: %s — using direct calls", _e)
+            self._alpaca_cb = None
+
+        # RiskGuard
+        try:
+            from execution.oms.risk_guard import RiskGuard
+            self._risk_guard = RiskGuard(
+                crypto_cap_frac=CRYPTO_CAP_FRAC,
+                max_leverage=1.5,
+                daily_loss_limit_frac=0.05,
+                order_freq_limit=10,
+                blocked_hours_utc=BLOCKED_ENTRY_HOURS_UTC,
+            )
+        except Exception as _e:
+            log.warning("execution.risk_guard not available: %s — skipping pre-trade checks", _e)
+            self._risk_guard = None
+
+        # PositionReconciler
+        try:
+            from execution.monitoring.position_reconciler import PositionReconciler
+            self._reconciler = PositionReconciler(
+                on_halt_symbol=lambda sym, d: log.error(
+                    "RECONCILER HALT: %s internal=%.4f broker=%.4f diff=%.2f%%",
+                    sym, d.internal_qty, d.broker_qty, d.difference_pct,
+                ),
+                on_critical_alert=lambda d: log.error(
+                    "RECONCILER CRITICAL: %s diff=%.2f%%", d.symbol, d.difference_pct
+                ),
+            )
+            self._last_reconcile_ts: float = 0.0
+        except Exception as _e:
+            log.warning("execution.position_reconciler not available: %s — skipping reconciliation", _e)
+            self._reconciler = None
+
+        # TODO: wire LiveMonitor once OrderManager is integrated
+
         # Wave 4 enhancements
         self._event_cal   = EventCalendarFilter()
         self._granger     = NetworkSignalTracker(list(INSTRUMENTS.keys()))
@@ -1155,7 +1208,6 @@ class LiveTrader:
             _rc = _yaml.safe_load((_REPO_ROOT / "config" / "risk_limits.yaml").read_text())
             _bh = _rc.get("portfolio", {}).get("blocked_entry_hours_utc")
             if _bh:
-                global BLOCKED_ENTRY_HOURS_UTC
                 BLOCKED_ENTRY_HOURS_UTC = set(_bh)
                 log.info("Loaded blocked_entry_hours_utc from risk_limits.yaml: %s", BLOCKED_ENTRY_HOURS_UTC)
         except Exception:
@@ -1432,8 +1484,8 @@ class LiveTrader:
         if st._bar_count >= 30:
             st.warmup_done = True
 
-        # Check daily rollover (new UTC day)
-        if ts.hour == 0 and ts.minute == 0:
+        # Check daily rollover (new UTC day) — fire on first bar of each UTC day
+        if ts.hour == 0:
             self._on_daily_close(sym, c)
 
         # BullScale update (daily proxy using close)
@@ -1726,6 +1778,31 @@ class LiveTrader:
         """Compare targets to current positions, place orders for meaningful changes."""
         if self._bootstrapping:
             return   # indicator-only replay — no orders, no state mutation
+
+        # ── PositionReconciler: run once per hour ──────────────────────────────
+        if self._reconciler is not None:
+            _now_mono = time.monotonic()
+            if _now_mono - self._last_reconcile_ts >= 3600.0:
+                try:
+                    # Build internal positions dict from last_frac state
+                    _internal = {
+                        sym: st.last_frac
+                        for sym, st in self._states.items()
+                        if not math.isclose(st.last_frac, 0.0)
+                    }
+                    # Fetch broker positions
+                    _broker_raw = self._trading_client.get_all_positions()
+                    _broker: dict[str, float] = {}
+                    for _p in _broker_raw:
+                        _sym = getattr(_p, "symbol", None)
+                        _qty = float(getattr(_p, "qty", 0) or 0)
+                        if _sym:
+                            _broker[_sym] = _qty
+                    self._reconciler.reconcile(_internal, _broker)
+                    self._last_reconcile_ts = _now_mono
+                except Exception as _re:
+                    log.warning("PositionReconciler run failed: %s", _re)
+
         targets = self.compute_targets(bar_time)
         equity  = self._get_equity()
 
@@ -1866,6 +1943,28 @@ class LiveTrader:
                 qty = -min(abs(qty), max_sell)
             if abs(qty * cp) < 1.0:
                 continue
+
+            # ── RiskGuard pre-trade check ──────────────────────────────────
+            if self._risk_guard is not None:
+                _current_gross = sum(
+                    abs(s.last_frac) * equity
+                    for s in self._states.values()
+                )
+                _rg_passed, _rg_reason = self._risk_guard.run_all_checks(
+                    symbol=sym,
+                    new_frac=abs(tgt_frac),
+                    price=cp,
+                    order=None,
+                    equity=equity,
+                    positions={s: self._states[s] for s in self._states},
+                    last_price=self._last_price.get(sym, cp),
+                    current_gross=_current_gross,
+                    enforce_hour_block=True,
+                )
+                if not _rg_passed:
+                    log.warning("RiskGuard rejected %s: %s", sym, _rg_reason)
+                    continue
+
             order_items.append((sym, tgt_frac, qty, cp))
 
         # Log new entries to trade_entries table
@@ -1993,7 +2092,10 @@ class LiveTrader:
                 time_in_force = tif,
             )
             try:
-                resp = self._trading_client.submit_order(req)
+                if self._alpaca_cb is not None:
+                    resp = self._alpaca_cb.call(self._trading_client.submit_order, req)
+                else:
+                    resp = self._trading_client.submit_order(req)
                 log.info(
                     "%s submitted: id=%s %s %.6f units notional=$%.0f",
                     sym, resp.id, side.upper(), float(rounded), float(slice_notional),
@@ -2341,6 +2443,25 @@ class LiveTrader:
                 n_replayed += 1
             except Exception as exc:
                 log.debug("Bootstrap bar error [%s]: %s", ticker, exc)
+        # Compute daily EMA from bootstrapped hourly closes
+        # Group hourly BTC bars by day and take the last close of each day
+        btc_daily_closes: list[float] = []
+        _btc_daily_buf: dict = {}
+        for ts, ticker, bar in all_bars:
+            if ticker in ("BTC/USD", "BTCUSD", "BTC"):
+                day_key = ts.date() if hasattr(ts, "date") else str(ts)[:10]
+                _btc_daily_buf[day_key] = float(bar.close)
+        for day_key in sorted(_btc_daily_buf):
+            btc_daily_closes.append(_btc_daily_buf[day_key])
+
+        if btc_daily_closes:
+            for c in btc_daily_closes:
+                self._btc_e200 = _ema(self._btc_e200, c, _alpha(200))
+            log.info(
+                "Bootstrap: BTC 200-day EMA initialized from %d daily closes: %.2f",
+                len(btc_daily_closes), self._btc_e200 or 0.0,
+            )
+
         self._bootstrapping = False
 
         # Mark all states as warmup_done after bootstrap

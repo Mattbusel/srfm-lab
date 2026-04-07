@@ -734,11 +734,14 @@ def _oos_stats(equity_curve: list, trades: list, ml_module: "MLSignalModule | No
     else:
         split_date = all_dates[int(len(all_dates) * 0.6)]
 
-    is_curve  = [(d, v) for d, v in equity_curve if d < split_date]
-    oos_curve = [(d, v) for d, v in equity_curve if d >= split_date]
+    # Normalize split_date to pd.Timestamp for consistent comparison
+    split_ts = pd.Timestamp(split_date) if not isinstance(split_date, pd.Timestamp) else split_date
 
-    is_trades  = [t for t in trades if _trade_date(t) < split_date]
-    oos_trades = [t for t in trades if _trade_date(t) >= split_date]
+    is_curve  = [(d, v) for d, v in equity_curve if pd.Timestamp(d) < split_ts]
+    oos_curve = [(d, v) for d, v in equity_curve if pd.Timestamp(d) >= split_ts]
+
+    is_trades  = [t for t in trades if pd.Timestamp(_trade_date(t)) < split_ts]
+    oos_trades = [t for t in trades if pd.Timestamp(_trade_date(t)) >= split_ts]
 
     return _compute_stats(is_curve, is_trades), _compute_stats(oos_curve, oos_trades)
 
