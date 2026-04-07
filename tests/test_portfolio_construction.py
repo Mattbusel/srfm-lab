@@ -44,7 +44,7 @@ def make_cov(n: int = 4, rng_seed: int = 42) -> np.ndarray:
     rng = np.random.default_rng(rng_seed)
     A = rng.standard_normal((n, n))
     cov = A @ A.T / n
-    cov += np.eye(n) * 0.01  -- ensure positive definite
+    cov += np.eye(n) * 0.01  # ensure positive definite
     return cov
 
 
@@ -80,7 +80,7 @@ def test_ensure_psd_identity_unchanged():
 
 
 # ---------------------------------------------------------------------------
-# MeanVarianceOptimizer -- min_variance
+# MeanVarianceOptimizer  # min_variance
 # ---------------------------------------------------------------------------
 
 
@@ -119,7 +119,7 @@ def test_min_variance_long_only_no_short():
 
 
 # ---------------------------------------------------------------------------
-# MeanVarianceOptimizer -- max_sharpe
+# MeanVarianceOptimizer  # max_sharpe
 # ---------------------------------------------------------------------------
 
 
@@ -173,7 +173,7 @@ def test_max_sharpe_with_sector_constraints():
 
 
 # ---------------------------------------------------------------------------
-# MeanVarianceOptimizer -- efficient_frontier
+# MeanVarianceOptimizer  # efficient_frontier
 # ---------------------------------------------------------------------------
 
 
@@ -204,7 +204,7 @@ def test_efficient_frontier_weights_sum_to_one():
 
 
 # ---------------------------------------------------------------------------
-# MeanVarianceOptimizer -- max_return_for_vol
+# MeanVarianceOptimizer  # max_return_for_vol
 # ---------------------------------------------------------------------------
 
 
@@ -227,7 +227,7 @@ def test_max_return_for_vol_weights_sum_to_one():
 
 
 # ---------------------------------------------------------------------------
-# MeanVarianceOptimizer -- Black-Litterman
+# MeanVarianceOptimizer  # Black-Litterman
 # ---------------------------------------------------------------------------
 
 
@@ -247,11 +247,11 @@ def test_black_litterman_view_shifts_posterior_toward_view():
     cov = make_cov(n)
     mu_prior = np.array([0.08, 0.10, 0.12, 0.07])
     view_vec = np.zeros(n)
-    view_vec[0] = 1.0  -- view on asset 0
-    views = [(view_vec, 0.25)]  -- predict 25% return for asset 0
+    view_vec[0] = 1.0  # view on asset 0
+    views = [(view_vec, 0.25)]  # predict 25% return for asset 0
     confidences = np.array([0.70])
     mu_bl, _ = opt.black_litterman(mu_prior, cov, views, confidences)
-    assert mu_bl[0] > mu_prior[0]  -- view pulled posterior up
+    assert mu_bl[0] > mu_prior[0]  # view pulled posterior up
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +273,7 @@ def test_portfolio_constraints_turnover_constraint_applied():
     current = np.array([0.25, 0.25, 0.25, 0.25])
     pc = PortfolioConstraints(max_turnover=0.10, current_weights=current)
     constrs = pc.build_scipy_constraints(4)
-    -- At least sum-to-1 + turnover
+    # At least sum-to-1 + turnover
     assert len(constrs) >= 2
 
 
@@ -283,12 +283,12 @@ def test_portfolio_constraints_sector_constraint_included():
         asset_sector_map={0: "tech", 1: "tech", 2: "other"},
     )
     constrs = pc.build_scipy_constraints(3)
-    -- sum-to-1 + sector
+    # sum-to-1 + sector
     assert len(constrs) >= 2
 
 
 # ---------------------------------------------------------------------------
-# RiskParityOptimizer -- equal risk contribution
+# RiskParityOptimizer  # equal risk contribution
 # ---------------------------------------------------------------------------
 
 
@@ -305,10 +305,10 @@ def test_erc_risk_contributions_approximately_equal():
     cov = make_cov(4)
     w = opt.equal_risk_contribution(cov, bounds=(0.01, 0.50))
     rc = _risk_contributions_raw(w, cov)
-    -- Each RC should be close to 0.25 (= 1/4)
+    # Each RC should be close to 0.25 (= 1/4)
     target = 1.0 / 4
     for r in rc:
-        assert abs(r - target) < 0.10  -- within 10% of target
+        assert abs(r - target) < 0.10  # within 10% of target
 
 
 def test_erc_two_asset_equal_vol():
@@ -329,7 +329,7 @@ def test_erc_weights_within_bounds():
 
 
 # ---------------------------------------------------------------------------
-# RiskParityOptimizer -- risk budgeting
+# RiskParityOptimizer  # risk budgeting
 # ---------------------------------------------------------------------------
 
 
@@ -344,7 +344,7 @@ def test_risk_budgeted_weights_sum_to_one():
 def test_risk_budgeted_unequal_budgets_skew_weights():
     """Asset with 50% budget should have higher weight than asset with 10%."""
     opt = RiskParityOptimizer()
-    -- Diagonal cov so interpretation is clean
+    # Diagonal cov so interpretation is clean
     cov = np.diag([0.02, 0.02, 0.02, 0.02])
     budgets = np.array([0.50, 0.20, 0.20, 0.10])
     w = opt.risk_budgeted(cov, budgets, bounds=(0.01, 0.90))
@@ -355,11 +355,11 @@ def test_risk_budgeted_wrong_budget_length_raises():
     opt = RiskParityOptimizer()
     cov = make_cov(4)
     with pytest.raises(ValueError, match="budgets length"):
-        opt.risk_budgeted(cov, np.array([0.5, 0.5]))  -- only 2 budgets for 4 assets
+        opt.risk_budgeted(cov, np.array([0.5, 0.5]))  # only 2 budgets for 4 assets
 
 
 # ---------------------------------------------------------------------------
-# RiskParityOptimizer -- vol parity
+# RiskParityOptimizer  # vol parity
 # ---------------------------------------------------------------------------
 
 
@@ -368,7 +368,7 @@ def test_vol_parity_inverse_vol_weights():
     vols = np.array([0.10, 0.20, 0.40])
     w = opt.vol_parity(vols)
     np.testing.assert_allclose(w.sum(), 1.0, atol=1e-10)
-    -- w proportional to 1/vol: 1/0.1 : 1/0.2 : 1/0.4 = 10 : 5 : 2.5 -> 17.5 total
+    # w proportional to 1/vol: 1/0.1 : 1/0.2 : 1/0.4 = 10 : 5 : 2.5 -> 17.5 total
     expected = np.array([10, 5, 2.5]) / 17.5
     np.testing.assert_allclose(w, expected, rtol=1e-6)
 
@@ -534,7 +534,7 @@ def test_portfolio_constructor_signal_to_weights():
     )
     w = opt.max_sharpe(mu, cov, rf=0.02, constraints=pc)
 
-    -- Basic sanity checks
+    # Basic sanity checks
     np.testing.assert_allclose(w.sum(), 1.0, atol=1e-5)
     assert np.all(w >= 0.0 - 1e-6)
     assert np.all(w <= 0.25 + 1e-5)

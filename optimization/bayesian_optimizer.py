@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_JITTER = 1e-6          -- small diagonal addition for numerical stability
-_EI_CANDIDATES = 1000   -- random candidates evaluated per acquisition step
-_MIN_SIGMA = 1e-8       -- floor on GP predictive std to avoid div-by-zero
+_JITTER = 1e-6  # small diagonal addition for numerical stability
+_EI_CANDIDATES = 1000  # random candidates evaluated per acquisition step
+_MIN_SIGMA = 1e-8  # floor on GP predictive std to avoid div-by-zero
 _LOG_2PI = math.log(2.0 * math.pi)
 
 
@@ -48,11 +48,11 @@ _LOG_2PI = math.log(2.0 * math.pi)
 class ParamSpec:
     """Single parameter specification -- continuous or categorical."""
     name: str
-    kind: str                    -- "continuous" or "categorical"
-    low: float = 0.0             -- used when kind == "continuous"
-    high: float = 1.0            -- used when kind == "continuous"
-    choices: List[Any] = field(default_factory=list)  -- used when kind == "categorical"
-    log_scale: bool = False      -- sample/scale in log space if True
+    kind: str  # "continuous" or "categorical"
+    low: float = 0.0  # used when kind == "continuous"
+    high: float = 1.0  # used when kind == "continuous"
+    choices: List[Any] = field(default_factory=list)  # used when kind == "categorical"
+    log_scale: bool = False  # sample/scale in log space if True
 
 
 def parse_param_space(param_space: Dict[str, Any]) -> List[ParamSpec]:
@@ -139,7 +139,7 @@ class MaternKernel52:
         self.length_scale = max(1e-4, float(length_scale))
         self.variance = max(1e-6, float(variance))
 
-    # -- pairwise squared Euclidean distances
+    #  # pairwise squared Euclidean distances
     @staticmethod
     def _sq_dist(X1: np.ndarray, X2: np.ndarray) -> np.ndarray:
         """Return (n, m) matrix of squared Euclidean distances."""
@@ -216,16 +216,16 @@ class GaussianProcess:
         self.noise_var = max(0.0, noise_var)
         self.normalize_y = normalize_y
 
-        # -- fit state
+        #  # fit state
         self._X_train: Optional[np.ndarray] = None
         self._y_train: Optional[np.ndarray] = None
-        self._alpha: Optional[np.ndarray] = None    -- K^{-1} y
-        self._L: Optional[np.ndarray] = None        -- Cholesky factor of K
+        self._alpha: Optional[np.ndarray] = None  # K^{-1} y
+        self._L: Optional[np.ndarray] = None  # Cholesky factor of K
         self._y_mean: float = 0.0
         self._y_std: float = 1.0
         self._fitted: bool = False
 
-    # -- Cholesky-based solve: K*x = b
+    #  # Cholesky-based solve: K*x = b
     @staticmethod
     def _cho_solve(L: np.ndarray, b: np.ndarray) -> np.ndarray:
         """Solve (L L^T) x = b using forward/back substitution."""
@@ -259,7 +259,7 @@ class GaussianProcess:
         try:
             L = np.linalg.cholesky(K)
         except np.linalg.LinAlgError:
-            # -- add more jitter if Cholesky fails
+            #  # add more jitter if Cholesky fails
             K += 1e-4 * np.eye(n)
             L = np.linalg.cholesky(K)
 
@@ -285,16 +285,16 @@ class GaussianProcess:
             raise RuntimeError("GP must be fitted before calling predict()")
 
         X_test = np.atleast_2d(X_test)
-        K_star = self.kernel(X_test, self._X_train)     -- (m, n)
-        mu = K_star @ self._alpha                        -- (m,)
+        K_star = self.kernel(X_test, self._X_train)  # (m, n)
+        mu = K_star @ self._alpha  # (m,)
 
         if return_std:
             # Compute predictive variance
-            K_diag = self.kernel.diag(X_test)            -- (m,)
+            K_diag = self.kernel.diag(X_test)  # (m,)
             # v = L^{-1} K_star^T
-            v = np.linalg.solve(self._L, K_star.T)       -- (n, m)
+            v = np.linalg.solve(self._L, K_star.T)  # (n, m)
             var = K_diag - np.sum(v ** 2, axis=0)
-            var = np.maximum(var, 0.0)                   -- numerical clamp
+            var = np.maximum(var, 0.0)  # numerical clamp
             sigma = np.sqrt(var + _JITTER)
 
             # Un-normalize
@@ -386,11 +386,11 @@ def _normal_pdf(z: np.ndarray) -> np.ndarray:
 class IterationRecord:
     iteration: int
     params: Dict[str, Any]
-    value: float             -- raw objective value (higher is better)
+    value: float  # raw objective value (higher is better)
     best_so_far: float
-    gp_mu: float             -- GP mean at suggested point
-    gp_sigma: float          -- GP std at suggested point
-    ei: float                -- expected improvement at suggested point
+    gp_mu: float  # GP mean at suggested point
+    gp_sigma: float  # GP std at suggested point
+    ei: float  # expected improvement at suggested point
     elapsed_s: float
 
 
@@ -471,8 +471,8 @@ class BayesianOptimizer:
         self.objective = objective
 
         self.gp_kernel = cfg.get("gp_kernel", "matern52")
-        self.n_initial = int(cfg.get("n_initial", 10))    -- random initialization
-        self.xi = float(cfg.get("xi", 0.01))              -- exploration parameter for EI
+        self.n_initial = int(cfg.get("n_initial", 10))  # random initialization
+        self.xi = float(cfg.get("xi", 0.01))  # exploration parameter for EI
         self.noise_var = float(cfg.get("noise_var", 1e-4))
         self.n_ei_candidates = int(cfg.get("n_ei_candidates", _EI_CANDIDATES))
         self.optimize_hyperparams = bool(cfg.get("optimize_hyperparams", True))
@@ -480,8 +480,8 @@ class BayesianOptimizer:
         self.seed = int(cfg.get("seed", 42))
         self.verbose = bool(cfg.get("verbose", True))
 
-        self.X_obs: List[np.ndarray] = []   -- observed parameter vectors (encoded)
-        self.y_obs: List[float] = []        -- observed objective values
+        self.X_obs: List[np.ndarray] = []  # observed parameter vectors (encoded)
+        self.y_obs: List[float] = []  # observed objective values
 
         kernel = MaternKernel52(
             length_scale=float(cfg.get("length_scale", 1.0)),
@@ -496,10 +496,10 @@ class BayesianOptimizer:
         self._rng = np.random.default_rng(self.seed)
         self._iteration = 0
 
-    # -- internal helpers
+    #  # internal helpers
 
     def _X_matrix(self) -> np.ndarray:
-        return np.array(self.X_obs)   -- (n, d)
+        return np.array(self.X_obs)  # (n, d)
 
     def _evaluate(self, params: Dict[str, Any]) -> Optional[float]:
         """Call the objective and handle None / exceptions."""
@@ -525,7 +525,7 @@ class BayesianOptimizer:
         ei = np.maximum(ei, 0.0)
         return ei
 
-    # -- public API
+    #  # public API
 
     def suggest_next(self) -> Dict[str, Any]:
         """
@@ -538,7 +538,7 @@ class BayesianOptimizer:
             vec = random_candidate(self.specs, self._rng)
             return decode_params(vec, self.specs)
 
-        # -- maximize EI via random search
+        #  # maximize EI via random search
         candidates = np.array([
             random_candidate(self.specs, self._rng)
             for _ in range(self.n_ei_candidates)
@@ -584,26 +584,26 @@ class BayesianOptimizer:
             t0 = time.perf_counter()
             self._iteration += 1
 
-            # -- suggest next point
+            #  # suggest next point
             params = self.suggest_next()
             vec = encode_params(params, self.specs)
 
-            # -- evaluate objective
+            #  # evaluate objective
             val = self._evaluate(params)
             if val is None:
-                # -- replace failed eval with current worst or 0
+                #  # replace failed eval with current worst or 0
                 val = min(self.y_obs) - 1.0 if self.y_obs else 0.0
 
-            # -- store observation
+            #  # store observation
             self.X_obs.append(vec)
             self.y_obs.append(val)
 
-            # -- fit / update GP once we have enough points
+            #  # fit / update GP once we have enough points
             gp_mu, gp_sigma, ei_val = 0.0, 0.0, 0.0
             if len(self.X_obs) >= 2:
                 self.gp.fit(self._X_matrix(), np.array(self.y_obs))
 
-                # -- optimize GP hyperparameters periodically
+                #  # optimize GP hyperparameters periodically
                 if (
                     self.optimize_hyperparams
                     and len(self.X_obs) >= self.n_initial
@@ -611,7 +611,7 @@ class BayesianOptimizer:
                 ):
                     self.gp.optimize_hyperparams(n_restarts=2)
 
-                # -- record GP prediction at current point
+                #  # record GP prediction at current point
                 mu_arr, sig_arr = self.gp.predict(vec.reshape(1, -1), return_std=True)
                 gp_mu = float(mu_arr[0])
                 gp_sigma = float(sig_arr[0])
@@ -684,7 +684,7 @@ class BayesianOptimizer:
 
 
 # ---------------------------------------------------------------------------
-# Warm-start helper -- initialize GP from prior run results
+# Warm-start helper  # initialize GP from prior run results
 # ---------------------------------------------------------------------------
 
 class WarmStartBayesianOptimizer(BayesianOptimizer):

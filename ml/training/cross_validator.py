@@ -62,7 +62,7 @@ class PurgedKFoldCV:
             raise ValueError("embargo_pct must be in [0, 0.5)")
         self.n_splits = n_splits
         self.embargo_pct = embargo_pct
-        self.embargo_bars: Optional[int] = None  -- set during split()
+        self.embargo_bars: Optional[int] = None  # set during split()
 
     # ------------------------------------------------------------------
     # Core split logic
@@ -93,7 +93,7 @@ class PurgedKFoldCV:
         indices = np.arange(n)
         fold_size = n // self.n_splits
 
-        -- build fold boundaries
+        # build fold boundaries
         fold_starts = [i * fold_size for i in range(self.n_splits)]
         fold_ends = [
             fold_starts[i + 1] if i + 1 < self.n_splits else n
@@ -106,19 +106,19 @@ class PurgedKFoldCV:
 
             test_idx = indices[test_start:test_end + 1]
 
-            -- collect raw train candidates (everything outside the test fold)
+            # collect raw train candidates (everything outside the test fold)
             train_candidates = np.concatenate([
                 indices[:test_start],
                 indices[test_end + 1:],
             ])
 
-            -- purge: remove train observations whose event spans overlap test
+            # purge: remove train observations whose event spans overlap test
             if event_times is not None:
                 train_candidates = self._purge(
                     train_candidates, event_times, test_start, test_end
                 )
 
-            -- embargo: remove train observations within embargo_bars of test_start
+            # embargo: remove train observations within embargo_bars of test_start
             train_idx = self._apply_embargo(train_candidates, test_start)
 
             yield train_idx, test_idx
@@ -265,13 +265,13 @@ class CombinatorialPurgedCV:
             test_start = int(test_idx.min())
             test_end = int(test_idx.max())
 
-            -- purge if event times provided
+            # purge if event times provided
             if event_times is not None and len(train_candidates) > 0:
                 train_candidates = self._base_cv._purge(
                     train_candidates, event_times, test_start, test_end
                 )
 
-            -- embargo around each test fold boundary
+            # embargo around each test fold boundary
             if len(train_candidates) > 0:
                 for tf in test_folds:
                     ts = fold_starts[tf]
@@ -425,23 +425,23 @@ def DeflatedSharpeRatio(
     if n_obs <= 4:
         raise ValueError("n_obs must be > 4")
 
-    -- expected maximum Sharpe ratio under IID normal trials
-    -- approximation: E[max SR] ~ (1 - gamma) * Z^{-1}(1 - 1/N) + gamma * Z^{-1}(1 - 1/Ne)
-    -- simplified Euler-Mascheroni form used by Bailey & Lopez de Prado
-    emc = 0.5772156649  -- Euler-Mascheroni constant
+    # expected maximum Sharpe ratio under IID normal trials
+    # approximation: E[max SR] ~ (1 - gamma) * Z^{-1}(1 - 1/N) + gamma * Z^{-1}(1 - 1/Ne)
+    # simplified Euler-Mascheroni form used by Bailey & Lopez de Prado
+    emc = 0.5772156649  # Euler-Mascheroni constant
 
     if n_trials == 1:
         sr_star = 0.0
     else:
-        -- expected max of n_trials IID standard normals
+        # expected max of n_trials IID standard normals
         z_quantile = stats.norm.ppf(1.0 - 1.0 / n_trials)
         sr_star = (
             (1.0 - emc) * stats.norm.ppf(1.0 - 1.0 / n_trials)
             + emc * stats.norm.ppf(1.0 - 1.0 / (n_trials * math.e))
         )
 
-    -- variance of the Sharpe ratio estimate (non-normal correction)
-    -- var(SR_hat) = (1 + 0.5*SR^2 - skew*SR + (kurtosis-3)/4 * SR^2) / (T-1)
+    # variance of the Sharpe ratio estimate (non-normal correction)
+    # var(SR_hat) = (1 + 0.5*SR^2 - skew*SR + (kurtosis-3)/4 * SR^2) / (T-1)
     excess_kurt = kurtosis - 3.0
     sr_variance = (
         1.0
@@ -452,13 +452,13 @@ def DeflatedSharpeRatio(
 
     sr_std = math.sqrt(max(sr_variance, 1e-12))
 
-    -- DSR: probability that the strategy SR beats the expected max
+    # DSR: probability that the strategy SR beats the expected max
     dsr = stats.norm.cdf((sharpe - sr_star) / sr_std)
     return float(dsr)
 
 
 # ---------------------------------------------------------------------------
-# MinTRL -- minimum track record length
+# MinTRL  # minimum track record length
 # ---------------------------------------------------------------------------
 
 def MinimumTrackRecordLength(
@@ -496,7 +496,7 @@ def MinimumTrackRecordLength(
     z_alpha = stats.norm.ppf(1.0 - alpha)
     excess_kurt = kurtosis - 3.0
 
-    -- estimate variance multiplier for non-normal returns
+    # estimate variance multiplier for non-normal returns
     var_mult = (
         1.0
         + 0.5 * sharpe ** 2

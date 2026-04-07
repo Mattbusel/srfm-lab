@@ -46,7 +46,7 @@ try:
 except ImportError:
     duckdb = None  # type: ignore[assignment]
     _DUCKDB = False
-    logger.debug("DuckDB not available -- LandscapeCache will use in-memory store")
+    logger.debug("DuckDB not available  # LandscapeCache will use in-memory store")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -54,9 +54,9 @@ except ImportError:
 
 _DEFAULT_RESOLUTION = 20
 _DEFAULT_CACHE_PATH = Path("landscape_cache.duckdb")
-_STABLE_SHARPE_THRESHOLD = 1.0   -- points with Sharpe >= this are "stable"
-_ROBUST_SHARPE_FLOOR = 0.5       -- perturbation must keep Sharpe above this
-_PERTURB_FRAC = 0.10             -- +-10% perturbation for robustness test
+_STABLE_SHARPE_THRESHOLD = 1.0  # points with Sharpe >= this are "stable"
+_ROBUST_SHARPE_FLOOR = 0.5  # perturbation must keep Sharpe above this
+_PERTURB_FRAC = 0.10  # +-10% perturbation for robustness test
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +177,7 @@ class LandscapeGrid:
 
 
 # ---------------------------------------------------------------------------
-# LandscapeCache -- DuckDB-backed
+# LandscapeCache  # DuckDB-backed
 # ---------------------------------------------------------------------------
 
 class LandscapeCache:
@@ -190,14 +190,14 @@ class LandscapeCache:
 
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = Path(db_path) if db_path else _DEFAULT_CACHE_PATH
-        self._memory: Dict[str, LandscapeGrid] = {}  -- fallback
+        self._memory: Dict[str, LandscapeGrid] = {}  # fallback
         self._conn: Optional[Any] = None
         if _DUCKDB:
             try:
                 self._conn = duckdb.connect(str(self.db_path))
                 self._init_schema()
             except Exception as exc:
-                logger.warning("DuckDB connect failed (%s) -- using memory cache", exc)
+                logger.warning("DuckDB connect failed (%s)  # using memory cache", exc)
                 self._conn = None
 
     def _init_schema(self) -> None:
@@ -297,7 +297,7 @@ class LandscapeCache:
 
 
 # ---------------------------------------------------------------------------
-# Cluster helper -- simple density-based grouping
+# Cluster helper  # simple density-based grouping
 # ---------------------------------------------------------------------------
 
 def _cluster_stable_points(
@@ -382,7 +382,7 @@ class ParameterLandscapeAnalyzer:
         Whether backtest runs long-only.
     """
 
-    # -- parameters that can be used as landscape axes
+    #  # parameters that can be used as landscape axes
     LANDSCAPE_PARAMS = {
         "cf": (0.0005, 0.05),
         "bh_form": (0.5, 3.0),
@@ -485,7 +485,7 @@ class ParameterLandscapeAnalyzer:
         if param2 not in self.LANDSCAPE_PARAMS:
             raise ValueError(f"param2 '{param2}' not in LANDSCAPE_PARAMS")
 
-        # -- check cache
+        #  # check cache
         if use_cache and self.cache is not None:
             cached = self.cache.get(
                 self.sym, param1, param2, resolution, self.base_params
@@ -521,7 +521,7 @@ class ParameterLandscapeAnalyzer:
                 done = (i + 1) * resolution
                 logger.info("  ... %d/%d points evaluated", done, total)
 
-        # -- store in cache
+        #  # store in cache
         if use_cache and self.cache is not None:
             self.cache.put(self.sym, param1, param2, resolution, self.base_params, grid)
 
@@ -637,7 +637,7 @@ class ParameterLandscapeAnalyzer:
                 if sharpe >= _ROBUST_SHARPE_FLOOR:
                     successes += 1
             except Exception:
-                pass  -- count as failure
+                pass  # count as failure
 
         score = successes / n_perturbations
         logger.info(

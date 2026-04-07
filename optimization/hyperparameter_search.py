@@ -39,24 +39,24 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_N_OBJECTIVES = 3      -- Sharpe, max_dd (negated), Calmar
+_N_OBJECTIVES = 3  # Sharpe, max_dd (negated), Calmar
 _INF = float("inf")
 
 
 # ---------------------------------------------------------------------------
-# Individual -- single candidate
+# Individual  # single candidate
 # ---------------------------------------------------------------------------
 
 @dataclass
 class Individual:
     """A single candidate parameter configuration."""
-    genes: np.ndarray           -- encoded parameter vector [0, 1]^d
-    params: Dict[str, Any]      -- decoded parameter dict
-    objectives: np.ndarray      -- objective values (all to be maximized)
-    rank: int = 0               -- Pareto rank (0 = best front)
-    crowding_dist: float = 0.0  -- crowding distance within front
-    dominated_by: int = 0       -- count of solutions that dominate this one
-    dominates: List[int] = field(default_factory=list)  -- indices dominated by this
+    genes: np.ndarray  # encoded parameter vector [0, 1]^d
+    params: Dict[str, Any]  # decoded parameter dict
+    objectives: np.ndarray  # objective values (all to be maximized)
+    rank: int = 0  # Pareto rank (0 = best front)
+    crowding_dist: float = 0.0  # crowding distance within front
+    dominated_by: int = 0  # count of solutions that dominate this one
+    dominates: List[int] = field(default_factory=list)  # indices dominated by this
 
     def dominates_other(self, other: "Individual") -> bool:
         """Return True if self Pareto-dominates other (all >= and at least one >)."""
@@ -157,7 +157,7 @@ class HypervolumeIndicator:
         All points must weakly dominate ref_point.
         """
         pts = np.asarray(points, dtype=np.float64)
-        # -- filter out points that don't dominate ref_point
+        #  # filter out points that don't dominate ref_point
         mask = np.all(pts > self.ref_point, axis=1)
         pts = pts[mask]
         if len(pts) == 0:
@@ -172,12 +172,12 @@ class HypervolumeIndicator:
         if d == 2:
             return self._hv2d(pts, ref)
 
-        # -- slicing along last dimension
+        #  # slicing along last dimension
         pts_sorted = pts[np.argsort(-pts[:, -1])]
         hv = 0.0
         prev_slice = ref[-1]
         for i, p in enumerate(pts_sorted):
-            # -- project onto first d-1 dims, only keep non-dominated
+            #  # project onto first d-1 dims, only keep non-dominated
             slice_pts = pts_sorted[:i + 1, :-1]
             nd = self._non_dominated_2d(slice_pts) if d == 3 else slice_pts
             slice_hv = self._hv(nd, ref[:-1])
@@ -211,7 +211,7 @@ class HypervolumeIndicator:
 
 
 # ---------------------------------------------------------------------------
-# Parameter sampler -- Sobol and Latin Hypercube
+# Parameter sampler  # Sobol and Latin Hypercube
 # ---------------------------------------------------------------------------
 
 class ParameterSampler:
@@ -228,7 +228,7 @@ class ParameterSampler:
     def __init__(self, seed: int = 42):
         self._rng = np.random.default_rng(seed)
 
-    # -- Sobol sequence (base-2 Gray-code construction, dimension up to 64)
+    #  # Sobol sequence (base-2 Gray-code construction, dimension up to 64)
     def sobol_sample(self, n: int, param_space: Dict[str, Tuple[float, float]]) -> np.ndarray:
         """
         Generate n quasi-random samples via a Sobol sequence.
@@ -239,10 +239,10 @@ class ParameterSampler:
         d = len(param_space)
         bounds = list(param_space.values())
 
-        # -- generate (n, d) Sobol samples in [0, 1]
+        #  # generate (n, d) Sobol samples in [0, 1]
         raw = self._sobol_unit_cube(n, d)
 
-        # -- scale to param ranges
+        #  # scale to param ranges
         result = np.empty((n, d))
         for j, b in enumerate(bounds):
             if isinstance(b, (list, tuple)) and len(b) == 2:
@@ -262,9 +262,9 @@ class ParameterSampler:
         """
         result = np.zeros((n, d))
         for j in range(d):
-            base = 2 + j  -- different prime base per dimension approximates Sobol
+            base = 2 + j  # different prime base per dimension approximates Sobol
             result[:, j] = self._van_der_corput(n, base)
-        # -- scramble with a fixed offset per dimension for better uniformity
+        #  # scramble with a fixed offset per dimension for better uniformity
         seeds = np.array([(j * 7919 + 31337) % (1 << 20) for j in range(d)], dtype=float)
         offsets = seeds / (1 << 20)
         result = (result + offsets[np.newaxis, :]) % 1.0
@@ -297,15 +297,15 @@ class ParameterSampler:
         d = len(param_space)
         bounds = list(param_space.values())
 
-        # -- stratified samples in [0, 1]
+        #  # stratified samples in [0, 1]
         cuts = np.linspace(0.0, 1.0, n + 1)
         lhs = np.empty((n, d))
         for j in range(d):
-            # -- sample within each stratum
+            #  # sample within each stratum
             u = self._rng.uniform(cuts[:-1], cuts[1:])
             lhs[:, j] = self._rng.permutation(u)
 
-        # -- scale to param ranges
+        #  # scale to param ranges
         result = np.empty((n, d))
         for j, b in enumerate(bounds):
             if isinstance(b, (list, tuple)) and len(b) == 2:
@@ -339,8 +339,8 @@ def fast_non_dominated_sort(population: List[Individual]) -> List[List[int]]:
     into the population. Front 0 is the best (non-dominated) front.
     """
     n = len(population)
-    domination_count = [0] * n     -- S[i]: number of solutions dominating i
-    dominated_sets: List[List[int]] = [[] for _ in range(n)]  -- dominated by i
+    domination_count = [0] * n  # S[i]: number of solutions dominating i
+    dominated_sets: List[List[int]] = [[] for _ in range(n)]  # dominated by i
 
     fronts: List[List[int]] = [[]]
 
@@ -387,13 +387,13 @@ def crowding_distance(front: List[int], population: List[Individual]) -> None:
         population[i].crowding_dist = 0.0
 
     for m in range(n_obj):
-        # -- sort front by objective m
+        #  # sort front by objective m
         sorted_front = sorted(front, key=lambda i: population[i].objectives[m])
         obj_min = population[sorted_front[0]].objectives[m]
         obj_max = population[sorted_front[-1]].objectives[m]
         obj_range = obj_max - obj_min if obj_max > obj_min else 1.0
 
-        # -- boundary points get infinite distance
+        #  # boundary points get infinite distance
         population[sorted_front[0]].crowding_dist = _INF
         population[sorted_front[-1]].crowding_dist = _INF
 
@@ -506,7 +506,7 @@ class NSGAIIOptimizer:
         self._param_names = list(param_space.keys())
         self._bounds = [param_space[k] for k in self._param_names]
         self.sampler = ParameterSampler(seed=seed)
-        self._history: List[float] = []  -- best Sharpe per generation
+        self._history: List[float] = []  # best Sharpe per generation
 
     def _decode(self, genes: np.ndarray) -> Dict[str, Any]:
         params: Dict[str, Any] = {}
@@ -537,10 +537,10 @@ class NSGAIIOptimizer:
     def _init_population(self) -> List[Individual]:
         """Initialize population using Latin Hypercube sampling."""
         lhs = self.sampler.latin_hypercube(self.pop_size, self.param_space)
-        # -- scale to [0,1] genes
+        #  # scale to [0,1] genes
         pop: List[Individual] = []
         for i in range(self.pop_size):
-            # -- re-encode as unit genes
+            #  # re-encode as unit genes
             genes = np.zeros(len(self._param_names))
             for j, name in enumerate(self._param_names):
                 b = self._bounds[j]
@@ -592,7 +592,7 @@ class NSGAIIOptimizer:
             if len(next_gen) + len(front) <= self.pop_size:
                 next_gen.extend(combined[i] for i in front)
             else:
-                # -- fill remaining slots by crowding distance
+                #  # fill remaining slots by crowding distance
                 remaining = self.pop_size - len(next_gen)
                 sorted_front = sorted(
                     front,
@@ -618,14 +618,14 @@ class NSGAIIOptimizer:
             combined = population + offspring
             population = self._select_next_generation(combined)
 
-            # -- record best Sharpe in current population
+            #  # record best Sharpe in current population
             best_sharpe = max(ind.objectives[0] for ind in population)
             self._history.append(best_sharpe)
 
             if gen % 10 == 0 or gen == n_gen - 1:
                 logger.info("Gen %3d/%d | best Sharpe=%.3f", gen + 1, n_gen, best_sharpe)
 
-        # -- extract final non-dominated front
+        #  # extract final non-dominated front
         fronts = fast_non_dominated_sort(population)
         pareto_inds = [population[i] for i in fronts[0]]
         logger.info("NSGA-II complete. Pareto front size: %d", len(pareto_inds))
@@ -637,7 +637,7 @@ class NSGAIIOptimizer:
 
 
 # ---------------------------------------------------------------------------
-# MultiObjectiveSearch -- high-level wrapper
+# MultiObjectiveSearch  # high-level wrapper
 # ---------------------------------------------------------------------------
 
 class MultiObjectiveSearch:
@@ -697,7 +697,7 @@ class MultiObjectiveSearch:
             return None
         obj_matrix = np.array([i.objectives for i in self._pareto_front])
         ideal = obj_matrix.max(axis=0)
-        # -- normalize
+        #  # normalize
         nadir = obj_matrix.min(axis=0)
         rng = ideal - nadir
         rng[rng < 1e-10] = 1.0

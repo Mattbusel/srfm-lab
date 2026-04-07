@@ -122,7 +122,7 @@ class BestResult:
 
 
 # ---------------------------------------------------------------------------
-# ResourceSchedule  -- compute allocation table
+# ResourceSchedule  # compute allocation table
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -151,7 +151,7 @@ class ResourceSchedule:
 
         Each entry is {"round": i, "n_configs": n_i, "resource": r_i}.
         """
-        -- n = ceil((s_max+1)/(s+1)) * eta^s
+        # n = ceil((s_max+1)/(s+1)) * eta^s
         n = math.ceil((self.s_max + 1) / (s + 1)) * (self.eta ** s)
         schedule = []
         for i in range(s + 1):
@@ -271,7 +271,7 @@ class HyperbandLogger:
 
 
 # ---------------------------------------------------------------------------
-# SuccessiveHalving  -- inner loop
+# SuccessiveHalving  # inner loop
 # ---------------------------------------------------------------------------
 
 class SuccessiveHalving:
@@ -332,7 +332,7 @@ class SuccessiveHalving:
         -------
         (surviving_configs, BracketResult)
         """
-        -- sample initial configurations
+        # sample initial configurations
         configs = [self.get_params(self.rng) for _ in range(n)]
         bracket_trials: List[TrialResult] = []
 
@@ -345,7 +345,7 @@ class SuccessiveHalving:
                 score = self.train_and_eval(cfg, resource)
                 elapsed = time.perf_counter() - t0
 
-                -- invert if minimising so we can always keep max
+                # invert if minimising so we can always keep max
                 stored_score = score if self.maximize else -score
 
                 trial = TrialResult(
@@ -361,7 +361,7 @@ class SuccessiveHalving:
                 bracket_trials.append(trial)
                 scored.append((stored_score, cfg))
 
-            -- keep top 1/eta configurations
+            # keep top 1/eta configurations
             scored.sort(key=lambda x: x[0], reverse=True)
             n_keep = max(1, math.floor(len(scored) / self.eta))
             configs = [cfg for _, cfg in scored[:n_keep]]
@@ -455,13 +455,13 @@ class Hyperband:
         total_iters = 0
         total_configs = 0
 
-        -- iterate brackets from most-configurations (s_max) to fewest
+        # iterate brackets from most-configurations (s_max) to fewest
         for s in range(s_max, -1, -1):
-            -- number of initial configurations for this bracket
+            # number of initial configurations for this bracket
             n = math.ceil(
                 (s_max + 1) / (s + 1) * (self.eta ** s)
             )
-            -- minimum resource for this bracket
+            # minimum resource for this bracket
             r = self.max_iter * (self.eta ** (-s))
             r = max(1, int(r))
 
@@ -483,15 +483,15 @@ class Hyperband:
             _, bracket_result = sha.run(n=n, r=r, n_rounds=s + 1)
             bracket_results.append(bracket_result)
 
-            -- accumulate statistics
+            # accumulate statistics
             for trial in bracket_result.trials:
                 total_iters += trial.resource
             total_configs += bracket_result.configs_tried
 
-        -- find overall best across all brackets
+        # find overall best across all brackets
         best_trial = self._logger.best_trial
         if best_trial is None:
-            raise RuntimeError("No trials were run -- check get_params and train_and_eval.")
+            raise RuntimeError("No trials were run  # check get_params and train_and_eval.")
 
         return BestResult(
             config=best_trial.config,

@@ -217,7 +217,7 @@ def analyze_bh_by_vol_regime(
         # Trades that started in this vol regime
         regime_trades = [t for t in trades
                          if t["entry_idx"] < len(df.index) and
-                         mask.iloc[t["entry_idx"]] if t["entry_idx"] < len(mask) else False]
+                         (mask.iloc[t["entry_idx"]] if t["entry_idx"] < len(mask) else False)]
 
         n_trades = len(regime_trades)
         if n_trades > 0:

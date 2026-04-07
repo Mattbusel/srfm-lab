@@ -786,7 +786,7 @@ class PositionPersistence:
             conditions.append("symbol = ?")
             params.append(symbol)
         if since is not None:
-            conditions.append("ts >= ?")
+            conditions.append("ts > ?")
             params.append(since)
 
         where  = ("WHERE " + " AND ".join(conditions)) if conditions else ""

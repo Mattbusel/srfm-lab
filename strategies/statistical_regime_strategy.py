@@ -70,11 +70,11 @@ class Regime(str, Enum):
 class RegimeState:
     regime: Regime       = Regime.UNKNOWN
     hurst: float         = 0.5
-    vol_regime: float    = 1.0     -- realized_vol / long_run_vol
+    vol_regime: float    = 1.0  # realized_vol / long_run_vol
     bh_mass: float       = 0.0
     adx: float           = 0.0
-    vix_level: float     = 0.20    -- implied or realized vol level
-    confidence: float    = 0.0     -- 0..1 classifier confidence
+    vix_level: float     = 0.20  # implied or realized vol level
+    confidence: float    = 0.0  # 0..1 classifier confidence
     features: dict       = field(default_factory=dict)
 
 
@@ -301,7 +301,7 @@ class RegimeClassifier:
             return 0.0
         recent = np.abs(returns[-window:]).mean()
         long_q = np.percentile(np.abs(returns), 95) if len(returns) > 50 else recent
-        return float(recent / (long_q + 1e-9)) * 1.5   -- scale to [0, ~2]
+        return float(recent / (long_q + 1e-9)) * 1.5  # scale to [0, ~2]
 
     def classify_at(
         self,
@@ -338,7 +338,7 @@ class RegimeClassifier:
             if not np.isnan(adx_arr[-1]):
                 adx_val = float(adx_arr[-1])
 
-        # VIX level -- fallback to realized short vol
+        # VIX level  # fallback to realized short vol
         vix = vix_level if vix_level is not None else short_vol
 
         state = RegimeState(
@@ -433,7 +433,7 @@ class SubStrategyAllocator:
             "pairs_reversal":  0.00,
             "vol_breakout":    0.00,
             "cash":            0.80,
-            "short_vix":       0.20,   -- short vol in crisis
+            "short_vix":       0.20,  # short vol in crisis
         },
         Regime.UNKNOWN.value: {
             "trend_momentum":  0.25,
@@ -506,7 +506,7 @@ class TransitionCostModel:
         if new_regime == self._prev_regime:
             return 0.0
         if (bar_i - self._last_change_i) < self.min_regime_hold:
-            return 0.0   -- too soon to switch
+            return 0.0  # too soon to switch
 
         # Turnover cost
         all_keys = set(old_weights) | set(new_weights)
@@ -587,7 +587,7 @@ def _short_vix_returns(df: pd.DataFrame) -> pd.Series:
     returns  = df["close"].pct_change().fillna(0)
     vol      = returns.rolling(21).std() * math.sqrt(252)
     # Short vol: earn daily theta, lose on up-moves in realized vol
-    daily_vp = vol.shift(1) * 0.05 / 252   -- 5% of vol as premium per day
+    daily_vp = vol.shift(1) * 0.05 / 252  # 5% of vol as premium per day
     jump     = returns.abs().where(returns.abs() > 0.03, 0.0) * 2.0
     return (daily_vp - jump).fillna(0.0)
 
@@ -858,7 +858,7 @@ class RegimeDrawdownAnalysis:
 
 if __name__ == "__main__":
     rng = np.random.default_rng(42)
-    n   = 2520    -- ~10 years
+    n   = 2520  # ~10 years
     idx = pd.date_range("2014-01-01", periods=n, freq="B")
 
     # Simulate price regimes

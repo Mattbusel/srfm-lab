@@ -4,16 +4,16 @@ execution/audit/trade_reconciler.py
 Trade reconciliation between OMS fill records and broker-reported fills.
 
 The reconciler compares two sources of truth:
-  1. OMS fills -- from the fills SQLite table (FillProcessor output)
-  2. Broker fills -- from the broker adapter's fill report API
+  1. OMS fills   # from the fills SQLite table (FillProcessor output)
+  2. Broker fills   # from the broker adapter's fill report API
 
 Discrepancy categories
 ----------------------
-  matched         -- fills present in both sources with matching qty and price
-  oms_only        -- fills in OMS but not reported by broker
-  broker_only     -- fills broker reported but absent from OMS
-  qty_mismatches  -- matched by order_id+timestamp but qty differs > 0.01
-  price_mismatches-- matched by order_id+timestamp but price differs > 0.01%
+  matched           # fills present in both sources with matching qty and price
+  oms_only          # fills in OMS but not reported by broker
+  broker_only       # fills broker reported but absent from OMS
+  qty_mismatches    # matched by order_id+timestamp but qty differs > 0.01
+  price_mismatches  # matched by order_id+timestamp but price differs > 0.01%
 
 ShadowPortfolio
 ---------------
@@ -47,13 +47,13 @@ log = logging.getLogger("execution.trade_reconciler")
 # Constants
 # ---------------------------------------------------------------------------
 
-QTY_MISMATCH_THRESHOLD:   float = 0.01     -- shares / units
-PRICE_MISMATCH_THRESHOLD: float = 0.0001   -- 0.01 %
+QTY_MISMATCH_THRESHOLD:   float = 0.01       # shares / units
+PRICE_MISMATCH_THRESHOLD: float = 0.0001     # 0.01 %
 
-EQUITY_ALERT_THRESHOLD: float = 1.0        -- shares
-CRYPTO_ALERT_THRESHOLD: float = 0.001      -- crypto units
+EQUITY_ALERT_THRESHOLD: float = 1.0          # shares
+CRYPTO_ALERT_THRESHOLD: float = 0.001        # crypto units
 
--- ET reconciliation schedule (hour, minute)
+# ET reconciliation schedule (hour, minute)
 RECONCILE_SCHEDULE_ET = [(10, 0), (14, 0), (16, 30)]
 
 ET_TZ = pytz.timezone("America/New_York")
@@ -79,8 +79,8 @@ class FillRecord:
     side:       str
     fill_qty:   float
     fill_price: float
-    ts_epoch:   float   -- Unix timestamp (seconds) -- used for approximate matching
-    source:     str     -- 'oms' or 'broker'
+    ts_epoch:   float   # Unix timestamp (seconds), used for approximate matching
+    source:     str       # 'oms' or 'broker'
 
     def notional(self) -> float:
         return self.fill_qty * self.fill_price
@@ -199,11 +199,11 @@ class ShadowPortfolio:
     """
 
     def __init__(self, alert_callback=None) -> None:
-        -- symbol -> net quantity (positive=long, negative=short)
+          # symbol -> net quantity (positive=long, negative=short)
         self._positions: Dict[str, float] = defaultdict(float)
         self._lock        = threading.RLock()
         self._alert_cb    = alert_callback
-        self._last_check  = 0.0  -- epoch seconds of last comparison
+        self._last_check  = 0.0    # epoch seconds of last comparison
 
     def apply_fill(self, fill: FillRecord) -> None:
         """
@@ -217,7 +217,7 @@ class ShadowPortfolio:
                 self._positions[fill.symbol] += fill.fill_qty
             elif side in ("SELL", "SELL_SHORT"):
                 self._positions[fill.symbol] -= fill.fill_qty
-            -- clamp near-zero positions to exactly 0
+              # clamp near-zero positions to exactly 0
             if abs(self._positions[fill.symbol]) < 1e-9:
                 self._positions[fill.symbol] = 0.0
 
@@ -263,7 +263,7 @@ class ShadowPortfolio:
                 if delta < 1e-9:
                     continue
 
-                -- determine threshold based on crypto vs equity heuristic
+                  # determine threshold based on crypto vs equity heuristic
                 is_crypto = "/" in symbol
                 threshold = CRYPTO_ALERT_THRESHOLD if is_crypto else EQUITY_ALERT_THRESHOLD
 
@@ -447,7 +447,7 @@ class TradeReconciler:
         run_ts = datetime.now(timezone.utc).isoformat()
         trade_date = date.today().isoformat()
 
-        -- build lookup dicts
+          # build lookup dicts
         oms_by_id:    Dict[str, FillRecord] = {self._make_fill_key(f): f for f in oms_fills}
         broker_by_id: Dict[str, FillRecord] = {self._make_fill_key(f): f for f in broker_fills}
 
@@ -464,7 +464,7 @@ class TradeReconciler:
             broker_fill = broker_by_id.get(key)
 
             if oms_fill and broker_fill:
-                -- both present -- check for value discrepancies
+                # both present -- check for value discrepancies
                 qty_delta = abs(oms_fill.fill_qty - broker_fill.fill_qty)
                 if qty_delta > QTY_MISMATCH_THRESHOLD:
                     qty_mismatches.append(QtyMismatch(
@@ -501,7 +501,7 @@ class TradeReconciler:
                 matched.append(oms_fill)
 
             elif oms_fill and not broker_fill:
-                -- attempt approximate time-based match in broker_fills
+                  # attempt approximate time-based match in broker_fills
                 found = False
                 for bf in broker_fills:
                     if (bf.order_id == oms_fill.order_id
@@ -518,7 +518,7 @@ class TradeReconciler:
                     )
 
             else:
-                -- broker_fill only
+                  # broker_fill only
                 broker_only.append(broker_fill)
                 log.warning(
                     "BROKER_ONLY fill: order=%s fill_id=%s symbol=%s qty=%.4f",
@@ -692,13 +692,13 @@ class ReconciliationScheduler:
                 now_utc = datetime.now(timezone.utc)
                 now_et  = now_utc.astimezone(ET_TZ)
 
-                -- deduplicate: only run once per scheduled minute
+                  # deduplicate: only run once per scheduled minute
                 current_minute = now_et.hour * 60 + now_et.minute
                 if current_minute != last_run_minute and self._should_run_now(now_et):
                     last_run_minute = current_minute
                     self._run_scheduled_reconciliation(now_utc.date())
 
-                -- hourly shadow portfolio comparison
+                  # hourly shadow portfolio comparison
                 if self._position_fetcher and self._shadow.seconds_since_last_check() > 3600:
                     try:
                         oms_pos = self._position_fetcher()
@@ -724,9 +724,9 @@ class ReconciliationScheduler:
         )
         try:
             broker_fills = self._fill_fetcher(trade_date)
-            -- update shadow portfolio with any new broker fills
+              # update shadow portfolio with any new broker fills
             self._shadow.apply_fills(broker_fills)
-            -- run full reconciliation
+              # run full reconciliation
             report = self._reconciler.reconcile_for_date(broker_fills, trade_date)
             log.info("Scheduled reconciliation complete: %s", report.summary())
         except Exception as exc:
@@ -738,7 +738,7 @@ class ReconciliationScheduler:
 
         Parameters
         ----------
-        trade_date : date | None -- defaults to today.
+        trade_date : date | None   # defaults to today.
 
         Returns
         -------

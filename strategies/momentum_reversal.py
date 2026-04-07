@@ -40,8 +40,8 @@ BH_MASS_THRESH = 1.92
 BH_DECAY       = 0.924
 BH_COLLAPSE    = 0.992
 
-HURST_TRENDING    = 0.58  -- H > 0.58 -> trending regime
-HURST_REVERTING   = 0.38  -- H < 0.38 -> strong mean reversion
+HURST_TRENDING    = 0.58  # H > 0.58 -> trending regime
+HURST_REVERTING   = 0.38  # H < 0.38 -> strong mean reversion
 
 
 # ---------------------------------------------------------------------------
@@ -52,13 +52,13 @@ HURST_REVERTING   = 0.38  -- H < 0.38 -> strong mean reversion
 class MomentumSignal:
     """Unified signal from MomentumReversalStrategy."""
     symbol: str          = ""
-    ts_signal: float     = 0.0    -- time-series momentum raw
-    cs_rank: float       = 0.0    -- cross-sectional rank (0..1)
-    reversal_flag: bool  = False   -- True if reversal mode active
+    ts_signal: float     = 0.0  # time-series momentum raw
+    cs_rank: float       = 0.0  # cross-sectional rank (0..1)
+    reversal_flag: bool  = False  # True if reversal mode active
     hurst: float         = 0.5
     bh_mass: float       = 0.0
-    final_signal: float  = 0.0    -- signed position (-1..+1)
-    position_size: float = 0.0    -- Kelly-scaled position
+    final_signal: float  = 0.0  # signed position (-1..+1)
+    position_size: float = 0.0  # Kelly-scaled position
     reason: str          = ""
 
 
@@ -204,7 +204,7 @@ class CrossSectionalMomentum:
         row_end   = prices.iloc[end_i]
         row_start = prices.iloc[start_i]
         mom = (row_end - row_start) / (row_start.abs() + 1e-9)
-        ranked = mom.rank(pct=True)   -- percentile rank 0..1
+        ranked = mom.rank(pct=True)  # percentile rank 0..1
         return ranked
 
     def generate_weights(self, prices: pd.DataFrame) -> pd.DataFrame:
@@ -687,7 +687,7 @@ class MomentumReversalStrategy:
 
 
 # ---------------------------------------------------------------------------
-# 7. MomentumReversalBacktest -- multi-instrument with attribution
+# 7. MomentumReversalBacktest  # multi-instrument with attribution
 # ---------------------------------------------------------------------------
 
 class MomentumReversalBacktest:
@@ -791,7 +791,7 @@ class MomentumReversalBacktest:
 
 if __name__ == "__main__":
     rng = np.random.default_rng(7)
-    n   = 3780    -- ~15 years of trading days
+    n   = 3780  # ~15 years of trading days
     idx = pd.date_range("2009-01-01", periods=n, freq="B")
 
     # Simulate price with trending and mean-reverting periods

@@ -51,20 +51,20 @@ log = logging.getLogger("execution.order_router")
 # Constants
 # ---------------------------------------------------------------------------
 
--- max notional per single child order (equity / crypto / futures)
+# max notional per single child order (equity / crypto / futures)
 MAX_NOTIONAL_EQUITY:  float = 50_000.0
 MAX_NOTIONAL_CRYPTO:  float = 25_000.0
 MAX_NOTIONAL_FUTURES: float = 100_000.0
 
--- default ADV assumptions when no market data is available
+# default ADV assumptions when no market data is available
 DEFAULT_ADV_EQUITY:  float = 5_000_000.0
 DEFAULT_ADV_CRYPTO:  float = 50_000_000.0
 
--- fraction of ADV above which order is split into TWAP slices
-ADV_SPLIT_THRESHOLD_EQUITY:  float = 0.10   -- 10 %
-ADV_SPLIT_THRESHOLD_CRYPTO:  float = 0.05   -- 5 %
+# fraction of ADV above which order is split into TWAP slices
+ADV_SPLIT_THRESHOLD_EQUITY:  float = 0.10  # 10 %
+ADV_SPLIT_THRESHOLD_CRYPTO:  float = 0.05  # 5 %
 
--- default TWAP slice inter-arrival gap in seconds
+# default TWAP slice inter-arrival gap in seconds
 DEFAULT_SLICE_DELAY_SECONDS: float = 30.0
 
 ROUTING_DB_PATH = Path(__file__).parent.parent / "routing_audit.db"
@@ -242,7 +242,7 @@ class OrderSplitter:
         slices    = []
 
         for i in range(n_slices):
-            -- last slice absorbs rounding remainder
+            # last slice absorbs rounding remainder
             if i == n_slices - 1:
                 qty = total_qty - sum(s.qty for s in slices)
             else:
@@ -488,7 +488,7 @@ class OrderRouter:
             if price <= 0:
                 price = float(order.get("curr_price", 1.0))
 
-            -- circuit breaker gate
+            # circuit breaker gate
             if self._circuit_breaker:
                 try:
                     halted = self._circuit_breaker()
@@ -502,23 +502,23 @@ class OrderRouter:
                         slices             = [],
                         reason             = "circuit_breaker_tripped",
                         pre_trade_passed   = False,
-                        rejected_reason    = "Circuit breaker is active -- trading halted",
+                        rejected_reason    = "Circuit breaker is active  # trading halted",
                         notional_usd       = qty * price,
                         adv_fraction       = 0.0,
                     )
                     self._audit.log(order, decision)
                     return decision
 
-            -- broker selection
+            # broker selection
             broker, asset_class = self._selector.select(order)
 
-            -- pre-trade checks
+            # pre-trade checks
             if self._pre_trade:
                 try:
                     passed, reject_reason = self._pre_trade.run_checks(order)
                 except Exception as exc:
                     log.error("pre_trade error for %s: %s", symbol, exc)
-                    passed, reject_reason = True, ""  -- fail-open on checker error
+                    passed, reject_reason = True, ""  # fail-open on checker error
             else:
                 passed, reject_reason = True, ""
 
@@ -541,7 +541,7 @@ class OrderRouter:
                 )
                 return decision
 
-            -- ADV and size cap computation
+            # ADV and size cap computation
             adv_units   = self._get_adv(symbol, asset_class)
             notional    = qty * price
             adv_fraction = (qty / adv_units) if adv_units > 0 else 0.0
@@ -550,7 +550,7 @@ class OrderRouter:
                 qty, price, asset_class, adv_units
             )
 
-            -- determine execution strategy
+            # determine execution strategy
             if qty <= max_slice_qty + 1e-9:
                 strategy = "DIRECT"
                 slices   = [OrderSlice(
@@ -560,7 +560,7 @@ class OrderRouter:
                     parent_order_id = order_id,
                 )]
                 reason = (
-                    f"direct route to {broker} -- "
+                    f"direct route to {broker}  # "
                     f"qty={qty:.4f} notional=${notional:,.0f} "
                     f"adv_frac={adv_fraction:.2%}"
                 )
@@ -572,7 +572,7 @@ class OrderRouter:
                     max_slice_qty = max_slice_qty,
                 )
                 reason = (
-                    f"TWAP split to {broker} -- "
+                    f"TWAP split to {broker}  # "
                     f"qty={qty:.4f} notional=${notional:,.0f} "
                     f"adv_frac={adv_fraction:.2%} "
                     f"n_slices={len(slices)} "
@@ -630,7 +630,7 @@ class OrderRouter:
         """
         if not decision.pre_trade_passed:
             log.warning(
-                "dispatch skipped -- order=%s was rejected", decision.order_id
+                "dispatch skipped  # order=%s was rejected", decision.order_id
             )
             return []
 
@@ -660,7 +660,7 @@ class OrderRouter:
                     )
                     broker_ids.append(f"ERROR_{slc.slice_id}")
             else:
-                -- simulated: generate a fake broker ID
+                # simulated: generate a fake broker ID
                 broker_ids.append(
                     f"SIM_{decision.broker.upper()}_{decision.order_id[:8]}_{slc.slice_id}"
                 )

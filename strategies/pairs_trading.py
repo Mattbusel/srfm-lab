@@ -245,7 +245,7 @@ class EWMSpreadStats:
         self._var   = (1.0 - self.alpha) * (self._var + self.alpha * delta * delta2)
         std = math.sqrt(max(self._var, 1e-12))
         if self._count < self.min_obs:
-            return self._mean, 1e-9   -- not enough obs yet
+            return self._mean, 1e-9  # not enough obs yet
         return self._mean, std
 
     def _alpha_ema(self, prev: float, new: float) -> float:
@@ -292,7 +292,7 @@ class PairsTradingStrategy:
         self.entry_zscore  = cfg.get("entry_zscore", 2.0)
         self.exit_zscore   = cfg.get("exit_zscore", 0.5)
         self.stop_zscore   = cfg.get("stop_zscore", 4.0)
-        self.kalman_gain   = cfg.get("kalman_gain", 0.05)  -- online Kalman hedge ratio update
+        self.kalman_gain   = cfg.get("kalman_gain", 0.05)  # online Kalman hedge ratio update
 
         kalman_delta  = cfg.get("kalman_delta", 1e-4)
         obs_noise     = cfg.get("obs_noise", 1e-3)
@@ -301,7 +301,7 @@ class PairsTradingStrategy:
 
         self._kalman    = KalmanHedgeFilter(delta=kalman_delta, obs_noise=obs_noise)
         self._ewm_stats = EWMSpreadStats(halflife=ewm_halflife, min_obs=ewm_min_obs)
-        self._position  = "flat"   -- current position state
+        self._position  = "flat"  # current position state
 
     # ------------------------------------------------------------------
     def update_hedge_ratio(self, price_a: float, price_b: float) -> float:
@@ -367,24 +367,24 @@ class PairsTradingStrategy:
         confidence = min(1.0, abs_z / (self.entry_zscore + 1e-9))
 
         if self._position != "flat" and abs_z > self.stop_zscore:
-            # Stop loss -- z has blown out in wrong direction
+            # Stop loss  # z has blown out in wrong direction
             action = "stop"
             self._position = "flat"
 
         elif self._position != "flat" and abs_z < self.exit_zscore:
-            # Mean reversion target hit -- exit
+            # Mean reversion target hit  # exit
             action = "exit"
             self._position = "flat"
 
         elif self._position == "flat" and zscore > self.entry_zscore:
-            # Spread is too high -- short A (sell) long B (buy)
+            # Spread is too high  # short A (sell) long B (buy)
             action = "short_spread"
             pos_a  = -1.0
             pos_b  = +self.hedge_ratio
             self._position = "short_spread"
 
         elif self._position == "flat" and zscore < -self.entry_zscore:
-            # Spread is too low -- long A (buy) short B (sell)
+            # Spread is too low  # long A (buy) short B (sell)
             action = "long_spread"
             pos_a  = +1.0
             pos_b  = -self.hedge_ratio
@@ -501,7 +501,7 @@ class CointegrationScanner:
             return 1.0
         se     = math.sqrt(se_sq / x2)
         t_stat = beta_ / se
-        # Use normal approximation -- ADF critical values vary but this is reasonable
+        # Use normal approximation  # ADF critical values vary but this is reasonable
         pvalue = float(scipy_stats.norm.cdf(t_stat))
         return pvalue
 
@@ -628,7 +628,7 @@ class PairsTradingBacktest:
         trade_ret  = []
 
         # Track open position
-        open_pos_a    = 0.0   -- +1 long, -1 short
+        open_pos_a    = 0.0  # +1 long, -1 short
         open_pos_b    = 0.0
         entry_price_a = None
         entry_price_b = None

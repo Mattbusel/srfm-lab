@@ -47,18 +47,18 @@ BH_COLLAPSE    = 0.992
 @dataclass
 class BreakoutSignal:
     """Output from VolatilityBreakoutStrategy.generate_signal()."""
-    direction: int     = 0        -- +1 long, -1 short, 0 flat
+    direction: int     = 0  # +1 long, -1 short, 0 flat
     entry_price: float = 0.0
     stop_price: float  = 0.0
     upper_band: float  = 0.0
     lower_band: float  = 0.0
     atr: float         = 0.0
-    atr_ratio: float   = 0.0      -- short ATR / long ATR
+    atr_ratio: float   = 0.0  # short ATR / long ATR
     garch_vol: float   = 0.0
     realized_vol: float = 0.0
-    vol_ratio: float   = 0.0      -- garch / realized
+    vol_ratio: float   = 0.0  # garch / realized
     compressed: bool   = False
-    confirmed: bool    = False    -- volume + trend filter passed
+    confirmed: bool    = False  # volume + trend filter passed
     reason: str        = ""
 
 
@@ -244,7 +244,7 @@ class GARCH11Filter:
         """
         sigma = self.forecast_series(returns[:at_i + 1])
         if np.isnan(sigma[at_i]):
-            return True, 0.0, 1.0   -- not enough data, allow
+            return True, 0.0, 1.0  # not enough data, allow
         garch_vol = float(sigma[at_i])
         vol_ratio = garch_vol / (realized_vol + 1e-9)
         allow     = vol_ratio >= self.vol_ratio_min
@@ -378,7 +378,7 @@ class TrendFilter:
         Returns +1 for uptrend, -1 for downtrend, 0 if slope below threshold.
         """
         ema   = close.ewm(span=self.ema_span, adjust=False).mean()
-        slope = ema.diff()   -- daily EMA change
+        slope = ema.diff()  # daily EMA change
         direction = pd.Series(0, index=close.index, dtype=float)
         direction[slope > self.slope_threshold]  =  1.0
         direction[slope < -self.slope_threshold] = -1.0
@@ -421,7 +421,7 @@ class BreakoutConfirmation:
         Requires 'volume' column in df.
         """
         if "volume" not in df.columns:
-            return pd.Series(True, index=df.index)   -- no volume data, pass
+            return pd.Series(True, index=df.index)  # no volume data, pass
         vol     = df["volume"]
         avg_vol = vol.rolling(self.vol_lookback, min_periods=5).mean()
         return vol > self.volume_multiplier * avg_vol
@@ -454,7 +454,7 @@ class RiskManagement:
         self.stop_atr_mult  = stop_atr_mult
         self.trail_atr_mult = trail_atr_mult
         self.atr_period     = atr_period
-        self._trail_extreme = None   -- highest/lowest price since entry
+        self._trail_extreme = None  # highest/lowest price since entry
         self._current_stop  = None
         self._direction     = 0
 
@@ -527,9 +527,9 @@ class VolatilityBreakoutStrategy:
         cfg = config or {}
         self.atr_period            = cfg.get("atr_period", 14)
         self.long_atr_period       = cfg.get("long_atr_period", 50)
-        self.compression_threshold = cfg.get("compression_threshold", 0.7)   -- ATR < 70% of 50-bar ATR
-        self.breakout_multiplier   = cfg.get("breakout_multiplier", 1.5)      -- break above/below 1.5x ATR
-        self.garch_vol_ratio_min   = cfg.get("garch_vol_ratio_min", 0.8)      -- GARCH / realized > 0.8
+        self.compression_threshold = cfg.get("compression_threshold", 0.7)  # ATR < 70% of 50-bar ATR
+        self.breakout_multiplier   = cfg.get("breakout_multiplier", 1.5)  # break above/below 1.5x ATR
+        self.garch_vol_ratio_min   = cfg.get("garch_vol_ratio_min", 0.8)  # GARCH / realized > 0.8
         self.ema_span              = cfg.get("ema_span", 50)
         self.channel_period        = cfg.get("channel_period", 20)
         self.vol_lookback          = cfg.get("vol_lookback", 20)
@@ -619,8 +619,8 @@ class VolatilityBreakoutStrategy:
         stop_arr   = np.full(n, np.nan)
 
         # State
-        position      = 0      -- current position: +1, -1, 0
-        was_compressed = False  -- were we compressed in prior bar
+        position      = 0  # current position: +1, -1, 0
+        was_compressed = False  # were we compressed in prior bar
         self._risk.reset()
 
         warmup = max(self.atr_period, self.long_atr_period, self.channel_period,
@@ -657,7 +657,7 @@ class VolatilityBreakoutStrategy:
                     position = 0
                     self._risk.reset()
 
-            # Entry logic -- only enter from flat, after compression, with all filters
+            # Entry logic  # only enter from flat, after compression, with all filters
             if position == 0:
                 entry_ok = was_compressed and garch_ok and vol_ok
 
@@ -799,7 +799,7 @@ class VolatilityBreakoutBacktest:
         i = start
         while i < n:
             end = min(i + self.test_window, n)
-            # Use all data up to end -- train on [i-train_window : i], test on [i : end]
+            # Use all data up to end  # train on [i-train_window : i], test on [i : end]
             train_df = df.iloc[i - self.train_window: i]
             test_df  = df.iloc[i: end]
 

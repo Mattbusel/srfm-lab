@@ -28,7 +28,7 @@ from typing import Optional, List, Dict, Tuple
 
 import numpy as np
 import pandas as pd
-from scipy.special import ndtr    -- fast standard normal CDF
+from scipy.special import ndtr  # fast standard normal CDF
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -39,7 +39,7 @@ BH_MASS_THRESH = 1.92
 BH_DECAY       = 0.924
 BH_COLLAPSE    = 0.992
 
-HURST_MEAN_REVERT = 0.42    -- covered call threshold
+HURST_MEAN_REVERT = 0.42  # covered call threshold
 HURST_TRENDING    = 0.58
 
 
@@ -89,7 +89,7 @@ def bs_price(
     d2    = d1 - sigma * sqT
     if option_type == "call":
         price = S * _norm_cdf(d1) - K * math.exp(-r * T) * _norm_cdf(d2)
-    else:  -- put
+    else:  # put
         price = K * math.exp(-r * T) * _norm_cdf(-d2) - S * _norm_cdf(-d1)
     return max(0.0, price)
 
@@ -159,7 +159,7 @@ def bs_theta(
     else:
         theta = (-(S * _norm_pdf(d1) * sigma) / (2 * sqT)
                  + r * K * math.exp(-r * T) * _norm_cdf(-d2))
-    return theta / 252.0   -- convert to daily
+    return theta / 252.0  # convert to daily
 
 
 # ---------------------------------------------------------------------------
@@ -169,19 +169,19 @@ def bs_theta(
 @dataclass
 class OptionPosition:
     """Represents a single options position."""
-    option_type: str      = "call"     -- "call" or "put"
-    overlay_type: str     = ""         -- "protective_put", "covered_call", "straddle_call", "straddle_put"
-    direction: int        = 1          -- +1 long, -1 short
-    n_contracts: float    = 0.0        -- number of contracts (fractional allowed)
+    option_type: str      = "call"  # "call" or "put"
+    overlay_type: str     = ""  # "protective_put", "covered_call", "straddle_call", "straddle_put"
+    direction: int        = 1  # +1 long, -1 short
+    n_contracts: float    = 0.0  # number of contracts (fractional allowed)
     strike: float         = 0.0
-    expiry_T: float       = 0.0        -- remaining time to expiry in years
-    entry_price: float    = 0.0        -- premium paid/received at entry
-    current_price: float  = 0.0        -- current mark
+    expiry_T: float       = 0.0  # remaining time to expiry in years
+    entry_price: float    = 0.0  # premium paid/received at entry
+    current_price: float  = 0.0  # current mark
     delta: float          = 0.0
     gamma: float          = 0.0
     vega: float           = 0.0
     theta: float          = 0.0
-    pnl: float            = 0.0        -- unrealized P&L
+    pnl: float            = 0.0  # unrealized P&L
     entry_bar: int        = 0
     is_active: bool       = True
 
@@ -190,9 +190,9 @@ class OptionPosition:
 class OverlayState:
     """Snapshot of all active options positions and risk metrics."""
     nav: float                  = 1_000_000.0
-    total_premium_spent: float  = 0.0    -- cumulative this month
-    monthly_budget_used: float  = 0.0    -- fraction of budget used
-    net_delta: float            = 0.0    -- options-only delta
+    total_premium_spent: float  = 0.0  # cumulative this month
+    monthly_budget_used: float  = 0.0  # fraction of budget used
+    net_delta: float            = 0.0  # options-only delta
     positions: List[OptionPosition] = field(default_factory=list)
 
 
@@ -410,7 +410,7 @@ class ProtectivePutOverlay:
         Open a new protective put if budget allows.
         Returns OptionPosition or None if budget exhausted.
         """
-        strike = spot * (1.0 - self.otm_pct)    -- 5% OTM
+        strike = spot * (1.0 - self.otm_pct)  # 5% OTM
         T      = self.expiry_days / 252.0
         price  = bs_price(spot, strike, T, self.risk_free, sigma, "put")
         if price <= 0:
@@ -421,7 +421,7 @@ class ProtectivePutOverlay:
         if not risk_budget.can_spend(premium_budget, nav):
             return None
 
-        n_contracts = premium_budget / (price * spot + 1e-9)  -- fractional contracts
+        n_contracts = premium_budget / (price * spot + 1e-9)  # fractional contracts
         total_prem  = n_contracts * price * spot
         risk_budget.record_spend(total_prem)
 
@@ -433,7 +433,7 @@ class ProtectivePutOverlay:
         pos = OptionPosition(
             option_type="put",
             overlay_type="protective_put",
-            direction=1,          -- long put
+            direction=1,  # long put
             n_contracts=n_contracts,
             strike=strike,
             expiry_T=T,
@@ -468,7 +468,7 @@ class ProtectivePutOverlay:
             remaining_T   = max(0.0, pos.expiry_T - elapsed_years)
 
             if remaining_T <= 0.0:
-                # Expiry -- compute intrinsic value
+                # Expiry  # compute intrinsic value
                 intrinsic = max(pos.strike - spot, 0.0)
                 pnl_today = (intrinsic - pos.current_price) * pos.n_contracts * spot
                 pos.pnl  += pnl_today
@@ -540,25 +540,25 @@ class CoveredCallOverlay:
         sigma: float,
         bar_i: int,
         nav: float,
-        equity_exposure: float,  -- fraction of NAV in equity (0..1)
+        equity_exposure: float,  # fraction of NAV in equity (0..1)
         risk_budget: OptionsRiskBudget,
     ) -> Optional[OptionPosition]:
         """
         Sell ATM call sized proportional to equity exposure.
         Premium is collected (negative premium cost).
         """
-        strike = spot    -- ATM
+        strike = spot  # ATM
         T      = self.expiry_days / 252.0
         price  = bs_price(spot, strike, T, self.risk_free, sigma, "call")
         if price <= 0:
             return None
 
         # n_contracts: match equity position size (1 contract = 1 unit)
-        n_contracts = equity_exposure   -- sell 1 contract per unit of equity
+        n_contracts = equity_exposure  # sell 1 contract per unit of equity
         premium_collected = n_contracts * price * spot
 
-        # Covered calls generate premium -- record as negative spend
-        risk_budget.record_spend(-premium_collected)  -- negative means collected
+        # Covered calls generate premium  # record as negative spend
+        risk_budget.record_spend(-premium_collected)  # negative means collected
 
         delta  = bs_delta(spot, strike, T, self.risk_free, sigma, "call")
         gamma  = bs_gamma(spot, strike, T, self.risk_free, sigma)
@@ -568,17 +568,17 @@ class CoveredCallOverlay:
         pos = OptionPosition(
             option_type="call",
             overlay_type="covered_call",
-            direction=-1,         -- short call
+            direction=-1,  # short call
             n_contracts=n_contracts,
             strike=strike,
             expiry_T=T,
             entry_price=price,
             current_price=price,
-            delta=-delta * n_contracts,   -- short, so negate
+            delta=-delta * n_contracts,  # short, so negate
             gamma=-gamma * n_contracts,
             vega=-vega * n_contracts,
-            theta=-theta * n_contracts,   -- short theta is positive (collect decay)
-            pnl=premium_collected,        -- initial P&L = premium received
+            theta=-theta * n_contracts,  # short theta is positive (collect decay)
+            pnl=premium_collected,  # initial P&L = premium received
             entry_bar=bar_i,
         )
         self._active_calls.append(pos)
@@ -610,7 +610,7 @@ class CoveredCallOverlay:
             else:
                 new_price  = bs_price(spot, pos.strike, remaining_T,
                                       self.risk_free, sigma, "call")
-                pnl_today  = (pos.current_price - new_price) * pos.n_contracts * spot  -- short: gain when price drops
+                pnl_today  = (pos.current_price - new_price) * pos.n_contracts * spot  # short: gain when price drops
                 pos.pnl   += pnl_today
                 pos.current_price = new_price
                 pos.expiry_T      = remaining_T
@@ -663,7 +663,7 @@ class StraddleOverlay:
         self.risk_free             = risk_free
         self._call_legs: List[OptionPosition] = []
         self._put_legs:  List[OptionPosition] = []
-        self._delta_hedge_cost     = 0.0  -- cumulative delta hedging P&L
+        self._delta_hedge_cost     = 0.0  # cumulative delta hedging P&L
 
     def check_trigger(self, garch_vol: float, realized_vol: float) -> bool:
         """Return True if GARCH/realized ratio exceeds trigger."""
@@ -743,7 +743,7 @@ class StraddleOverlay:
         if abs(nd) <= self.delta_rebal_threshold:
             return 0.0
         # Hedge by trading nd units of underlying at spot
-        hedge_cost = abs(nd) * spot * 0.001   -- 0.1% execution cost estimate
+        hedge_cost = abs(nd) * spot * 0.001  # 0.1% execution cost estimate
         self._delta_hedge_cost += hedge_cost
         # Zero out deltas (conceptually hedged)
         for pos in self._call_legs + self._put_legs:
@@ -1023,7 +1023,7 @@ class OptionsBacktest:
 
 if __name__ == "__main__":
     rng = np.random.default_rng(21)
-    n   = 1260    -- ~5 years
+    n   = 1260  # ~5 years
     idx = pd.date_range("2019-01-01", periods=n, freq="B")
 
     # Simulate with regime changes

@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 from .bh_engine import GEEKY_DEFAULTS, INSTRUMENT_CONFIGS, run_backtest
-from .data_loader import load_bars  # noqa: F401 -- used for bar fetching
+from .data_loader import load_bars  # noqa: F401  # used for bar fetching
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ SCENARIOS: Dict[str, Dict[str, str]] = {
                            "label": "Crypto Winter 2022", "regime": "Bear"},
 }
 
-# -- additional scenarios that may be loaded on demand
+#  # additional scenarios that may be loaded on demand
 EXTENDED_SCENARIOS: Dict[str, Dict[str, str]] = {
     "flash_crash_2010":   {"start": "2010-05-06", "end": "2010-05-07",
                            "label": "Flash Crash 2010", "regime": "HighVol"},
@@ -69,10 +69,10 @@ EXTENDED_SCENARIOS: Dict[str, Dict[str, str]] = {
                            "label": "Post-GFC Bull", "regime": "Bull"},
 }
 
-_STRESS_SHIFT_FRAC = 0.20    -- +-20% for stress test
-_BREAKING_SHARPE = 0.0       -- scenario considered broken if Sharpe falls below this
-_MIN_BARS = 20               -- skip scenario if fewer bars available
-_MAX_WORKERS = 4             -- for parallel scenario execution
+_STRESS_SHIFT_FRAC = 0.20  # +-20% for stress test
+_BREAKING_SHARPE = 0.0  # scenario considered broken if Sharpe falls below this
+_MIN_BARS = 20  # skip scenario if fewer bars available
+_MAX_WORKERS = 4  # for parallel scenario execution
 
 
 # ---------------------------------------------------------------------------
@@ -87,14 +87,14 @@ class ScenarioResult:
     start: str
     end: str
     regime: str
-    total_return: float       -- total P&L as a fraction (e.g. 0.12 = 12%)
-    max_dd: float             -- maximum drawdown (positive number)
+    total_return: float  # total P&L as a fraction (e.g. 0.12 = 12%)
+    max_dd: float  # maximum drawdown (positive number)
     sharpe: float
     calmar: float
     n_trades: int
     win_rate: float
     profit_factor: float
-    avg_bh_mass: float        -- average BH mass at trade entries
+    avg_bh_mass: float  # average BH mass at trade entries
     n_bars: int
     eval_time_s: float = 0.0
     error: Optional[str] = None
@@ -186,7 +186,7 @@ class ScenarioEngine:
         if extra_scenarios:
             self.all_scenarios.update(extra_scenarios)
 
-        # -- bar store
+        #  # bar store
         if bars is not None:
             self._bars = bars.copy()
         else:
@@ -334,7 +334,7 @@ class ScenarioEngine:
             for name in names:
                 results.append(self.run_scenario(name, params))
 
-        # -- sort by scenario start date
+        #  # sort by scenario start date
         results.sort(key=lambda r: r.start)
         return results
 
@@ -434,7 +434,7 @@ class ScenarioStressTest:
         if shifts is None:
             shifts = [-_STRESS_SHIFT_FRAC, +_STRESS_SHIFT_FRAC]
 
-        # -- baseline
+        #  # baseline
         baseline_results = self.engine.run_all_scenarios(base)
         baseline_stats = self.engine.summary_stats(baseline_results)
 
@@ -450,7 +450,7 @@ class ScenarioStressTest:
                 shift_key = f"{s:+.0%}"
                 shift_results[pname][shift_key] = stats
 
-                # -- check for breaking points
+                #  # check for breaking points
                 for r in results:
                     if r.passed and r.sharpe < _BREAKING_SHARPE:
                         breaking_points.append({
@@ -533,7 +533,7 @@ class ScenarioComparison:
         summary_a = self.engine.summary_stats(results_a)
         summary_b = self.engine.summary_stats(results_b)
 
-        # -- per-scenario deltas (B - A)
+        #  # per-scenario deltas (B - A)
         a_dict = {r.scenario: r for r in results_a}
         b_dict = {r.scenario: r for r in results_b}
         deltas: Dict[str, Dict[str, float]] = {}

@@ -154,13 +154,13 @@ class RiskSnapshotPrinter:
         self._alerts = data.get("alerts", [])
         self._snap_time = data.get("snapshot_time", datetime.now().isoformat())
 
-    # -- Header --------------------------------------------------------------
+    #  # Header --------------------------------------------------------------
 
     def _print_header(self) -> None:
         ts = self._snap_time[:19].replace("T", " ")
         console.rule(f"[bold bright_blue]SRFM Risk Snapshot[/bold bright_blue]  {ts}")
 
-    # -- Risk metrics panel --------------------------------------------------
+    #  # Risk metrics panel --------------------------------------------------
 
     def print_metrics(self) -> None:
         """Print NAV-level risk gauges."""
@@ -223,7 +223,7 @@ class RiskSnapshotPrinter:
             border_style="blue",
         ))
 
-    # -- Positions -----------------------------------------------------------
+    #  # Positions -----------------------------------------------------------
 
     def print_positions(self) -> None:
         """Print current positions with P&L."""
@@ -264,7 +264,7 @@ class RiskSnapshotPrinter:
 
         console.print(table)
 
-    # -- Position limits -----------------------------------------------------
+    #  # Position limits -----------------------------------------------------
 
     def print_limits(self) -> None:
         """Print limit utilization table."""
@@ -302,7 +302,7 @@ class RiskSnapshotPrinter:
 
         console.print(table)
 
-    # -- Circuit breakers ----------------------------------------------------
+    #  # Circuit breakers ----------------------------------------------------
 
     def print_circuit_breakers(self) -> None:
         """Print all circuit breaker states."""
@@ -349,7 +349,7 @@ class RiskSnapshotPrinter:
 
         console.print(table)
 
-    # -- Full report ---------------------------------------------------------
+    #  # Full report ---------------------------------------------------------
 
     def print_full_report(self) -> None:
         """Print the complete risk state."""
@@ -364,7 +364,7 @@ class RiskSnapshotPrinter:
         console.print()
         self._print_alerts()
 
-    # -- Alerts (internal helper) -------------------------------------------
+    #  # Alerts (internal helper) -------------------------------------------
 
     def _print_alerts(self) -> None:
         alerts = self._alerts
@@ -394,7 +394,7 @@ class RiskSnapshotPrinter:
 
         console.print(table)
 
-    # -- Compact mode --------------------------------------------------------
+    #  # Compact mode --------------------------------------------------------
 
     def print_compact(self) -> None:
         """One-line-per-section compact summary."""
@@ -449,6 +449,7 @@ def save_json_snapshot(data: dict, logs_dir: str = "logs") -> str:
 # ---------------------------------------------------------------------------
 
 def main(argv: Optional[list] = None) -> int:
+    global RISK_AGG_BASE, LIVE_TRADER_BASE, COORDINATION_BASE
     parser = argparse.ArgumentParser(
         description="SRFM Risk Snapshot Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -486,7 +487,6 @@ def main(argv: Optional[list] = None) -> int:
     args = parser.parse_args(argv)
 
     # override module-level URLs if provided
-    global RISK_AGG_BASE, LIVE_TRADER_BASE, COORDINATION_BASE
     RISK_AGG_BASE       = args.risk_url
     LIVE_TRADER_BASE    = args.trader_url
     COORDINATION_BASE   = args.coord_url
@@ -499,7 +499,7 @@ def main(argv: Optional[list] = None) -> int:
     elif args.format == "compact":
         printer.print_compact()
     else:
-        # table format -- respect --section
+        # table format  # respect --section
         if args.section == "all":
             printer.print_full_report()
         elif args.section == "metrics":

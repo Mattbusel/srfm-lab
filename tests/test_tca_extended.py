@@ -86,7 +86,7 @@ def make_tca_result(
 
 
 # ---------------------------------------------------------------------------
-# ImplementationShortfall -- IS = decision price vs execution price
+# ImplementationShortfall  # IS = decision price vs execution price
 # ---------------------------------------------------------------------------
 
 
@@ -208,7 +208,7 @@ def test_linear_impact_model_eta_scaling():
     params_low = model.fit(prates, sigmas_low, impacts_low)
     imp_low = model.predict(0.10, sigma=0.01)
     imp_high = model.predict(0.10, sigma=0.05)
-    assert imp_high > imp_low * 3.0  -- 5x sigma increase should mean 5x impact
+    assert imp_high > imp_low * 3.0  # 5x sigma increase should mean 5x impact
 
 
 def test_linear_impact_model_predict_pre_trade():
@@ -310,7 +310,7 @@ def test_venue_analyzer_route_large_order_to_dark_pool():
         side="BUY",
         qty=20_000.0,
         urgency="MEDIUM",
-        adv=1_000_000.0,  -- 2% ADV
+        adv=1_000_000.0,  # 2% ADV
     )
     assert venue == "IEX"
 
@@ -421,7 +421,7 @@ def test_venue_report_generator_daily_summary():
 
 
 # ---------------------------------------------------------------------------
-# ReversionAnalyzer -- post-trade reversion
+# ReversionAnalyzer  # post-trade reversion
 # ---------------------------------------------------------------------------
 
 
@@ -436,10 +436,10 @@ def test_reversion_analyzer_fit_exponential():
     """Test that ReversionAnalyzer can fit an exponential decay to post-trade data."""
     from execution.tca.reversion_analyzer import ReversionAnalyzer
     ra = ReversionAnalyzer()
-    -- Synthetic exponential reversion: impact decays by half every 5 periods
+    # Synthetic exponential reversion: impact decays by half every 5 periods
     times = list(range(1, 21))
     initial_impact = 10.0
-    impacts = [initial_impact * math.exp(-0.1386 * t) for t in times]  -- lambda=ln2/5
+    impacts = [initial_impact * math.exp(-0.1386 * t) for t in times]  # lambda=ln2/5
     result = ra.fit(times, impacts)
     assert result is not None
 
@@ -447,15 +447,15 @@ def test_reversion_analyzer_fit_exponential():
 def test_reversion_analyzer_handles_empty_data():
     from execution.tca.reversion_analyzer import ReversionAnalyzer
     ra = ReversionAnalyzer()
-    -- Should not raise on empty input
+    # Should not raise on empty input
     try:
         result = ra.fit([], [])
     except (ValueError, ZeroDivisionError):
-        pass  -- acceptable to raise on degenerate input
+        pass  # acceptable to raise on degenerate input
 
 
 # ---------------------------------------------------------------------------
-# TCAStore -- upsert, aggregate, daily_report
+# TCAStore  # upsert, aggregate, daily_report
 # ---------------------------------------------------------------------------
 
 
@@ -486,7 +486,7 @@ def test_tca_store_upsert_and_query():
             "venue": "NASDAQ",
             "trade_date": "2026-01-10",
         }
-        -- Should not raise
+        # Should not raise
         store.upsert(rec)
 
 
@@ -495,7 +495,7 @@ def test_tca_store_daily_report_structure():
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "tca.db")
         store = TCAStore(db_path=db_path)
-        -- Insert a few records
+        # Insert a few records
         for i in range(5):
             store.upsert({
                 "order_id": f"ord-{i}",
@@ -523,7 +523,7 @@ def test_tca_store_daily_report_structure():
 def test_impact_calibrator_ensemble_calibration():
     """ImpactCalibrator with ensemble type should fit all three sub-models."""
     calibrator = ImpactCalibrator(model_type="ensemble")
-    -- Build synthetic results
+    # Build synthetic results
     results = [
         make_tca_result(impact_bps=0.5 * 0.02 * math.sqrt(0.05) * 10_000, prate=0.05)
         for _ in range(20)

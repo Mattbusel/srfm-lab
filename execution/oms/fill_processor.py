@@ -143,7 +143,7 @@ class FillValidator:
             for row in cur.fetchall():
                 self._seen_fills.add(row[0])
         except sqlite3.OperationalError:
-            pass  -- table not yet created; will be populated on first write
+            pass  # table not yet created; will be populated on first write
 
     def register_fill(self, fill_id: str) -> None:
         """Mark a fill_id as processed so duplicates are caught."""
@@ -157,7 +157,7 @@ class FillValidator:
     def validate(
         self,
         fill_event: dict,
-        order,             -- Order object from OrderBook
+        order,  # Order object from OrderBook
         midpoint: float,
     ) -> Tuple[bool, str, bool]:
         """
@@ -182,11 +182,11 @@ class FillValidator:
         fill_qty   = float(fill_event.get("fill_qty", 0.0))
         fill_price = float(fill_event.get("fill_price", 0.0))
 
-        -- duplicate check
+        # duplicate check
         if self.is_duplicate(fill_id):
             return False, f"Duplicate fill_id={fill_id}", False
 
-        -- quantity sanity
+        # quantity sanity
         if fill_qty <= 0:
             return False, f"fill_qty={fill_qty} <= 0", False
 
@@ -197,14 +197,14 @@ class FillValidator:
                 f"for order={order.order_id}"
             ), False
 
-        -- price sanity
+        # price sanity
         suspicious = False
         if midpoint > 0 and fill_price > 0:
             dev = abs(fill_price - midpoint) / midpoint
             if dev > self.REJECT_THRESH:
                 return False, (
                     f"Price deviation {dev:.2%} > hard reject threshold "
-                    f"{self.REJECT_THRESH:.0%} -- fill_price={fill_price:.4f} "
+                    f"{self.REJECT_THRESH:.0%}  # fill_price={fill_price:.4f} "
                     f"midpoint={midpoint:.4f}"
                 ), False
             if dev > self.SUSPICIOUS_THRESH:
@@ -233,7 +233,7 @@ class FillAggregator:
     """
 
     def __init__(self) -> None:
-        -- order_id -> list of (qty, price) tuples
+        # order_id -> list of (qty, price) tuples
         self._fills: Dict[str, List[Tuple[float, float]]] = defaultdict(list)
         self._lock = threading.RLock()
 
@@ -306,7 +306,7 @@ class DailyFillSummary:
     vwap:           float
     fill_count:     int
     total_commission: float
-    total_slippage_bps: float   -- signed average slippage in bps
+    total_slippage_bps: float   # signed average slippage in bps
     realized_pnl:   float
 
 
@@ -355,7 +355,7 @@ class DailyFillReport:
         )
         rows = cur.fetchall()
 
-        -- aggregate per symbol
+        # aggregate per symbol
         sym_data: Dict[str, dict] = {}
         for (order_id, symbol, side, fill_qty, fill_price,
              commission, realized_pnl, slippage_bps) in rows:
@@ -513,7 +513,7 @@ class FillProcessor:
             return round(fill_qty * fill_price * CRYPTO_COMMISSION_RATE, 6)
         elif cls == "futures":
             return FUTURES_COMMISSION_PER_SIDE
-        -- default: treat as equity
+        # default: treat as equity
         return round(fill_qty * EQUITY_COMMISSION_PER_SHARE, 6)
 
     # ------------------------------------------------------------------
@@ -559,7 +559,7 @@ class FillProcessor:
     ) -> int:
         """Write fill to SQLite.  Returns the new rowid."""
         now     = datetime.now(timezone.utc)
-        slippage_bps = order.slippage_bps  -- may be None until FILLED
+        slippage_bps = order.slippage_bps  # may be None until FILLED
 
         self._conn.execute(
             """
@@ -611,7 +611,7 @@ class FillProcessor:
         over-fill, hard price violation, or order not found).
         """
         with self._lock:
-            -- resolve order
+            # resolve order
             order_id = fill_event.get("order_id")
             broker_id = fill_event.get("broker_order_id")
             order = None
@@ -621,7 +621,7 @@ class FillProcessor:
                 order = self._book.get_by_broker_id(broker_id)
             if order is None:
                 log.error(
-                    "process_fill: order not found -- order_id=%s broker_id=%s",
+                    "process_fill: order not found  # order_id=%s broker_id=%s",
                     order_id, broker_id,
                 )
                 return None
@@ -631,7 +631,7 @@ class FillProcessor:
             fill_price = float(fill_event.get("fill_price", 0.0))
             asset_class = fill_event.get("asset_class", "equity")
 
-            -- validate
+            # validate
             valid, reason, suspicious = self._validator.validate(
                 fill_event, order, midpoint
             )
@@ -642,17 +642,17 @@ class FillProcessor:
                 )
                 return None
 
-            -- compute commission before updating order state
+            # compute commission before updating order state
             commission = self._compute_commission(fill_qty, fill_price, asset_class)
 
-            -- compute realized P&L before updating position
+            # compute realized P&L before updating position
             realized_pnl = self._compute_realized_pnl(order, fill_qty, fill_price)
 
-            -- determine if this is a full or partial fill
+            # determine if this is a full or partial fill
             remaining = order.remaining_qty
             is_full   = fill_qty >= remaining - OVERFILL_TOLERANCE
 
-            -- update order state
+            # update order state
             if is_full:
                 order.mark_filled(
                     fill_qty       = order.fill_qty + fill_qty,
@@ -668,20 +668,20 @@ class FillProcessor:
                 order.commission_usd += commission
                 new_status = "PARTIAL_FILL"
 
-            -- update position tracker
+            # update position tracker
             self._position_tracker.record_fill(order)
 
-            -- update aggregator
+            # update aggregator
             self._aggregator.record(order.order_id, fill_qty, fill_price)
 
-            -- persist
+            # persist
             row_id = self._persist_fill(
                 fill_id, order, fill_qty, fill_price,
                 commission, realized_pnl, new_status,
                 suspicious, asset_class,
             )
 
-            -- register fill_id as seen
+            # register fill_id as seen
             self._validator.register_fill(fill_id)
 
             result = FillResult(
@@ -696,7 +696,7 @@ class FillProcessor:
                 db_row_id    = row_id,
             )
 
-            -- emit event
+            # emit event
             if self._event_bus:
                 try:
                     self._event_bus("FILL_PROCESSED", result.to_dict())

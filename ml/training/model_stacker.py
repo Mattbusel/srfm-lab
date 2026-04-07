@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from scipy import optimize, stats
-from scipy.special import expit  -- logistic sigmoid
+from scipy.special import expit  # logistic sigmoid
 
 from .cross_validator import (
     PurgedKFoldCV,
@@ -114,7 +114,7 @@ class ModelStacker:
         self.passthrough = passthrough
         self.event_times = event_times
 
-        -- fitted state (set after fit())
+        # fitted state (set after fit())
         self._fitted_base: List[Tuple[str, Any]] = []
         self._fitted_meta: Any = None
         self._report: Optional[StackingReport] = None
@@ -142,7 +142,7 @@ class ModelStacker:
         oof_matrix = np.full((n, n_base), np.nan)
         oof_scores: Dict[str, List[float]] = {name: [] for name, _ in self.base_models}
 
-        -- step 1: generate OOF predictions for each base model
+        # step 1: generate OOF predictions for each base model
         for col_idx, (name, model) in enumerate(self.base_models):
             for fold_idx, (train_idx, test_idx) in enumerate(
                 self.cv.split(X, y, event_times=self.event_times)
@@ -153,17 +153,17 @@ class ModelStacker:
                     )
                     continue
 
-                -- clone-like behavior: use a fresh copy per fold via fit
+                # clone-like behavior: use a fresh copy per fold via fit
                 model.fit(X[train_idx], y[train_idx])
                 pred = model.predict(X[test_idx])
                 oof_matrix[test_idx, col_idx] = pred
 
-                -- compute IC for this fold
+                # compute IC for this fold
                 ic = compute_information_coefficient(pred, y[test_idx])
                 oof_scores[name].append(ic)
 
-        -- step 2: build meta-feature matrix
-        -- rows with any NaN OOF prediction are dropped from meta-training
+        # step 2: build meta-feature matrix
+        # rows with any NaN OOF prediction are dropped from meta-training
         meta_X = self._build_meta_features(oof_matrix, X)
         valid_mask = ~np.isnan(meta_X).any(axis=1)
 
@@ -173,17 +173,17 @@ class ModelStacker:
                 "Increase training set size or reduce n_splits."
             )
 
-        -- step 3: fit meta-learner
+        # step 3: fit meta-learner
         self._fitted_meta = self.meta_learner
         self._fitted_meta.fit(meta_X[valid_mask], y[valid_mask])
 
-        -- step 4: refit each base model on the full training set
+        # step 4: refit each base model on the full training set
         self._fitted_base = []
         for name, model in self.base_models:
             model.fit(X, y)
             self._fitted_base.append((name, model))
 
-        -- build report
+        # build report
         all_ics = [ic for scores in oof_scores.values() for ic in scores if not np.isnan(ic)]
         self._report = StackingReport(
             oof_scores=oof_scores,
@@ -322,19 +322,19 @@ class ModelBlender:
                 fold_ics.append(ic)
             oof_ics[name] = float(np.nanmean(fold_ics)) if fold_ics else 0.0
 
-        -- build weights from IC; clip negative ICs to zero
+        # build weights from IC; clip negative ICs to zero
         raw_weights = np.array(
             [max(0.0, oof_ics[name]) for name, _ in self.base_models]
         )
         total = raw_weights.sum()
         if total < 1e-10:
-            -- uniform weights as fallback
+            # uniform weights as fallback
             raw_weights = np.ones(len(self.base_models))
             total = float(len(self.base_models))
 
         normalised = raw_weights / total
 
-        -- apply weight floor: zero out models below threshold
+        # apply weight floor: zero out models below threshold
         normalised[normalised < self.weight_floor] = 0.0
         floor_total = normalised.sum()
         if floor_total > 0:
@@ -343,7 +343,7 @@ class ModelBlender:
         self._weights = normalised
         self._oof_ics = oof_ics
 
-        -- refit all models on full data
+        # refit all models on full data
         self._fitted_models = []
         for name, model in self.base_models:
             model.fit(X, y)
@@ -379,7 +379,7 @@ class ModelBlender:
 
 
 # ---------------------------------------------------------------------------
-# EnsembleCalibrator  -- Platt scaling
+# EnsembleCalibrator  # Platt scaling
 # ---------------------------------------------------------------------------
 
 class EnsembleCalibrator:
@@ -421,7 +421,7 @@ class EnsembleCalibrator:
         n_pos = y_true.sum()
         n_neg = n - n_pos
 
-        -- Platt's target labels (smoothed)
+        # Platt's target labels (smoothed)
         t = np.where(
             y_true > 0.5,
             (n_pos + 1.0) / (n_pos + 2.0),

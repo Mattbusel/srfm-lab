@@ -44,7 +44,7 @@ log = logging.getLogger("execution.state_machine")
 # State constants
 # ---------------------------------------------------------------------------
 
--- all valid states
+# all valid states
 STATE_NEW:            str = "NEW"
 STATE_PENDING_SUBMIT: str = "PENDING_SUBMIT"
 STATE_SUBMITTED:      str = "SUBMITTED"
@@ -207,7 +207,7 @@ class _OrderState:
     """Internal state record for a single order."""
     order_id: str
     status:   str = STATE_NEW
-    -- list of (status, ts_epoch_ns) for in-memory history
+    # list of (status, ts_epoch_ns) for in-memory history
     history:  List[Tuple[str, int]] = field(default_factory=list)
 
 
@@ -266,7 +266,7 @@ class OrderStateMachine:
             )
             self._states[order_id] = state
 
-            -- log the initial NEW state as a transition from GENESIS
+            # log the initial NEW state as a transition from GENESIS
             self._logger.log_transition(
                 order_id   = order_id,
                 from_state = "GENESIS",
@@ -384,7 +384,7 @@ class OrderStateMachine:
         with self._lock:
             state = self._states.get(order_id)
             if state is None:
-                return True  -- unknown orders are treated as terminal
+                return True  # unknown orders are treated as terminal
             return state.status in TERMINAL_STATES
 
     def get_open_orders(self) -> List[str]:
@@ -485,7 +485,7 @@ class OrderStateMachine:
                     "SELECT order_id, status FROM order_state_snapshot"
                 )
             except sqlite3.OperationalError:
-                return 0  -- snapshot table does not yet exist
+                return 0  # snapshot table does not yet exist
 
             count = 0
             for order_id, status in cur.fetchall():
@@ -500,7 +500,7 @@ class OrderStateMachine:
             return count
 
     # ------------------------------------------------------------------
-    # Validation helpers (static -- callable without instance)
+    # Validation helpers (static  # callable without instance)
     # ------------------------------------------------------------------
 
     @staticmethod

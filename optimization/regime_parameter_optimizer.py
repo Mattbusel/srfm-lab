@@ -55,7 +55,7 @@ try:
 except ImportError:
     optuna = None  # type: ignore[assignment]
     _OPTUNA = False
-    logger.debug("Optuna not available -- using random search fallback")
+    logger.debug("Optuna not available  # using random search fallback")
 
 
 # ---------------------------------------------------------------------------
@@ -63,8 +63,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_DB_PATH = Path("regime_params.db")
-_CONSISTENCY_THRESHOLD = 0.50   -- parameters must not differ by more than 50%
-_MIN_BARS_FOR_OPTIM = 200       -- skip regime if fewer bars available
+_CONSISTENCY_THRESHOLD = 0.50  # parameters must not differ by more than 50%
+_MIN_BARS_FOR_OPTIM = 200  # skip regime if fewer bars available
 _DEFAULT_N_TRIALS = 50
 
 
@@ -172,7 +172,7 @@ class RegimeDataSplitter:
         start = idx[0]
         prev = idx[0]
         for i in idx[1:]:
-            if i - prev > 1:  -- gap in indices means new contiguous window
+            if i - prev > 1:  # gap in indices means new contiguous window
                 windows.append(self.bars.iloc[start:prev + 1].copy())
                 start = i
             prev = i
@@ -311,7 +311,7 @@ class RegimeParameterOptimizer:
         ps = param_space or self.param_space
         if len(bars) < _MIN_BARS_FOR_OPTIM:
             logger.warning(
-                "Regime %s has only %d bars (< %d) -- skipping optimization",
+                "Regime %s has only %d bars (< %d)  # skipping optimization",
                 regime.value, len(bars), _MIN_BARS_FOR_OPTIM,
             )
             return {}
@@ -395,7 +395,7 @@ class RegimeParameterOptimizer:
 
 
 # ---------------------------------------------------------------------------
-# RegimeParamStore -- SQLite persistence
+# RegimeParamStore  # SQLite persistence
 # ---------------------------------------------------------------------------
 
 class RegimeParamStore:
@@ -574,7 +574,7 @@ class LiveRegimeSwitcher:
         self.default_params = default_params or {}
         self._cache: Dict[str, Dict[str, Any]] = cache or {}
 
-        # -- pre-warm cache from store
+        #  # pre-warm cache from store
         if self.store is not None and not self._cache:
             self._cache = self.store.load_all_latest()
 
@@ -598,7 +598,7 @@ class LiveRegimeSwitcher:
                 return copy.deepcopy(params)
 
         logger.debug(
-            "No params found for regime %s -- using defaults", regime.value
+            "No params found for regime %s  # using defaults", regime.value
         )
         return copy.deepcopy(self.default_params)
 
@@ -656,7 +656,7 @@ class ConsistencyChecker:
         if len(regime_params) < 2:
             return {"passed": True, "violations": [], "warnings": []}
 
-        # -- collect all param names that appear in at least two regimes
+        #  # collect all param names that appear in at least two regimes
         all_params: Dict[str, List[Tuple[str, float]]] = {}
         for regime_name, params in regime_params.items():
             for k, v in params.items():
@@ -678,7 +678,7 @@ class ConsistencyChecker:
 
             ratio = max_val / max(min_val, 1e-10)
             if ratio > (1.0 + self.threshold):
-                # -- find the two extreme regimes
+                #  # find the two extreme regimes
                 max_regime = max(regime_vals, key=lambda x: abs(x[1]))
                 min_regime = min(regime_vals, key=lambda x: abs(x[1]))
                 violation = {
