@@ -1,0 +1,322 @@
+{
+  "timestamp": "2026-04-06T17:26:23Z",
+  "uptime_secs": 1.0,
+  "function_stats": {
+    "test_func": {
+      "count": 5,
+      "avg_ms": 5.322,
+      "min_ms": 5.019,
+      "p50_ms": 5.246,
+      "p95_ms": 5.521,
+      "p99_ms": 5.521,
+      "max_ms": 5.526
+    },
+    "measure_block": {
+      "count": 1,
+      "avg_ms": 3.074,
+      "min_ms": 3.074,
+      "p50_ms": 3.074,
+      "p95_ms": 3.074,
+      "p99_ms": 3.074,
+      "max_ms": 3.074
+    }
+  },
+  "memory_top_allocations": [
+    {
+      "filename": "C:\\Users\\Matthew\\srfm-lab\\tools\\observability\\profiler.py",
+      "lineno": 159,
+      "size_kb": 1.48,
+      "count": 4
+    },
+    {
+      "filename": "C:\\Users\\Matthew\\srfm-lab\\tools\\observability\\profiler.py",
+      "lineno": 269,
+      "size_kb": 0.81,
+      "count": 4
+    },
+    {
+      "filename": "<string>",
+      "lineno": 34,
+      "size_kb": 0.75,
+      "count": 1
+    },
+    {
+      "filename": "C:\\Program Files\\Python312\\Lib\\threading.py",
+      "lineno": 293,
+      "size_kb": 0.74,
+      "count": 2
+    },
+    {
+      "filename": "C:\\Program Files\\Python312\\Lib\\encodings\\cp1252.py",
+      "lineno": 19,
+      "size_kb": 0.41,
+      "count": 4
+    },
+    {
+      "filename": "C:\\Program Files\\Python312\\Lib\\threading.py",
+      "lineno": 589,
+      "size_kb": 0.4,
+      "count": 4
+    },
+    {
+      "filename": "C:\\Users\\Matthew\\srfm-lab\\tools\\observability\\profiler.py",
+      "lineno": 131,
+      "size_kb": 0.3,
+      "count": 2
+    },
+    {
+      "filename": "C:\\Program Files\\Python312\\Lib\\threading.py",
+      "lineno": 935,
+      "size_kb": 0.28,
+      "count": 2
+    },
+    {
+      "filename": "C:\\Program Files\\Python312\\Lib\\threading.py",
+      "lineno": 940,
+      "size_kb": 0.2,
+      "count": 5
+    },
+    {
+      "filename": "C:\\Users\\Matthew\\srfm-lab\\tools\\observability\\profiler.py",
+      "lineno": 204,
+      "size_kb": 0.16,
+      "count": 1
+    },
+    {
+      "filename": "C:\\Program Files\\Python312\\Lib\\threading.py",
+      "lineno": 1372,
+      "size_kb": 0.16,
+      "count": 1
+    },
+    {
+      "filename": "C:\\Program Files\\Python312\\Lib\\logging\\__init__.py",
+      "lineno": 1805,
+      "size_kb": 0.16,
+      "count": 1
+    },
+    {
+      "filename": "<string>",
+      "lineno": 31,
+      "size_kb": 0.16,
+      "count": 1
+    },
+    {
+      "filename": "<string>",
+      "lineno": 44,
+      "size_kb": 0.12,
+      "count": 1
+    },
+    {
+      "filename": "<string>",
+      "lineno": 30,
+      "size_kb": 0.12,
+      "count": 3
+    },
+    {
+      "filename": "C:\\Users\\Matthew\\srfm-lab\\tools\\observability\\profiler.py",
+      "lineno": 203,
+      "size_kb": 0.12,
+      "count": 1
+    },
+    {
+      "filename": "C:\\Users\\Matthew\\srfm-lab\\tools\\observability\\profiler.py",
+      "lineno": 262,
+      "size_kb": 0.11,
+      "count": 2
+    },
+    {
+      "filename": "C:\\Users\\Matthew\\srfm-lab\\tools\\observability\\profiler.py",
+      "lineno": 276,
+      "size_kb": 0.09,
+      "count": 4
+    },
+    {
+      "filename": "C:\\Users\\Matthew\\srfm-lab\\tools\\observability\\profiler.py",
+      "lineno": 275,
+      "size_kb": 0.09,
+      "count": 4
+    },
+    {
+      "filename": "C:\\Users\\Matthew\\srfm-lab\\tools\\observability\\profiler.py",
+      "lineno": 274,
+      "size_kb": 0.09,
+      "count": 4
+    }
+  ],
+  "thread_cpu": [
+    {
+      "thread_id": 15088,
+      "name": "MainThread",
+      "user_time_secs": 0.078,
+      "system_time_secs": 0.047
+    },
+    {
+      "thread_id": 35476,
+      "name": "thread-35476",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 24948,
+      "name": "thread-24948",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 5068,
+      "name": "thread-5068",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 28288,
+      "name": "thread-28288",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 32432,
+      "name": "thread-32432",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 22476,
+      "name": "thread-22476",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 5160,
+      "name": "thread-5160",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 24488,
+      "name": "thread-24488",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 31420,
+      "name": "thread-31420",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 10148,
+      "name": "thread-10148",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 27452,
+      "name": "thread-27452",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 32596,
+      "name": "thread-32596",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 9812,
+      "name": "thread-9812",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 9852,
+      "name": "thread-9852",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 3672,
+      "name": "thread-3672",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 23064,
+      "name": "thread-23064",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 11760,
+      "name": "thread-11760",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 34968,
+      "name": "thread-34968",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 34256,
+      "name": "thread-34256",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 34176,
+      "name": "thread-34176",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 29932,
+      "name": "thread-29932",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 14424,
+      "name": "thread-14424",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 16600,
+      "name": "thread-16600",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 5056,
+      "name": "thread-5056",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 21608,
+      "name": "thread-21608",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 17772,
+      "name": "thread-17772",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 34908,
+      "name": "thread-34908",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    },
+    {
+      "thread_id": 33112,
+      "name": "thread-33112",
+      "user_time_secs": 0.0,
+      "system_time_secs": 0.0
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/signal_engine_lib.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/signal_engine_cli.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/test_bh_physics.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/test_indicators.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/test_garch.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/test_ring_buffer.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/test_performance.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/test_quat_nav.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/signal_engine_tests.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/signal_engine_bench.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/INSTALL.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/ALL_BUILD.dir
+C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/CMakeFiles/ZERO_CHECK.dir

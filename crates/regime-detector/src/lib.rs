@@ -3,6 +3,9 @@ pub mod change_point;
 pub mod filters;
 pub mod markov;
 pub mod classification;
+pub mod ensemble_regime;
+pub mod online_regime_update;
+pub mod transition_predictor;
 
 pub use hmm::{HMMModel, fit as hmm_fit, predict as hmm_predict, viterbi};
 pub use change_point::{
@@ -23,4 +26,12 @@ pub use classification::{
     macro_regime, composite_regime,
     breadth_momentum_score, rsi_regime,
     QuadrantRegime, quadrant_regime, regime_instability,
+};
+pub use ensemble_regime::{
+    RegimeEnsemble, RegimeEnsembleState, RegimeDetector,
+    DetectorVote, DetectorWeights, RegimeContext, ensemble_vote,
+};
+pub use online_regime_update::{OnlineRegimeModel, N_FEATURES, N_CLASSES};
+pub use transition_predictor::{
+    TransitionPredictor, TransitionMatrix, N_REGIMES,
 };

@@ -85,7 +85,7 @@ except Exception as _qn_err:
     log = logging.getLogger("live_trader")
     log.warning("quat_nav_bridge not available: %s", _qn_err)
 
-STRATEGY_VERSION = "larsa_v17"
+STRATEGY_VERSION = "larsa_v18"
 
 # ── Strategy constants ─────────────────────────────────────────────────────────
 # asset_class: "crypto" | "equity"
@@ -166,6 +166,23 @@ OPT_MAX_HOLD_BARS       = 96     # hard liquidation after N x 15m bars (96 = 24 
 
 MAX_ORDER_NOTIONAL = 195_000.0   # split into slices above this
 OVERRIDES_TTL_SECS = 300         # re-read signal_overrides.json every 5 min
+
+# ── Wave 4 / QuatNav / RL constants ───────────────────────────────────────────
+# QuatNav sizing: reduce position when angular_velocity > baseline * this ratio
+NAV_OMEGA_SCALE_K       = 0.5   # size *= 1 / (1 + K * max(0, omega_ratio - 1))
+# QuatNav entry gate: reject entry when geodesic_deviation > baseline * this factor
+NAV_GEO_ENTRY_GATE      = 3.0   # 3x recent baseline = unexpected path, skip entry
+NAV_EMA_ALPHA           = 0.05  # EMA alpha for omega/geodesic baselines (slow, ~20 bars)
+# EventCalendarFilter: applied to ALL instruments during high-risk windows
+EVENT_CAL_ACTIVE        = True
+# NetworkSignalTracker: applies Granger boost to crypto alts only
+GRANGER_BOOST_ACTIVE    = True
+# MLSignalModule: boost threshold (signal > +0.3 boosts entry by 1.2x)
+ML_SIGNAL_BOOST         = 1.20
+ML_SIGNAL_BOOST_THRESH  = 0.30
+ML_SIGNAL_SUPPRESS_THRESH = -0.30  # signal < -0.3 suppresses new entry
+# RL exit policy
+RL_EXIT_ACTIVE          = True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -318,6 +335,353 @@ class OUDetector:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Hurst estimator (R/S analysis)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class HurstEstimator:
+    """
+    Online Hurst exponent estimator using R/S (rescaled range) analysis.
+
+    H > 0.5 = persistent (trending)  -- BH formation expected
+    H < 0.5 = anti-persistent (mean-reverting) -- OU overlay preferred
+    H ~ 0.5 = random walk -- no structural edge
+
+    Updates on every bar. Estimate stabilises after ~50 bars.
+    """
+
+    def __init__(self, window: int = 100, min_bars: int = 30) -> None:
+        self._window   = window
+        self._min_bars = min_bars
+        self._prices: deque[float] = deque(maxlen=window)
+        self.hurst: float | None   = None
+        self.regime_bias: str      = "neutral"  # "trending" | "mean_reverting" | "neutral"
+
+    def update(self, price: float) -> None:
+        self._prices.append(math.log(max(price, 1e-12)))
+        if len(self._prices) < self._min_bars:
+            return
+        self.hurst = self._rs_hurst(list(self._prices))
+        if self.hurst is not None:
+            if self.hurst > 0.58:
+                self.regime_bias = "trending"
+            elif self.hurst < 0.42:
+                self.regime_bias = "mean_reverting"
+            else:
+                self.regime_bias = "neutral"
+
+    @staticmethod
+    def _rs_hurst(log_prices: list[float]) -> float | None:
+        """R/S analysis on log returns. Returns H in (0,1) or None on failure."""
+        try:
+            rets = np.diff(log_prices)
+            n    = len(rets)
+            if n < 10:
+                return None
+            ns     = []
+            rs_vals = []
+            for sub_n in [max(8, n // 4), max(8, n // 2), n]:
+                if sub_n > n:
+                    continue
+                chunk = rets[:sub_n]
+                mean_r = np.mean(chunk)
+                dev    = np.cumsum(chunk - mean_r)
+                R      = dev.max() - dev.min()
+                S      = np.std(chunk, ddof=1)
+                if S < 1e-12:
+                    continue
+                ns.append(math.log(sub_n))
+                rs_vals.append(math.log(R / S))
+            if len(ns) < 2:
+                return None
+            h = float(np.polyfit(ns, rs_vals, 1)[0])
+            return max(0.05, min(0.95, h))
+        except Exception:
+            return None
+
+    @property
+    def is_trending(self) -> bool:
+        return self.regime_bias == "trending"
+
+    @property
+    def is_mean_reverting(self) -> bool:
+        return self.regime_bias == "mean_reverting"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EventCalendarFilter (ported from backtest_wave4.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class EventCalendarFilter:
+    """
+    Reduces position sizing by 50% in the ±2h window around high-impact macro events.
+    Events: FOMC meetings and major token unlock dates.
+
+    Sources are synthetic for backtesting. In live trading, the event list is
+    supplemented by the config/event_calendar.json file if present.
+    """
+
+    _WINDOW = timedelta(hours=2)
+    _CAL_FILE = _REPO_ROOT / "config" / "event_calendar.json"
+
+    def __init__(self) -> None:
+        self._events: list[datetime] = self._build_events()
+
+    def _build_events(self) -> list[datetime]:
+        events: list[datetime] = []
+        # Synthetic FOMC (approximately 8 per year, Feb/Mar/May/Jun/Jul/Sep/Nov/Dec)
+        for year in range(2024, 2028):
+            for month in [3, 5, 6, 7, 9, 11, 12, 1]:
+                try:
+                    events.append(datetime(year, month, 15, 18, 0, tzinfo=timezone.utc))
+                except ValueError:
+                    pass
+        # Load custom events from config file if present
+        try:
+            if self._CAL_FILE.exists():
+                data = json.loads(self._CAL_FILE.read_text())
+                for entry in data.get("events", []):
+                    dt = datetime.fromisoformat(entry["time"])
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    events.append(dt)
+        except Exception:
+            pass
+        return events
+
+    def position_multiplier(self, bar_time: datetime) -> float:
+        """Return 0.5 within ±2h of any high-impact event, else 1.0."""
+        if bar_time.tzinfo is None:
+            bar_time = bar_time.replace(tzinfo=timezone.utc)
+        for ev in self._events:
+            if abs(bar_time - ev) <= self._WINDOW:
+                return 0.5
+        return 1.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NetworkSignalTracker — BTC Granger lead (ported from backtest_wave4.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class NetworkSignalTracker:
+    """
+    Rolling 30-day Granger causality proxy.
+    When |rolling corr(BTC_ret, alt_ret)| > CORR_THRESH and BTC BH is active,
+    boost the alt's target size by BOOST.
+
+    Updated once per day on the daily rollover.
+    """
+
+    WINDOW      = 30
+    CORR_THRESH = 0.30
+    BOOST       = 1.20
+
+    def __init__(self, syms: list[str]) -> None:
+        self._syms       = syms
+        self._btc_rets: deque[float]           = deque(maxlen=self.WINDOW + 1)
+        self._alt_rets:  dict[str, deque[float]] = {
+            s: deque(maxlen=self.WINDOW) for s in syms if s != "BTC"
+        }
+        self._granger_active: set[str] = set()
+
+    def update_daily(self, daily_rets: dict[str, float]) -> None:
+        """Feed one day of close-to-close returns. Call on each daily rollover."""
+        btc_ret = daily_rets.get("BTC")
+        if btc_ret is None:
+            return
+        self._btc_rets.append(btc_ret)
+        for s, q in self._alt_rets.items():
+            if s in daily_rets:
+                q.append(daily_rets[s])
+
+        if len(self._btc_rets) < self.WINDOW + 1:
+            return
+
+        btc_arr = np.array(list(self._btc_rets))[-self.WINDOW:]
+        self._granger_active.clear()
+        for s, q in self._alt_rets.items():
+            if len(q) < self.WINDOW:
+                continue
+            alt_arr = np.array(list(q))
+            n = min(len(btc_arr), len(alt_arr))
+            if n < 10:
+                continue
+            b, a = btc_arr[-n:], alt_arr[-n:]
+            if a.std() < 1e-9 or b.std() < 1e-9:
+                continue
+            try:
+                corr = float(np.corrcoef(b, a)[0, 1])
+            except Exception:
+                corr = 0.0
+            if abs(corr) > self.CORR_THRESH:
+                self._granger_active.add(s)
+
+    def boost_multiplier(self, sym: str, btc_bh_active: bool) -> float:
+        """Return 1.2 if sym is Granger-correlated with BTC and BTC BH is active."""
+        if sym == "BTC":
+            return 1.0
+        if btc_bh_active and sym in self._granger_active:
+            return self.BOOST
+        return 1.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MLSignalModule — SGD logistic regression (ported from backtest_wave4.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _SGDLogistic:
+    """
+    Online logistic regressor with SGD + L2 regularization.
+    Features: [ret_t, ret_{t-1}, ..., ret_{t-4}, garch_vol]  (6 features)
+    Output: probability in (0,1), mapped to [-1,1] via tanh.
+    """
+
+    def __init__(self, n_feat: int = 6, alpha: float = 0.01, lam: float = 1e-4) -> None:
+        self.w     = np.zeros(n_feat)
+        self.b     = 0.0
+        self.alpha = alpha
+        self.lam   = lam
+
+    def _sigmoid(self, z: float) -> float:
+        return 1.0 / (1.0 + math.exp(-max(-30.0, min(30.0, z))))
+
+    def train_one(self, feats: list[float], label: float) -> None:
+        x   = np.array(feats[-6:] if len(feats) >= 6 else feats + [0.0] * (6 - len(feats)))
+        z   = float(self.w @ x) + self.b
+        p   = self._sigmoid(z)
+        err = p - label
+        self.w  = self.w * (1.0 - self.alpha * self.lam) - self.alpha * err * x
+        self.b -= self.alpha * err
+
+    def predict(self, feats: list[float]) -> float:
+        x = np.array(feats[-6:] if len(feats) >= 6 else feats + [0.0] * (6 - len(feats)))
+        z = float(self.w @ x) + self.b
+        return math.tanh(z)  # [-1, 1]
+
+
+class MLSignalModule:
+    """
+    Per-instrument online logistic regression signal.
+    Trains on 5 lagged daily returns + GARCH vol.
+    Signal in [-1, 1]: positive = bullish, negative = bearish.
+
+    In the live trader, we train incrementally (one observation per day),
+    using the most recent 60 days as the rolling training window.
+    The signal is used as a MODIFIER: it can boost or suppress but not reverse
+    the primary BH signal.
+    """
+
+    _N_WARMUP = 30   # days before the model is trusted
+
+    def __init__(self) -> None:
+        self._models:  dict[str, _SGDLogistic] = {}
+        self._counts:  dict[str, int]          = {}
+        self._rets:    dict[str, deque[float]] = {}
+
+    def _ensure(self, sym: str) -> None:
+        if sym not in self._models:
+            self._models[sym] = _SGDLogistic()
+            self._counts[sym] = 0
+            self._rets[sym]   = deque(maxlen=10)
+
+    def update_daily(self, sym: str, daily_ret: float, garch_vol: float) -> None:
+        """Feed one day's return and GARCH vol. Trains incrementally."""
+        self._ensure(sym)
+        rets = self._rets[sym]
+        rets.append(daily_ret)
+        if len(rets) < 6:
+            return
+        feats = list(rets)[-5:] + [garch_vol]
+        label = 1.0 if daily_ret > 0 else 0.0
+        self._models[sym].train_one(feats, label)
+        self._counts[sym] += 1
+
+    def predict(self, sym: str, recent_rets: list[float], garch_vol: float) -> float:
+        """Return signal in [-1,1]. Returns 0.0 before warmup."""
+        self._ensure(sym)
+        if self._counts.get(sym, 0) < self._N_WARMUP:
+            return 0.0
+        feats = list(recent_rets)[-5:] + [garch_vol]
+        return self._models[sym].predict(feats)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RLExitPolicy — loads trained Q-table from JSON; falls back to heuristic
+# ─────────────────────────────────────────────────────────────────────────────
+
+class RLExitPolicy:
+    """
+    Exit decision policy backed by the rl-exit-optimizer Q-table.
+
+    Loads config/rl_exit_qtable.json if present (produced by the Rust trainer).
+    When no table is found, falls back to a heuristic that approximates what
+    a trained policy is expected to learn:
+      - Force hold if BH still active and PnL > 0
+      - Allow exit if BH collapsed or PnL < -stop_loss
+
+    State discretization: 12 features x 5 bins = matches crates/rl-exit-optimizer/src/state.rs
+    """
+
+    _TABLE_PATH = _REPO_ROOT / "config" / "rl_exit_qtable.json"
+    _N_BINS     = 5
+    _STOP_LOSS  = -0.03   # force exit if PnL < -3% regardless of policy
+
+    def __init__(self) -> None:
+        self._qtable: dict[str, list[float]] | None = None
+        self._loaded = False
+        self._load_table()
+
+    def _load_table(self) -> None:
+        try:
+            if self._TABLE_PATH.exists():
+                data = json.loads(self._TABLE_PATH.read_text())
+                self._qtable = data
+                self._loaded = True
+                log.info("RLExitPolicy: loaded Q-table with %d states", len(data))
+        except Exception as exc:
+            log.debug("RLExitPolicy: Q-table load failed (%s), using heuristic", exc)
+
+    def _discretize(self, v: float, lo: float = -1.0, hi: float = 1.0) -> int:
+        clipped = max(lo, min(hi, v))
+        idx = int((clipped - lo) / (hi - lo) * self._N_BINS)
+        return min(self._N_BINS - 1, max(0, idx))
+
+    def _state_key(self, pnl_pct: float, bars_held: int, bh_mass: float,
+                   bh_active: bool, atr_ratio: float) -> str:
+        """Build the 5-feature abbreviated state key (most predictive features)."""
+        f0 = self._discretize(pnl_pct * 2.0)             # pnl_pct scaled to [-1,1] at ±50%
+        f1 = self._discretize(bars_held / 50.0 - 1.0)    # bars_held_norm
+        f2 = self._discretize(bh_mass * 2.0 - 1.0)       # bh_mass_norm
+        f3 = 1 if bh_active else 0
+        f4 = self._discretize(atr_ratio - 1.0)            # atr_ratio_norm
+        return f"{f0},{f1},{f2},{f3},{f4}"
+
+    def should_exit(self, pnl_pct: float, bars_held: int, bh_mass: float,
+                    bh_active: bool, atr_ratio: float = 1.0) -> bool:
+        """
+        Returns True if the policy recommends exiting the position.
+        Hard stop loss always overrides (returns True).
+        """
+        if pnl_pct < self._STOP_LOSS:
+            return True
+
+        if self._qtable is not None:
+            key = self._state_key(pnl_pct, bars_held, bh_mass, bh_active, atr_ratio)
+            qs = self._qtable.get(key)
+            if qs is not None and len(qs) == 2:
+                # index 0 = Hold, index 1 = Exit (matches Action enum in Rust)
+                return float(qs[1]) > float(qs[0])
+
+        # Heuristic fallback (approximates what training converges to)
+        if bh_active and pnl_pct > 0.005:
+            return False          # BH strong and winning — hold
+        if not bh_active and bars_held > 16:
+            return True           # BH gone, been holding a while — exit
+        if pnl_pct < -0.015:
+            return True           # losing trade with no conviction — exit
+        return False              # default: hold
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Per-instrument state container
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -355,10 +719,20 @@ class InstrumentState:
         self._fifo: list[tuple[float, float, str]] = []
         # Previous bar close — used for single-bar GARCH log-return
         self._prev_close: float | None = None
-        # Quaternion navigation (read-only observability; one per timeframe)
+        # Quaternion navigation (one per timeframe)
         self.quat_nav_15m = _QuatNavPy() if _QUAT_NAV_AVAILABLE else None
         self.quat_nav_1h  = _QuatNavPy() if _QUAT_NAV_AVAILABLE else None
         self.quat_nav_4h  = _QuatNavPy() if _QUAT_NAV_AVAILABLE else None
+        # Latest nav output — used for angular_velocity sizing + geodesic entry gate
+        self.last_nav_15m = None   # QuatNavOutput | None
+        # Running EMA baselines for nav signals (for relative comparison)
+        self._nav_omega_ema: float | None = None
+        self._nav_geo_ema:   float | None = None
+        # Hurst exponent estimator
+        self.hurst = HurstEstimator()
+        # ML signal state: rolling daily returns for incremental training
+        self._daily_rets: deque[float] = deque(maxlen=10)
+        self._prev_daily_close: float | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -707,7 +1081,13 @@ class LiveTrader:
         self._equity_peak: float  = 0.0   # populated on first equity fetch
         self._dd_halted:   bool   = False
 
-        log.info("LiveTrader initialised — %d instruments", N_INST)
+        # Wave 4 enhancements
+        self._event_cal   = EventCalendarFilter()
+        self._granger     = NetworkSignalTracker(list(INSTRUMENTS.keys()))
+        self._ml_module   = MLSignalModule()
+        self._rl_policy   = RLExitPolicy() if RL_EXIT_ACTIVE else None
+
+        log.info("LiveTrader initialised — %d instruments (Wave4+QuatNav+RL active)", N_INST)
 
     # ── Environment / credentials ──────────────────────────────────────────────
 
@@ -843,14 +1223,29 @@ class LiveTrader:
     def _on_daily_close(self, sym: str, close: float) -> None:
         """Call when a daily bar closes for a symbol."""
         prev = self._last_daily_px.get(sym)
+        daily_ret = 0.0
         if prev and prev > 0:
-            ret = math.log(close / prev)
-            self._daily_returns[sym].append(ret)
+            daily_ret = math.log(close / prev)
+            self._daily_returns[sym].append(daily_ret)
         self._last_daily_px[sym] = close
         # Update BTC 200-day EMA
         if sym == "BTC":
             self._btc_e200 = _ema(self._btc_e200, close, _alpha(200))
         self._recompute_dynamic_corr()
+
+        # Feed Granger tracker and ML module on daily rollover
+        if daily_ret != 0.0:
+            try:
+                self._granger.update_daily({sym: daily_ret})
+            except Exception:
+                pass
+            try:
+                st = self._states.get(sym)
+                if st:
+                    garch_vol = st.garch.vol or 0.5
+                    self._ml_module.update_daily(sym, daily_ret, garch_vol)
+            except Exception:
+                pass
 
     def _recompute_dynamic_corr(self) -> None:
         """Recompute average pairwise correlation from rolling 30 daily returns."""
@@ -899,8 +1294,8 @@ class LiveTrader:
         bh_was_active_15m = st.bh_15m.active
         st.bh_15m.update(c)
 
-        # Quaternion navigation — read-only observability; no entry/exit impact yet.
-        if self._nav_writer and st.quat_nav_15m is not None:
+        # Quaternion navigation + sizing signals
+        if st.quat_nav_15m is not None:
             try:
                 ts_ns = int(ts.timestamp() * 1_000_000_000)
                 nav_out = st.quat_nav_15m.update(
@@ -911,7 +1306,16 @@ class LiveTrader:
                     bh_was_active_15m,
                     st.bh_15m.active,
                 )
-                if not self._bootstrapping:
+                st.last_nav_15m = nav_out
+                # Update EMA baselines for relative signal comparison
+                _alpha_nav = NAV_EMA_ALPHA
+                if st._nav_omega_ema is None:
+                    st._nav_omega_ema = nav_out.angular_velocity
+                    st._nav_geo_ema   = nav_out.geodesic_deviation
+                else:
+                    st._nav_omega_ema = _alpha_nav * nav_out.angular_velocity + (1 - _alpha_nav) * st._nav_omega_ema
+                    st._nav_geo_ema   = _alpha_nav * nav_out.geodesic_deviation + (1 - _alpha_nav) * st._nav_geo_ema
+                if self._nav_writer and not self._bootstrapping:
                     self._nav_writer.write(
                         sym, "15m", ts.isoformat(), ts_ns,
                         nav_out, st.bh_15m.mass, st.bh_15m.active,
@@ -919,6 +1323,12 @@ class LiveTrader:
                     )
             except Exception as _nav_exc:
                 log.debug("quat_nav 15m update failed for %s: %s", sym, _nav_exc)
+
+        # Hurst estimator
+        try:
+            st.hurst.update(c)
+        except Exception:
+            pass
 
         # GARCH update — always use single-bar log return (prev close → this close)
         if st._prev_close and st._prev_close > 0:
@@ -1092,6 +1502,29 @@ class LiveTrader:
             base  = min(per_inst_risk / (vol + 1e-9), min(ceiling, DELTA_MAX_FRAC))
             raw[sym] = base * st.garch.vol_scale * direction
 
+            # QuatNav angular velocity sizing multiplier
+            # High omega = market rotating rapidly = unstable regime = reduce size
+            if (st.last_nav_15m is not None and st._nav_omega_ema is not None
+                    and st._nav_omega_ema > 1e-9):
+                omega_ratio = st.last_nav_15m.angular_velocity / st._nav_omega_ema
+                nav_size_scale = 1.0 / (1.0 + NAV_OMEGA_SCALE_K * max(0.0, omega_ratio - 1.0))
+                raw[sym] *= nav_size_scale
+
+            # QuatNav geodesic deviation entry gate
+            # High deviation = market took unexpected path = skip new entry
+            is_new_entry_here = math.isclose(st.last_frac, 0.0)
+            if (is_new_entry_here and st.last_nav_15m is not None
+                    and st._nav_geo_ema is not None and st._nav_geo_ema > 1e-9):
+                geo_ratio = st.last_nav_15m.geodesic_deviation / st._nav_geo_ema
+                if geo_ratio > NAV_GEO_ENTRY_GATE:
+                    raw[sym] = 0.0
+                    continue
+
+            # Hurst regime modifier
+            # Anti-persistent market: reduce trend exposure, let OU handle it
+            if st.hurst.is_mean_reverting and asset_class == "crypto":
+                raw[sym] *= 0.6   # dampen trend signal when Hurst says mean-reverting
+
         # Mayer Multiple dampener — crypto only
         mayer_damp = 1.0
         btc_px = self._last_price.get("BTC", 0.0)
@@ -1113,6 +1546,37 @@ class LiveTrader:
                 continue
             if btc_lead and raw.get(sym, 0.0) > 0:
                 raw[sym] *= 1.4
+
+        # Granger network boost (Wave 4)
+        if GRANGER_BOOST_ACTIVE:
+            btc_bh = self._states["BTC"].bh_1h.active or self._states["BTC"].bh_4h.active
+            for sym in raw:
+                if INSTRUMENTS[sym].get("asset_class", "crypto") != "crypto":
+                    continue
+                if raw.get(sym, 0.0) != 0.0:
+                    raw[sym] *= self._granger.boost_multiplier(sym, btc_bh)
+
+        # ML signal modifier (Wave 4)
+        for sym, st in self._states.items():
+            if raw.get(sym, 0.0) == 0.0:
+                continue
+            try:
+                recent_rets = list(st._daily_rets) if hasattr(st, '_daily_rets') else []
+                garch_vol   = st.garch.vol or 0.5
+                ml_sig      = self._ml_module.predict(sym, list(self._daily_returns.get(sym, [])), garch_vol)
+                if ml_sig > ML_SIGNAL_BOOST_THRESH:
+                    raw[sym] *= ML_SIGNAL_BOOST
+                elif ml_sig < ML_SIGNAL_SUPPRESS_THRESH and math.isclose(st.last_frac, 0.0):
+                    raw[sym] = 0.0  # suppress new entry when ML is strongly bearish
+            except Exception:
+                pass
+
+        # EventCalendar filter (Wave 4): 0.5x sizing during high-risk windows
+        if EVENT_CAL_ACTIVE:
+            cal_mult = self._event_cal.position_multiplier(bar_time)
+            if cal_mult < 1.0:
+                for sym in raw:
+                    raw[sym] *= cal_mult
 
         # Hour boost — new entries only
         if boosted:
@@ -1262,6 +1726,19 @@ class LiveTrader:
 
             if (is_exit or is_reversal) and held_minutes < MIN_HOLD_MINUTES:
                 continue   # hold — too soon to exit/reverse
+
+            # RL exit policy: may veto or force exits beyond the time gate
+            if is_exit and self._rl_policy is not None and st.entry_px:
+                cp      = self._last_price.get(sym, st.entry_px)
+                pnl_pct = (cp - st.entry_px) / st.entry_px if st.entry_px > 0 else 0.0
+                bars_held_est = int(held_minutes / 15)
+                atr   = st.atr_1h.atr or 0.0
+                atr_ratio = (atr / (cp + 1e-9) * math.sqrt(6.5) / 0.01) if cp > 0 else 1.0
+                rl_exit = self._rl_policy.should_exit(
+                    pnl_pct, bars_held_est, st.bh_1h.mass, st.bh_1h.active, atr_ratio
+                )
+                if not rl_exit:
+                    continue   # RL policy says hold
 
             # Circuit breaker: no new entries when halted (exits/reduces still allowed)
             is_new_entry = math.isclose(st.last_frac, 0.0) and not math.isclose(tgt_frac, 0.0)

@@ -1,10 +1,13 @@
-pub mod order;
-pub mod orderbook;
+pub mod adversarial_testing;
+pub mod execution;
 pub mod fills;
 pub mod market_impact;
-pub mod execution;
+pub mod market_impact_sim;
 pub mod microstructure;
+pub mod order;
+pub mod orderbook;
 pub mod simulator;
+pub mod synthetic_orderbook;
 
 pub use order::{Order, OrderSide, OrderStatus, OrderType};
 pub use orderbook::OrderBook;

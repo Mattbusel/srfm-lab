@@ -5,3 +5,6 @@ pub mod operators;
 pub mod population;
 pub mod primitives;
 pub mod evolution;
+pub mod signal_genome;
+pub mod novelty_search;
+pub mod signal_backtest_fast;

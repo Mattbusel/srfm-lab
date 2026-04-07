@@ -1,6 +1,10 @@
 pub mod archive;
+pub mod constraint_handler;
+pub mod crossover_strategies;
 pub mod evolution;
 pub mod fitness;
 pub mod genome;
+pub mod mutation_strategies;
 pub mod operators;
 pub mod population;
+pub mod selection_strategies;

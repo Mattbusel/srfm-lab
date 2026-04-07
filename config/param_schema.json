@@ -1,0 +1,418 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LARSA Live Trader Parameter Schema",
+  "description": "Defines allowed types, ranges, defaults, and metadata for all tunable parameters in the LARSA live trading system. Used by ParamManager, Optuna optimizer, and IAE genome bridge for validation and sampling.",
+  "version": "1.0.0",
+  "last_updated": "2026-04-06",
+  "parameters": {
+    "CF_BULL_THRESH": {
+      "type": "float",
+      "min": 0.1,
+      "max": 5.0,
+      "default": 1.2,
+      "step": 0.05,
+      "description": "Centrifugal force threshold for bullish BH signal confirmation. Raw BH output must exceed this value to trigger a long entry. Higher values reduce trade frequency and false positives.",
+      "group": "blackhole",
+      "live_trader_name": "CF_BULL_THRESH",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "CF_BEAR_THRESH": {
+      "type": "float",
+      "min": 0.1,
+      "max": 5.0,
+      "default": 1.4,
+      "step": 0.05,
+      "description": "Centrifugal force threshold for bearish BH signal confirmation. Raw BH output must exceed this value (in magnitude) to trigger a short entry. Must be >= CF_BULL_THRESH for consistent risk asymmetry.",
+      "group": "blackhole",
+      "live_trader_name": "CF_BEAR_THRESH",
+      "affects_entry": true,
+      "affects_exit": false,
+      "constraint": "CF_BEAR_THRESH >= CF_BULL_THRESH"
+    },
+    "BH_MASS_THRESH": {
+      "type": "float",
+      "min": 1.0,
+      "max": 4.0,
+      "default": 1.92,
+      "step": 0.02,
+      "description": "Black-hole mass formation threshold (BH_FORM in live trader). Price deviation must exceed this multiple of ATR for a black-hole to form. This is the core BH activation parameter.",
+      "group": "blackhole",
+      "live_trader_name": "BH_FORM",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "BH_MASS_EXTREME": {
+      "type": "float",
+      "min": 2.0,
+      "max": 8.0,
+      "default": 3.5,
+      "step": 0.1,
+      "description": "Extreme black-hole mass threshold for maximum position sizing. When BH mass exceeds this value the system applies maximum allowable size multiplier.",
+      "group": "blackhole",
+      "live_trader_name": "BH_MASS_EXTREME",
+      "affects_entry": true,
+      "affects_exit": false,
+      "constraint": "BH_MASS_EXTREME > BH_MASS_THRESH"
+    },
+    "MIN_HOLD_BARS": {
+      "type": "int",
+      "min": 1,
+      "max": 48,
+      "default": 4,
+      "step": 1,
+      "description": "Minimum number of 15-minute bars a position must be held before an exit signal is acted upon. Prevents premature exit on noise. Equivalent to MIN_HOLD_MINUTES / 15 in the live trader.",
+      "group": "execution",
+      "live_trader_name": "MIN_HOLD_MINUTES",
+      "affects_entry": false,
+      "affects_exit": true
+    },
+    "MAX_HOLD_BARS": {
+      "type": "int",
+      "min": 4,
+      "max": 480,
+      "default": 96,
+      "step": 4,
+      "description": "Maximum number of 15-minute bars to hold any position before forced exit regardless of signal state. Prevents positions from becoming indefinitely stale.",
+      "group": "execution",
+      "live_trader_name": "MAX_HOLD_BARS",
+      "affects_entry": false,
+      "affects_exit": true,
+      "constraint": "MAX_HOLD_BARS > MIN_HOLD_BARS"
+    },
+    "BLOCKED_HOURS": {
+      "type": "list_int",
+      "default": [1, 13, 14, 15, 17, 18],
+      "allowed_values": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+      "min_length": 0,
+      "max_length": 20,
+      "description": "UTC hours during which new entries are blocked. Corresponds to BLOCKED_ENTRY_HOURS_UTC in the live trader. Avoids low-liquidity and pre-market periods.",
+      "group": "execution",
+      "live_trader_name": "BLOCKED_ENTRY_HOURS_UTC",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "BASE_RISK_PCT": {
+      "type": "float",
+      "min": 0.005,
+      "max": 0.10,
+      "default": 0.02,
+      "step": 0.005,
+      "description": "Base fraction of portfolio equity risked per individual trade before any volatility or Kelly scaling. Maps to DAILY_RISK / N_instruments in the live trader portfolio logic.",
+      "group": "risk",
+      "live_trader_name": "BASE_RISK_PCT",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "MAX_RISK_PCT": {
+      "type": "float",
+      "min": 0.01,
+      "max": 0.25,
+      "default": 0.05,
+      "step": 0.005,
+      "description": "Maximum portfolio-level daily loss tolerance as a fraction of NAV. Maps to DAILY_RISK in the live trader. Circuit breaker halts entries if realized daily loss exceeds this value.",
+      "group": "risk",
+      "live_trader_name": "DAILY_RISK",
+      "affects_entry": true,
+      "affects_exit": false,
+      "constraint": "MAX_RISK_PCT >= BASE_RISK_PCT"
+    },
+    "VOL_TARGET": {
+      "type": "float",
+      "min": 0.05,
+      "max": 3.0,
+      "default": 0.90,
+      "step": 0.05,
+      "description": "GARCH-based annualized volatility target. Position sizes are scaled so that portfolio vol approximates this target. Maps to GARCH_TARGET_VOL in the live trader.",
+      "group": "risk",
+      "live_trader_name": "GARCH_TARGET_VOL",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "KELLY_FRACTION": {
+      "type": "float",
+      "min": 0.05,
+      "max": 1.0,
+      "default": 0.25,
+      "step": 0.05,
+      "description": "Fractional Kelly criterion applied to position sizing. 1.0 = full Kelly (aggressive), 0.25 = quarter Kelly (conservative). Lower values reduce both expected growth and drawdown.",
+      "group": "risk",
+      "live_trader_name": "KELLY_FRACTION",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "NAV_OMEGA_SCALE_K": {
+      "type": "float",
+      "min": 0.0,
+      "max": 5.0,
+      "default": 0.5,
+      "step": 0.1,
+      "description": "Quaternion navigation omega ratio scaling factor. Position size is multiplied by 1/(1 + K * max(0, omega_ratio - 1)). Higher K penalizes high-curvature price paths more aggressively.",
+      "group": "nav",
+      "live_trader_name": "NAV_OMEGA_SCALE_K",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "NAV_GEO_ENTRY_GATE": {
+      "type": "float",
+      "min": 1.0,
+      "max": 20.0,
+      "default": 3.0,
+      "step": 0.5,
+      "description": "Geodesic path length gate for entry filtering. If current geodesic distance is more than this multiple of the rolling baseline the entry is skipped. Guards against entries during chaotic price regimes.",
+      "group": "nav",
+      "live_trader_name": "NAV_GEO_ENTRY_GATE",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "NAV_EMA_ALPHA": {
+      "type": "float",
+      "min": 0.005,
+      "max": 0.50,
+      "default": 0.05,
+      "step": 0.005,
+      "description": "EMA smoothing alpha for quaternion navigation baselines (omega ratio and geodesic). Lower values create a slower-adapting baseline that is more stable but lags regime changes.",
+      "group": "nav",
+      "live_trader_name": "NAV_EMA_ALPHA",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "HURST_WINDOW": {
+      "type": "int",
+      "min": 20,
+      "max": 500,
+      "default": 100,
+      "step": 10,
+      "description": "Rolling window length in bars for Hurst exponent estimation. Larger windows provide more stable estimates at the cost of slower regime adaptation.",
+      "group": "regime",
+      "live_trader_name": "HURST_WINDOW",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "EVENT_CAL_ACTIVE": {
+      "type": "bool",
+      "default": true,
+      "description": "Whether the economic event calendar filter is active. When true, entries near scheduled macro events (FOMC, NFP, CPI) are suppressed to avoid gap risk.",
+      "group": "filters",
+      "live_trader_name": "EVENT_CAL_ACTIVE",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "GRANGER_BOOST_ACTIVE": {
+      "type": "bool",
+      "default": true,
+      "description": "Whether Granger causality cross-asset signal boosting is active. When true, BH signals in assets that show Granger-causal lead from correlated assets receive a size boost.",
+      "group": "filters",
+      "live_trader_name": "GRANGER_BOOST_ACTIVE",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "ML_SIGNAL_BOOST": {
+      "type": "float",
+      "min": 1.0,
+      "max": 3.0,
+      "default": 1.20,
+      "step": 0.05,
+      "description": "Multiplicative boost applied to raw position size when the ML model output exceeds ML_SIGNAL_BOOST_THRESH. Higher values increase ML influence on sizing.",
+      "group": "ml",
+      "live_trader_name": "ML_SIGNAL_BOOST",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "ML_SIGNAL_BOOST_THRESH": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.30,
+      "step": 0.05,
+      "description": "ML model output threshold above which ML_SIGNAL_BOOST is applied. Increasing this value makes the boost more selective.",
+      "group": "ml",
+      "live_trader_name": "ML_SIGNAL_BOOST_THRESH",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "ML_SIGNAL_SUPPRESS_THRESH": {
+      "type": "float",
+      "min": -1.0,
+      "max": 0.0,
+      "default": -0.30,
+      "step": 0.05,
+      "description": "ML model output threshold below which new entries are suppressed. Negative confidence signals from the ML layer act as a veto on fresh position opens.",
+      "group": "ml",
+      "live_trader_name": "ML_SIGNAL_SUPPRESS_THRESH",
+      "affects_entry": true,
+      "affects_exit": false
+    },
+    "RL_EXIT_ACTIVE": {
+      "type": "bool",
+      "default": true,
+      "description": "Whether the reinforcement learning exit policy is active. When true, the RL agent controls exit timing instead of the fixed-rule BH collapse logic.",
+      "group": "rl",
+      "live_trader_name": "RL_EXIT_ACTIVE",
+      "affects_entry": false,
+      "affects_exit": true
+    },
+    "RL_STOP_LOSS": {
+      "type": "float",
+      "min": 0.005,
+      "max": 0.20,
+      "default": 0.04,
+      "step": 0.005,
+      "description": "Hard stop-loss fraction used by the RL exit policy as a backstop. If position drawdown from entry exceeds this fraction the RL agent is overridden and the position is closed.",
+      "group": "rl",
+      "live_trader_name": "RL_STOP_LOSS",
+      "affects_entry": false,
+      "affects_exit": true
+    },
+    "GARCH_ALPHA": {
+      "type": "float",
+      "min": 0.01,
+      "max": 0.30,
+      "default": 0.09,
+      "step": 0.01,
+      "description": "GARCH(1,1) alpha coefficient for variance equation. Controls the weight placed on the most recent squared return residual in the volatility estimate.",
+      "group": "garch",
+      "live_trader_name": "GARCH_ALPHA",
+      "affects_entry": true,
+      "affects_exit": false,
+      "constraint": "GARCH_ALPHA + GARCH_BETA < 1.0"
+    },
+    "GARCH_BETA": {
+      "type": "float",
+      "min": 0.50,
+      "max": 0.97,
+      "default": 0.88,
+      "step": 0.01,
+      "description": "GARCH(1,1) beta coefficient for variance equation. Controls persistence of volatility shocks. Higher values create longer-memory volatility estimates.",
+      "group": "garch",
+      "live_trader_name": "GARCH_BETA",
+      "affects_entry": true,
+      "affects_exit": false,
+      "constraint": "GARCH_ALPHA + GARCH_BETA < 1.0"
+    },
+    "OU_KAPPA_MIN": {
+      "type": "float",
+      "min": 0.001,
+      "max": 1.0,
+      "default": 0.05,
+      "step": 0.005,
+      "description": "Minimum mean-reversion speed (kappa) for the Ornstein-Uhlenbeck process. Symbols whose estimated kappa falls below this threshold are excluded from mean-reversion sizing.",
+      "group": "ou",
+      "live_trader_name": "OU_KAPPA_MIN",
+      "affects_entry": true,
+      "affects_exit": false,
+      "constraint": "OU_KAPPA_MIN < OU_KAPPA_MAX"
+    },
+    "OU_KAPPA_MAX": {
+      "type": "float",
+      "min": 0.05,
+      "max": 10.0,
+      "default": 2.0,
+      "step": 0.05,
+      "description": "Maximum mean-reversion speed (kappa) for the Ornstein-Uhlenbeck process. Symbols with kappa above this threshold are treated as noise-dominated and receive reduced OU sizing.",
+      "group": "ou",
+      "live_trader_name": "OU_KAPPA_MAX",
+      "affects_entry": true,
+      "affects_exit": false,
+      "constraint": "OU_KAPPA_MIN < OU_KAPPA_MAX"
+    }
+  },
+  "parameter_groups": {
+    "blackhole": {
+      "description": "Black-hole physics signal generation parameters",
+      "params": ["CF_BULL_THRESH", "CF_BEAR_THRESH", "BH_MASS_THRESH", "BH_MASS_EXTREME"]
+    },
+    "execution": {
+      "description": "Trade execution and holding period constraints",
+      "params": ["MIN_HOLD_BARS", "MAX_HOLD_BARS", "BLOCKED_HOURS"]
+    },
+    "risk": {
+      "description": "Portfolio risk and position sizing controls",
+      "params": ["BASE_RISK_PCT", "MAX_RISK_PCT", "VOL_TARGET", "KELLY_FRACTION"]
+    },
+    "nav": {
+      "description": "Quaternion navigation path geometry filters",
+      "params": ["NAV_OMEGA_SCALE_K", "NAV_GEO_ENTRY_GATE", "NAV_EMA_ALPHA"]
+    },
+    "regime": {
+      "description": "Market regime detection parameters",
+      "params": ["HURST_WINDOW"]
+    },
+    "filters": {
+      "description": "External signal filter toggles",
+      "params": ["EVENT_CAL_ACTIVE", "GRANGER_BOOST_ACTIVE"]
+    },
+    "ml": {
+      "description": "Machine learning signal integration parameters",
+      "params": ["ML_SIGNAL_BOOST", "ML_SIGNAL_BOOST_THRESH", "ML_SIGNAL_SUPPRESS_THRESH"]
+    },
+    "rl": {
+      "description": "Reinforcement learning exit policy parameters",
+      "params": ["RL_EXIT_ACTIVE", "RL_STOP_LOSS"]
+    },
+    "garch": {
+      "description": "GARCH volatility model coefficients",
+      "params": ["GARCH_ALPHA", "GARCH_BETA"]
+    },
+    "ou": {
+      "description": "Ornstein-Uhlenbeck mean reversion parameters",
+      "params": ["OU_KAPPA_MIN", "OU_KAPPA_MAX"]
+    }
+  },
+  "cross_parameter_constraints": [
+    {
+      "description": "Bear threshold must be at least as large as bull threshold",
+      "expression": "CF_BEAR_THRESH >= CF_BULL_THRESH",
+      "params": ["CF_BEAR_THRESH", "CF_BULL_THRESH"]
+    },
+    {
+      "description": "Extreme mass threshold must exceed base mass threshold",
+      "expression": "BH_MASS_EXTREME > BH_MASS_THRESH",
+      "params": ["BH_MASS_EXTREME", "BH_MASS_THRESH"]
+    },
+    {
+      "description": "Max hold must exceed min hold",
+      "expression": "MAX_HOLD_BARS > MIN_HOLD_BARS",
+      "params": ["MAX_HOLD_BARS", "MIN_HOLD_BARS"]
+    },
+    {
+      "description": "Max risk must be at least base risk",
+      "expression": "MAX_RISK_PCT >= BASE_RISK_PCT",
+      "params": ["MAX_RISK_PCT", "BASE_RISK_PCT"]
+    },
+    {
+      "description": "GARCH process must be stationary: alpha + beta < 1",
+      "expression": "GARCH_ALPHA + GARCH_BETA < 1.0",
+      "params": ["GARCH_ALPHA", "GARCH_BETA"]
+    },
+    {
+      "description": "OU kappa min must be less than kappa max",
+      "expression": "OU_KAPPA_MIN < OU_KAPPA_MAX",
+      "params": ["OU_KAPPA_MIN", "OU_KAPPA_MAX"]
+    },
+    {
+      "description": "ML suppress threshold must be less than boost threshold",
+      "expression": "ML_SIGNAL_SUPPRESS_THRESH < ML_SIGNAL_BOOST_THRESH",
+      "params": ["ML_SIGNAL_SUPPRESS_THRESH", "ML_SIGNAL_BOOST_THRESH"]
+    }
+  ],
+  "coordination_layer": {
+    "host": "localhost",
+    "port": 8781,
+    "endpoints": {
+      "current": "/params/current",
+      "propose": "/params/propose",
+      "history": "/params/history",
+      "rollback": "/params/rollback"
+    }
+  },
+  "iae_layer": {
+    "host": "localhost",
+    "port": 8780,
+    "endpoints": {
+      "best_genome": "/genome/best",
+      "seed_genome": "/genome/seed",
+      "stats": "/genome/stats"
+    }
+  }
+}

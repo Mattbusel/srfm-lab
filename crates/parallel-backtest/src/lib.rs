@@ -1,15 +1,23 @@
 pub mod backtest;
 pub mod bar_data;
 pub mod bh_engine;
+pub mod monte_carlo_backtest;
 pub mod optimizer;
+pub mod param_grid_search;
 pub mod params;
 pub mod portfolio;
+pub mod report_generator;
 pub mod sweep;
+pub mod walk_forward;
 
 pub use backtest::{run_backtest, BacktestResult};
 pub use bar_data::{BarData, DataStore};
 pub use bh_engine::{BHState, GARCHState, OUState};
+pub use monte_carlo_backtest::{run_monte_carlo, confidence_bands, MCConfig, MCResult, ResampleMethod};
 pub use optimizer::{multi_objective_optimize, ParetoResult};
+pub use param_grid_search::{run_grid_search, GridSearchConfig, GridSearchResult, SearchMethod, TrialResult};
 pub use params::{ParameterSpace, StrategyParams};
 pub use portfolio::Portfolio;
+pub use report_generator::{to_markdown, to_html, BacktestReport, PerformanceMetrics, Trade};
 pub use sweep::sweep;
+pub use walk_forward::{run_walk_forward, generate_folds, WalkForwardConfig, WalkForwardResult, WalkForwardFold};

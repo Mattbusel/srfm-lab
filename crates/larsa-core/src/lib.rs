@@ -1,3 +1,9 @@
+pub mod multi_timeframe;
+pub mod signal_quality;
+pub mod parameter_sensitivity;
+pub mod live_performance;
+pub mod regime_filter;
+
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::types::PyDict;

@@ -1,0 +1,27 @@
+[package]
+name = "online-learning"
+version = "0.1.0"
+edition = "2021"
+description = "Online learning algorithms for SRFM-Lab: FTRL-Proximal, Passive-Aggressive, mini-batch SGD"
+
+[[bin]]
+name = "online-learning"
+path = "src/main.rs"
+
+[lib]
+name = "online_learning"
+path = "src/lib.rs"
+
+[dependencies]
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+chrono      = { workspace = true }
+anyhow      = { workspace = true }
+thiserror   = { workspace = true }
+rand        = { workspace = true }
+rayon       = { workspace = true }
+clap        = { version = "4", features = ["derive"] }
+csv         = "1"
+
+[dev-dependencies]
+tempfile = "3"

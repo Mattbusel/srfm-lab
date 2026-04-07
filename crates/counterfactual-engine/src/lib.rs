@@ -25,6 +25,9 @@
 
 pub mod sampler;
 pub mod sensitivity;
+pub mod causal_inference;
+pub mod causal_graph;
+pub mod scenario_analysis;
 
 // ---------------------------------------------------------------------------
 // Re-exports
@@ -37,6 +40,9 @@ pub use sampler::{
 pub use sensitivity::{
     MorrisResult, MorrisScreening, SensitivityReport, SobolAnalyzer, SobolIndices,
 };
+pub use causal_inference::{ATEEstimator, FeatureVec, LogisticRegression, PropensityScoreEstimator};
+pub use causal_graph::{CausalEdge, CausalGraph, CausalNode, EdgeType, NodeType, PathAnalysis};
+pub use scenario_analysis::{Bar, BaselineParams, ParameterGrid, ScenarioResult, ScenarioSpec, WhatIfEngine};
 
 // ---------------------------------------------------------------------------
 // Core result type

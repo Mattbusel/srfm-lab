@@ -4,6 +4,15 @@ pub mod features;
 pub mod normalizer;
 pub mod splitter;
 
+// ── New extensions ────────────────────────────────────────────────────────────
+pub mod bar_normalizer;
+pub mod feature_extractor;
+pub mod aggregator;
+pub mod cross_asset;
+pub mod data_quality;
+pub mod timeseries_ops;
+pub mod pipeline_metrics;
+
 pub use ohlcv::{
     Bar, BarSeries, Frequency, RenkoBar,
     resample, merge, fill_gaps, FillMethod,
@@ -29,3 +38,22 @@ pub use splitter::{
     walk_forward_splits, purged_kfold, combinatorial_purged_cv,
     train_test_split_with_embargo, walk_forward_stats,
 };
+
+pub use bar_normalizer::{BarNormalizer, RawBar, NormalizedBar, BarHistory, NormError};
+pub use feature_extractor::{
+    FeatureExtractor, FeatureVector, FeatureHistory,
+    FEATURE_NAMES, N_FEATURES,
+    F_LOG_RETURN, F_HL_RANGE, F_RSI14, F_ATR14_PCT,
+};
+pub use aggregator::{BarAggregator, Tick, CompletedBar, Timeframe};
+pub use cross_asset::{CrossAssetFeatures, CrossAssetFV, CrossAssetHistory, ols_beta, ewma_beta};
+pub use data_quality::{
+    DataQualityChecker, QualityReport, CheckResult, QualityContext,
+    run_all_checks, quality_series,
+};
+pub use timeseries_ops::{
+    resample as ts_resample, align_bars, fill_gaps as ts_fill_gaps,
+    rolling_window, exponential_smoothing, seasonal_decompose,
+    differencing, autocorrelation,
+};
+pub use pipeline_metrics::{PipelineMetrics, PipelineSnapshot};

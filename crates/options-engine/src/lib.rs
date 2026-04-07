@@ -6,6 +6,9 @@ pub mod surface;
 pub mod term_structure;
 pub mod exotic;
 pub mod risk;
+pub mod vol_surface_interp;
+pub mod greeks_matrix;
+pub mod scenario_pnl;
 
 pub use black_scholes::{BlackScholes, OptionType, Greeks};
 pub use heston::{HestonModel, HestonParams};

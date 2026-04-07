@@ -1,0 +1,2 @@
+{"ts": "2026-04-07T04:34:24.984761", "operator": "unknown", "params": {"BH_MASS_THRESH": 2.1}, "reason": "test", "accepted": false, "response": "operator_cancelled"}
+{"ts": "2026-04-07T04:34:45.030043", "operator": "unknown", "params": {"BH_MASS_THRESH": 2.1}, "reason": "test", "accepted": false, "response": "operator_cancelled"}

@@ -20,8 +20,11 @@
 //! ```
 
 pub mod bootstrap;
+pub mod gbm_paths;
+pub mod option_pricer;
 pub mod simulation;
 pub mod stress_tests;
+pub mod var_calculator;
 
 // Re-export primary public types so callers don't need deep module paths.
 pub use bootstrap::{

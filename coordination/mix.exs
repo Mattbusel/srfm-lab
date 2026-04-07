@@ -30,6 +30,7 @@ defmodule SrfmCoordination.MixProject do
       {:plug_cowboy, "~> 2.6"},
       {:jason, "~> 1.4"},
       {:httpoison, "~> 2.0"},
+      {:exqlite, "~> 0.23", optional: true},
       {:ecto_sql, "~> 3.10", optional: true},
       {:sqlite_ecto3, "~> 0.4", optional: true},
       {:excoveralls, "~> 0.18", only: :test},

@@ -5,7 +5,7 @@ import React, { useState, useEffect } from 'react'
 import { clsx } from 'clsx'
 import { Overview } from '@/pages/Overview'
 import { Attribution } from '@/pages/Attribution'
-import { RiskDashboard } from '@/pages/RiskDashboard'
+import RiskDashboard from '@/pages/RiskDashboard'
 import { MarketHeatmap } from '@/pages/MarketHeatmap'
 import { SignalMonitor } from '@/pages/SignalMonitor'
 import { TradeHistory } from '@/pages/TradeHistory'
@@ -13,6 +13,8 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { usePortfolioStore } from '@/store/portfolioStore'
 import { WsStatusDot } from '@/components/ui'
 import type { WsStatus } from '@/hooks/useWebSocket'
+import SignalResearchDashboard from '@/pages/SignalResearchDashboard'
+import OnChainDashboard from '@/pages/OnChainDashboard'
 
 // ---- Route types ----
 
@@ -23,14 +25,18 @@ type Route =
   | 'heatmap'
   | 'signals'
   | 'trades'
+  | 'signal_research'
+  | 'onchain'
 
 const ROUTES: { key: Route; label: string; icon: string }[] = [
-  { key: 'overview',    label: 'Overview',     icon: '◈' },
-  { key: 'attribution', label: 'Attribution',  icon: '⬡' },
-  { key: 'risk',        label: 'Risk',         icon: '⬟' },
-  { key: 'heatmap',     label: 'Heatmap',      icon: '⬢' },
-  { key: 'signals',     label: 'Signals',      icon: '◎' },
-  { key: 'trades',      label: 'Trades',       icon: '◆' },
+  { key: 'overview',        label: 'Overview',     icon: '◈' },
+  { key: 'attribution',     label: 'Attribution',  icon: '⬡' },
+  { key: 'risk',            label: 'Risk',         icon: '⬟' },
+  { key: 'heatmap',         label: 'Heatmap',      icon: '⬢' },
+  { key: 'signals',         label: 'Signals',      icon: '◎' },
+  { key: 'trades',          label: 'Trades',       icon: '◆' },
+  { key: 'signal_research', label: 'Research',     icon: '⬥' },
+  { key: 'onchain',         label: 'On-Chain',     icon: '⬦' },
 ]
 
 // ---- Status bar ----
@@ -95,8 +101,10 @@ const App: React.FC = () => {
       case 'attribution': return <Attribution />
       case 'risk':        return <RiskDashboard />
       case 'heatmap':     return <MarketHeatmap />
-      case 'signals':     return <SignalMonitor />
-      case 'trades':      return <TradeHistory />
+      case 'signals':         return <SignalMonitor />
+      case 'trades':          return <TradeHistory />
+      case 'signal_research': return <SignalResearchDashboard />
+      case 'onchain':         return <OnChainDashboard />
     }
   }
 

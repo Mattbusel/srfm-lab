@@ -1,5 +1,8 @@
 pub mod fractal_dimension;
+pub mod fractal_dim_ext;
 pub mod hurst;
+pub mod multifractal;
+pub mod detrending;
 pub mod pattern_library;
 pub mod regime_detector;
 pub mod similarity;

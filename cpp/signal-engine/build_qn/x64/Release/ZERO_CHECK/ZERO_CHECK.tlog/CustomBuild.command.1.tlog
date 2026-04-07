@@ -1,0 +1,10 @@
+^C:\USERS\MATTHEW\SRFM-LAB\CPP\SIGNAL-ENGINE\BUILD_QN\CMAKEFILES\9B6CE2FEA8FDF7B4EEEBFB9A552CFEE8\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/Matthew/srfm-lab/cpp/signal-engine -BC:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/Matthew/srfm-lab/cpp/signal-engine/build_qn/srfm_signal_engine.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

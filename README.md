@@ -1,6 +1,6 @@
 # SRFM Trading Lab
 
-A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** — from raw tick data to live paper trading and autonomous idea discovery, across 9 languages and **705K+ lines of code**.
+A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** — from raw tick data to live paper trading and autonomous idea discovery, across 9 languages and **900K+ lines of code**.
 
 > Mad scientist workshop. Everything automated, everything measurable, rapid iteration at scale.
 
@@ -35,8 +35,20 @@ A full-stack quantitative trading research platform built on **Special Relativis
 | [Rust Crates Reference](docs/rust_crates.md) | All 25 Rust crates: genome evolution, Monte Carlo, portfolio, risk, execution, fractal, FIX |
 | [Market Data Service](docs/market_data_service.md) | Dual-feed L2 aggregation, 15m bar assembly, WebSocket hub, failover, Prometheus metrics |
 | [Coordination Layer](docs/coordination_layer.md) | Elixir/OTP supervision, circuit breakers, parameter validation, rollback, event bus |
-| [Native Layer](docs/native_layer.md) | Zig ITCH 5.0 decoder, lock-free L2 book, AVX2 L3 book, SIMD matrix, ring buffer |
+| [Native Layer](docs/native_layer.md) | Zig ITCH 5.0 decoder, lock-free L2 book, AVX2 L3 book, SIMD matrix, ring buffer, online stats |
 | [Primitive Interactions](docs/primitive_interactions.md) | Full dependency map: every primitive, what it reads, writes, and calls |
+| [Options Analytics](lib/options/) | Pricing (BS/Heston/SABR), Greeks, vol surface (SVI), term structure, Bjerksund-Stensland |
+| [Risk Aggregator](execution/risk/) | Live VaR (parametric/historical/MC), attribution, correlation monitor, limits, FastAPI :8791 |
+| [Signal Research](research/signal_analytics/) | 105-signal library, IC/ICIR tracking, alpha engine, feature store, purged CV |
+| [ML Pipeline](ml/) | Online learning (FTRL/PA-II/Hedge), ensemble, feature engineering, model selection |
+| [On-Chain Bridge](bridge/) | MVRV Z-score, funding rates, VPIN, Kyle's Lambda, Amihud illiquidity |
+| [Backtest Framework](backtest/) | Event-driven engine, transaction costs, Almgren-Chriss impact, walk-forward, CPCV, DSR |
+| [Data Pipeline](data/) | Bar normalizer, tick aggregator, technical/microstructure features, feature cache, DuckDB store |
+| [Optimization](optimization/) | Optuna LARSA optimizer, genome bridge (IAE), sensitivity analysis (Sobol/Morris) |
+| [Observability](infra/observability/) | Prometheus metrics, alerting (9 rules), dashboard API :9091, audit log |
+| [Execution Extensions](execution/) | Regime ensemble (Hedge), signal decay monitor, options live risk, cost model, smart router |
+| [Julia Analytics](julia/) | AdvancedOptions.jl, LiveRisk.jl, MLSignals.jl, Backtesting.jl -- 4,645 lines |
+| [TypeScript Dashboards](dashboard/) | Risk dashboard, signal research dashboard, on-chain dashboard, 7 reusable components |
 
 ---
 
@@ -411,17 +423,17 @@ Key Go primitives:
 
 | Language | LOC | Key Systems | Docs |
 |---|---|---|---|
-| Python | ~235K | Live trader, backtesting, IAE pipeline, ML, research | [Execution Stack](docs/execution_stack.md) |
-| Julia | ~100K | Statistical tooling: copulas, SVI/SABR, Kalman, AMM, CoVaR, RL | [Statistical Tooling](docs/statistical_tooling.md) |
-| TypeScript/React | ~42K | IAE dashboard (:5175), research dashboard (:5174), trading terminal | [Stack Overview](docs/stack_overview.md) |
-| Go | ~38K | IAE microservices (API/bus/scheduler/webhook), market data, research API | [Market Data Service](docs/market_data_service.md) |
-| R | ~45K | HMM, regime models, WFA, factor analysis, stress testing | [Statistical Tooling](docs/statistical_tooling.md) |
-| Rust | ~24K | Genome engine (NSGA-II), Monte Carlo, tick backtest, portfolio/risk | [Rust Crates Reference](docs/rust_crates.md) |
-| C/C++ | ~15K | Signal engine (SIMD indicators), L3 orderbook (AVX2), matrix ops | [C++ Signal Engine](docs/signal_engine_cpp.md) |
-| Zig | ~8K | ITCH 5.0 decoder, lock-free L2 book, ring buffer | [Native Layer](docs/native_layer.md) |
-| Elixir/OTP | ~7K | Coordination: OTP supervision, circuit breakers, param validation | [Coordination Layer](docs/coordination_layer.md) |
+| Python | ~310K | Live trader (larsa_v18), backtesting framework, IAE pipeline, ML pipeline, options analytics, risk API, regime ensemble, signal decay, execution cost model, data pipeline, optimization, observability | [Execution Stack](docs/execution_stack.md) |
+| Julia | ~110K | Advanced options (Heston/SABR/Merton/Dupire), live risk (VaR/CVaR/stress), ML signals (GP/Kalman/HMM), vectorized backtesting (CPCV/DSR) | [Statistical Tooling](docs/statistical_tooling.md) |
+| TypeScript/React | ~50K | IAE dashboard (:5175), risk dashboard, signal research dashboard, on-chain dashboard, reusable chart component library | [Stack Overview](docs/stack_overview.md) |
+| Go | ~45K | IAE microservices (API/bus/scheduler/webhook), market data, risk aggregator (:8792), genome evolution extensions (NSGA-II, SBX, lineage) | [Market Data Service](docs/market_data_service.md) |
+| R | ~50K | HMM, regime models, WFA, factor analysis, options risk, microstructure analysis, stress testing | [Statistical Tooling](docs/statistical_tooling.md) |
+| Rust | ~60K | Genome engine, Monte Carlo, factor-analytics, alpha-decay, regime-analytics, online-learning (FTRL/PA-II), WASM analytics, 27 crates total | [Rust Crates Reference](docs/rust_crates.md) |
+| C/C++ | ~20K | Signal engine (SIMD indicators, volume profile, order flow, regime signal), L3 orderbook (AVX2), matrix ops | [C++ Signal Engine](docs/signal_engine_cpp.md) |
+| Zig | ~12K | ITCH 5.0 decoder, lock-free L2 book, ring buffer, online stats (EWMA/Welford/Hurst) | [Native Layer](docs/native_layer.md) |
+| Elixir/OTP | ~7K | Coordination: OTP supervision, circuit breakers, param validation, rollback | [Coordination Layer](docs/coordination_layer.md) |
 | SQL | ~5K | SQLite (16 migrations, WAL), DuckDB analytics, BH UDFs | [Stack Overview](docs/stack_overview.md) |
-| **Total** | **~705K** | | |
+| **Total** | **~900K+** | | |
 
 ---
 

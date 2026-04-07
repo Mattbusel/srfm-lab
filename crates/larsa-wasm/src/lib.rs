@@ -1,6 +1,34 @@
+//! larsa-wasm -- WebAssembly analytics module for the SRFM dashboard.
+//!
+//! Exports rolling technical indicators, BH mass computation, regime classification,
+//! and equity curve analytics to JavaScript via wasm-bindgen.
+//!
+//! All heavy computation happens client-side in the browser; no API round-trips needed
+//! for indicator rendering once the WASM module is loaded.
+
 use wasm_bindgen::prelude::*;
 
-/// Compute SRFM state for a single price step (called per tick from JS)
+pub mod indicators;
+pub mod bh_mass;
+pub mod portfolio;
+pub mod signal_visualizer;
+pub mod realtime_indicators;
+pub mod portfolio_analytics_wasm;
+
+// Re-export key types at crate root so JS sees them under the module namespace.
+pub use indicators::ema::{EmaState, compute_ema, compute_double_ema, compute_macd};
+pub use indicators::rsi::compute_rsi;
+pub use indicators::bollinger::compute_bollinger;
+pub use indicators::atr::compute_atr;
+pub use bh_mass::minkowski::{BhMassState, compute_bh_mass_series, MultiTimeframeMass};
+pub use bh_mass::regime::{RegimeClassifier, classify_regimes};
+pub use portfolio::equity_curve::{EquityAnalytics, compute_equity_analytics};
+
+// ---------------------------------------------------------------------------
+// Original SRFMState -- preserved from v0.1, extended with new features
+// ---------------------------------------------------------------------------
+
+/// Per-tick SRFM state machine. Computes BH mass and CTL formation in real time.
 #[wasm_bindgen]
 pub struct SRFMState {
     pub bh_mass: f64,
@@ -37,9 +65,8 @@ impl SRFMState {
         }
     }
 
-    /// Process one price bar. Call this per tick from JavaScript.
+    /// Process one price bar. Returns position signal in [0, 1].
     pub fn step(&mut self, close: f64) -> f64 {
-        // compute beta, update mass, return position signal
         let beta = (close - self.prev_close).abs() / (self.prev_close * self.cf + 1e-12);
         self.beta = beta;
 
@@ -56,7 +83,6 @@ impl SRFMState {
         self.ctl = self.ctl_count;
         self.prev_close = close;
 
-        // Return position signal
         if self.bh_active {
             0.65
         } else if self.ctl_count >= 3 {
@@ -70,12 +96,17 @@ impl SRFMState {
         self.mass = 0.0;
         self.ctl_count = 0;
         self.bh_active = false;
+        self.equity_val = 1.0;
+        self.equity = 1.0;
     }
 }
 
-/// Batch simulate an entire price series (for the interactive web demo)
+/// Batch simulate an entire price series. Returns equity curve as Float64Array.
 #[wasm_bindgen]
 pub fn simulate_series(closes: &[f64], cf: f64, bh_form: f64) -> Vec<f64> {
+    if closes.is_empty() {
+        return Vec::new();
+    }
     let mut state = SRFMState::new(cf, bh_form, 0.95, closes[0]);
     let mut equity = vec![1.0f64; closes.len()];
     for i in 1..closes.len() {
@@ -84,4 +115,14 @@ pub fn simulate_series(closes: &[f64], cf: f64, bh_form: f64) -> Vec<f64> {
         equity[i] = equity[i - 1] * (1.0 + pos * ret);
     }
     equity
+}
+
+// ---------------------------------------------------------------------------
+// Module version query
+// ---------------------------------------------------------------------------
+
+/// Returns the module version string.
+#[wasm_bindgen]
+pub fn larsa_wasm_version() -> String {
+    "0.2.0".to_string()
 }

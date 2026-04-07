@@ -7,3 +7,6 @@ pub mod replay_buffer;
 pub mod reward;
 pub mod state;
 pub mod trainer;
+pub mod experience_replay;
+pub mod dqn_trainer;
+pub mod reward_shaping;

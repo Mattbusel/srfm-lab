@@ -3,6 +3,9 @@ pub mod router;
 pub mod simulator;
 pub mod cost_model;
 pub mod optimizer;
+pub mod participation_rate;
+pub mod dark_pool_router;
+pub mod liquidity_aggregator;
 
 pub use venue::{Venue, VenueId, VenueRegistry, ExchangeType};
 pub use router::{SmartOrderRouter, RoutingStrategy, ChildOrder, RoutingResult};

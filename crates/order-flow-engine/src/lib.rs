@@ -1,7 +1,11 @@
 pub mod aggressive_flow;
 pub mod delta_divergence;
+pub mod flow_analysis;
 pub mod footprint;
+pub mod impact;
+pub mod orderbook_analytics;
 pub mod signal;
 pub mod tick_classifier;
+pub mod toxicity;
 pub mod volume_imbalance;
 pub mod vpin;

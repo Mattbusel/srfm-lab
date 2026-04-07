@@ -3,6 +3,9 @@ pub mod greeks;
 pub mod stress;
 pub mod limits;
 pub mod attribution;
+pub mod stress_scenarios;
+pub mod liquidity_risk;
+pub mod correlation_risk;
 
 pub use var::{
     historical_var, parametric_var, monte_carlo_var, expected_shortfall,

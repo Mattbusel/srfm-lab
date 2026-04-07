@@ -1,0 +1,21 @@
+[package]
+name = "alpha-decay"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "alpha_report"
+path = "src/bin/alpha_report.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+rayon = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+statrs = { workspace = true }
+ndarray = { version = "0.16", features = ["rayon", "serde"] }
+csv = "1"
+clap = { version = "4", features = ["derive"] }
+chrono = { workspace = true }

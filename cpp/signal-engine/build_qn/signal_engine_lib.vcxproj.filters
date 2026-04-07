@@ -1,0 +1,67 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\indicators\ema.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\indicators\atr.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\indicators\rsi.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\indicators\bollinger.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\indicators\macd.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\indicators\vwap.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\indicators\realized_vol.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\bh_physics\bh_state.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\bh_physics\garch.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\bh_physics\ou_detector.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\quaternion\quat_nav.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\portfolio\risk_parity.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\portfolio\pid_controller.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\streaming\bar_aggregator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\streaming\feed_processor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\io\csv_reader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\io\json_writer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\src\io\binary_protocol.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\Matthew\srfm-lab\cpp\signal-engine\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{156891A6-C314-30D7-AEF4-EBE036276D11}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

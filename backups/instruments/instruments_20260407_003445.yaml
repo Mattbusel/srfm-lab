@@ -1,0 +1,9 @@
+universe:
+- symbol: AAPL
+  asset_class: equity
+  sector: tech
+  enabled: true
+  adv: 100000000.0
+  cf_long: 0.1
+  cf_short: 0.1
+  added_at: '2026-04-07T04:34:45.054432'

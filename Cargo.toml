@@ -18,10 +18,15 @@ members = [
     "crates/rl-exit-optimizer",
     "crates/order-flow-engine",
     "crates/parallel-backtest",
+    "crates/srfm-tools",
     "crates/network-graph",
     "crates/real-time-analytics",
     "crates/microstructure-engine",
     "crates/execution-optimizer",
+    "crates/online-learning",
+    "crates/alpha-decay",
+    "crates/regime-analytics",
+    "crates/factor-analytics",
 ]
 resolver = "2"
 

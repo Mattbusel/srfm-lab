@@ -1,1062 +1,755 @@
 """
-TradingEnv: OpenAI Gym-compatible reinforcement learning environment for multi-asset trading.
+ml/rl_agent/environment.py -- OpenAI Gym-compatible trading environment for RL exit policy training.
 
-Supports continuous position sizing, Sharpe-adjusted rewards, drawdown penalties,
-and rich state spaces including OHLCV data, buy-and-hold (BH) features, positions, and PnL.
+Provides a discrete-action environment where an agent learns when to exit a
+trade position. State space uses 10 continuous features derived from BH (buy-hold)
+regime indicators, price dynamics, and position metrics.
+
+Actions:
+  0 -- HOLD: do nothing, incur holding cost
+  1 -- PARTIAL_EXIT: exit 50% of position
+  2 -- FULL_EXIT: exit entire position, episode ends
+
+Designed for compatibility with RLExitPolicy in tools/live_trader_alpaca.py.
+Q-table export format matches the existing JSON schema keyed by 5-feature
+discretized state strings.
 """
 
 from __future__ import annotations
 
+import math
 import warnings
-from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-import pandas as pd
+
+# ---------------------------------------------------------------------------
+# Gym compatibility shim -- avoids hard dependency
+# ---------------------------------------------------------------------------
 
 try:
     import gym
-    from gym import spaces
+    from gym import spaces as gym_spaces
+
+    class _Env(gym.Env):
+        pass
+
+    class _Discrete(gym_spaces.Discrete):
+        pass
+
+    class _Box(gym_spaces.Box):
+        pass
+
     GYM_AVAILABLE = True
+
 except ImportError:
-    warnings.warn("gym not installed, using stub spaces")
+    warnings.warn("gym not installed; using minimal stub. Install gymnasium or gym for full compatibility.")
     GYM_AVAILABLE = False
 
+    class _Env:  # type: ignore
+        """Minimal stub matching gym.Env interface."""
+        metadata: Dict[str, Any] = {}
+        reward_range: Tuple[float, float] = (-float("inf"), float("inf"))
+        spec = None
+        observation_space = None
+        action_space = None
+
+        def reset(self) -> np.ndarray:
+            raise NotImplementedError
+
+        def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
+            raise NotImplementedError
+
+        def render(self, mode: str = "human") -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class _Discrete:  # type: ignore
+        def __init__(self, n: int) -> None:
+            self.n = n
+
+        def sample(self) -> int:
+            return int(np.random.randint(0, self.n))
+
+        def contains(self, x: int) -> bool:
+            return 0 <= int(x) < self.n
+
+    class _Box:  # type: ignore
+        def __init__(self, low: np.ndarray, high: np.ndarray, shape: Tuple, dtype=np.float32) -> None:
+            self.low = np.asarray(low, dtype=dtype)
+            self.high = np.asarray(high, dtype=dtype)
+            self.shape = shape
+            self.dtype = dtype
+
+        def sample(self) -> np.ndarray:
+            return np.random.uniform(self.low, self.high).astype(self.dtype)
+
+        def contains(self, x: np.ndarray) -> bool:
+            return bool(np.all(x >= self.low) and np.all(x <= self.high))
+
+
 # ---------------------------------------------------------------------------
-# Data structures
+# Constants
+# ---------------------------------------------------------------------------
+
+HOLD = 0
+PARTIAL_EXIT = 1
+FULL_EXIT = 2
+
+MAX_BARS = 32                   # terminal condition -- force exit after 32 bars
+STOP_LOSS_PCT = -0.03           # terminal condition -- force exit at -3% PnL
+HOLDING_COST = 0.001            # per-bar cost for HOLD action
+TRANSACTION_COST = 0.002        # one-way transaction cost for exits
+BH_BONUS = 0.005                # reward bonus for exiting with profit in BH-active regime
+BH_INACTIVITY_PENALTY = 0.002  # per-bar penalty for holding when BH inactive
+
+N_FEATURES = 10
+N_ACTIONS = 3
+
+# ---------------------------------------------------------------------------
+# TradingState dataclass
 # ---------------------------------------------------------------------------
 
 @dataclass
-class Instrument:
-    """Single tradeable instrument."""
-    symbol: str
-    tick_size: float = 0.01
-    lot_size: float = 1.0
-    margin_rate: float = 0.1          # fraction of notional
-    transaction_cost: float = 0.0005  # 5 bps per trade
-    slippage: float = 0.0002          # 2 bps market impact
-    max_position: float = 1.0         # normalized (-1 to +1)
-
-
-@dataclass
-class TradingConfig:
-    """Environment configuration."""
-    initial_capital: float = 100_000.0
-    max_episode_steps: int = 252          # ~1 trading year
-    window_size: int = 60                 # lookback for OHLCV features
-    reward_scaling: float = 1.0
-    sharpe_annualize: float = 252.0
-    drawdown_penalty_coef: float = 0.5
-    risk_free_rate: float = 0.02 / 252    # daily risk-free
-    entropy_bonus: float = 0.001
-    use_bh_features: bool = True
-    use_macro_features: bool = False
-    position_penalty: float = 0.0001     # cost of holding positions (carry)
-    reward_type: str = "sharpe"          # "sharpe" | "pnl" | "calmar"
-    max_drawdown_limit: float = 0.25     # terminate if exceeds this
-    curriculum_level: int = 0            # 0=easy, 1=medium, 2=hard
-
-
-@dataclass
-class EpisodeState:
-    """Mutable episode state."""
-    step: int = 0
-    portfolio_value: float = 100_000.0
-    cash: float = 100_000.0
-    positions: np.ndarray = field(default_factory=lambda: np.zeros(1))
-    avg_entry_prices: np.ndarray = field(default_factory=lambda: np.zeros(1))
-    pnl_history: List[float] = field(default_factory=list)
-    return_history: List[float] = field(default_factory=list)
-    peak_value: float = 100_000.0
-    max_drawdown: float = 0.0
-    total_trades: int = 0
-    winning_trades: int = 0
-    total_pnl: float = 0.0
-    episode_sharpe: float = 0.0
-
-
-# ---------------------------------------------------------------------------
-# Feature engineering helpers (used inline in env)
-# ---------------------------------------------------------------------------
-
-def _compute_rsi(prices: np.ndarray, period: int = 14) -> float:
-    """Compute RSI for the last `period` returns."""
-    if len(prices) < period + 1:
-        return 0.5
-    deltas = np.diff(prices[-(period + 1):])
-    gains = np.where(deltas > 0, deltas, 0.0)
-    losses = np.where(deltas < 0, -deltas, 0.0)
-    avg_gain = gains.mean() + 1e-8
-    avg_loss = losses.mean() + 1e-8
-    rs = avg_gain / avg_loss
-    return float(1.0 - 1.0 / (1.0 + rs))
-
-
-def _compute_bollinger_bands(prices: np.ndarray, period: int = 20) -> Tuple[float, float, float]:
-    """Return (upper_z, mid_z, lower_z) normalized by std."""
-    if len(prices) < period:
-        return 0.0, 0.0, 0.0
-    window = prices[-period:]
-    mu = window.mean()
-    sigma = window.std() + 1e-8
-    upper = (mu + 2 * sigma - prices[-1]) / sigma
-    lower = (mu - 2 * sigma - prices[-1]) / sigma
-    mid = (mu - prices[-1]) / sigma
-    return float(upper), float(mid), float(lower)
-
-
-def _compute_atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 14) -> float:
-    """Average True Range, normalized by close."""
-    if len(close) < period + 1:
-        return 0.0
-    tr_list = []
-    for i in range(-period, 0):
-        hl = high[i] - low[i]
-        hc = abs(high[i] - close[i - 1])
-        lc = abs(low[i] - close[i - 1])
-        tr_list.append(max(hl, hc, lc))
-    atr = np.mean(tr_list)
-    return float(atr / (close[-1] + 1e-8))
-
-
-def _compute_macd(prices: np.ndarray, fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[float, float]:
-    """Return (MACD line, signal line) normalized by price."""
-    if len(prices) < slow + signal:
-        return 0.0, 0.0
-    ema_fast = pd.Series(prices).ewm(span=fast).mean().values
-    ema_slow = pd.Series(prices).ewm(span=slow).mean().values
-    macd_line = ema_fast - ema_slow
-    sig_line = pd.Series(macd_line).ewm(span=signal).mean().values
-    norm = prices[-1] + 1e-8
-    return float(macd_line[-1] / norm), float(sig_line[-1] / norm)
-
-
-def _rolling_zscore(series: np.ndarray, window: int = 20) -> float:
-    """Z-score of last value relative to rolling window."""
-    if len(series) < window:
-        return 0.0
-    w = series[-window:]
-    mu = w.mean()
-    sigma = w.std() + 1e-8
-    return float((series[-1] - mu) / sigma)
-
-
-# ---------------------------------------------------------------------------
-# Buy-and-Hold baseline state
-# ---------------------------------------------------------------------------
-
-class BHBaseline:
+class TradingState:
     """
-    Tracks a simple buy-and-hold (BH) baseline for each instrument.
-    The RL agent receives features comparing its performance to the BH baseline.
+    10-feature continuous state representation for the RL agent.
+
+    Features are normalized to approximately [-1, 1] for network stability.
+
+    Attributes
+    ----------
+    position_pnl_pct : float
+        Unrealized PnL as fraction of entry price (e.g. 0.02 = 2%).
+    bars_held : float
+        Number of bars the position has been held, normalized to [0, 1] by MAX_BARS.
+    bh_mass : float
+        BH (buy-hold) oscillator mass value in [0, 1].
+    bh_active : float
+        Binary indicator: 1.0 if BH regime is active, 0.0 otherwise.
+    atr_ratio : float
+        Current ATR divided by its rolling mean -- 1.0 = normal volatility.
+    hurst_h : float
+        Hurst exponent estimate; 0.5 = random walk, >0.5 = trending.
+    nav_omega : float
+        NAV velocity (recent PnL momentum), normalized.
+    vol_percentile : float
+        Current volatility percentile in [0, 1].
+    time_of_day_sin : float
+        Sine encoding of time-of-day in [0, 390] minutes (market hours).
+    time_of_day_cos : float
+        Cosine encoding of time-of-day.
     """
 
-    def __init__(self, n_instruments: int, initial_capital: float):
-        self.n_instruments = n_instruments
-        self.initial_capital = initial_capital
-        self.bh_value: float = initial_capital
-        self.bh_positions: np.ndarray = np.ones(n_instruments) / n_instruments
-        self.bh_entry_prices: Optional[np.ndarray] = None
-        self.bh_returns: List[float] = []
+    position_pnl_pct: float = 0.0
+    bars_held: float = 0.0
+    bh_mass: float = 0.5
+    bh_active: float = 1.0
+    atr_ratio: float = 1.0
+    hurst_h: float = 0.5
+    nav_omega: float = 0.0
+    vol_percentile: float = 0.5
+    time_of_day_sin: float = 0.0
+    time_of_day_cos: float = 1.0
 
-    def initialize(self, current_prices: np.ndarray) -> None:
-        """Set entry prices on episode start."""
-        self.bh_entry_prices = current_prices.copy()
-        self.bh_returns = []
-        self.bh_value = self.initial_capital
-
-    def step(self, current_prices: np.ndarray) -> float:
-        """Update BH value and return daily BH return."""
-        if self.bh_entry_prices is None:
-            return 0.0
-        weights = self.bh_positions / (self.bh_positions.sum() + 1e-8)
-        price_returns = (current_prices - self.bh_entry_prices) / (self.bh_entry_prices + 1e-8)
-        portfolio_return = float(np.dot(weights, price_returns))
-        self.bh_returns.append(portfolio_return)
-        self.bh_value = self.initial_capital * (1.0 + portfolio_return)
-        return portfolio_return
-
-    def get_features(self, agent_value: float, agent_return_series: List[float]) -> np.ndarray:
-        """
-        Return features comparing agent to BH:
-        [relative_value, bh_sharpe, agent_sharpe, excess_return, tracking_error]
-        """
-        relative_value = float(agent_value / (self.bh_value + 1e-8) - 1.0)
-
-        def _sharpe(returns: List[float]) -> float:
-            if len(returns) < 2:
-                return 0.0
-            r = np.array(returns)
-            return float(r.mean() / (r.std() + 1e-8) * np.sqrt(252))
-
-        bh_sharpe = _sharpe(self.bh_returns[-60:])
-        agent_sharpe = _sharpe(agent_return_series[-60:])
-
-        if self.bh_returns and agent_return_series:
-            min_len = min(len(self.bh_returns), len(agent_return_series))
-            excess = np.array(agent_return_series[-min_len:]) - np.array(self.bh_returns[-min_len:])
-            excess_return = float(excess.mean())
-            tracking_error = float(excess.std() + 1e-8)
-        else:
-            excess_return = 0.0
-            tracking_error = 1.0
-
-        return np.array([relative_value, bh_sharpe, agent_sharpe, excess_return, tracking_error],
-                        dtype=np.float32)
-
-
-# ---------------------------------------------------------------------------
-# Observation space builder
-# ---------------------------------------------------------------------------
-
-class ObservationBuilder:
-    """Constructs the observation vector for each step."""
-
-    # Feature dimensions (per instrument)
-    OHLCV_FEATURES = 20       # normalized OHLCV + returns + stats
-    TECHNICAL_FEATURES = 12   # RSI, BB, ATR, MACD, Z-scores, etc.
-    POSITION_FEATURES = 3     # position, unrealized_pnl, hold_duration
-    BH_FEATURES = 5           # vs-BH comparison
-    GLOBAL_FEATURES = 8       # time, capital, drawdown, etc.
-
-    def __init__(self, config: TradingConfig, instruments: List[Instrument]):
-        self.config = config
-        self.instruments = instruments
-        self.n = len(instruments)
-        self.window = config.window_size
-
-        per_instrument = (
-            self.OHLCV_FEATURES
-            + self.TECHNICAL_FEATURES
-            + self.POSITION_FEATURES
-        )
-        if config.use_bh_features:
-            per_instrument += self.BH_FEATURES
-
-        self.obs_dim = per_instrument * self.n + self.GLOBAL_FEATURES
-
-    def build(
-        self,
-        ohlcv_history: np.ndarray,   # (window, n_instruments, 5)
-        state: EpisodeState,
-        current_prices: np.ndarray,
-        bh_baseline: Optional[BHBaseline],
-        episode_progress: float,
-    ) -> np.ndarray:
-        """Build observation vector."""
-        obs_parts = []
-
-        for i in range(self.n):
-            history = ohlcv_history[:, i, :]  # (window, 5)
-            opens   = history[:, 0]
-            highs   = history[:, 1]
-            lows    = history[:, 2]
-            closes  = history[:, 3]
-            volumes = history[:, 4]
-
-            # --- OHLCV features ---
-            log_returns = np.diff(np.log(closes + 1e-8))
-            log_ret_mean = log_returns.mean() if len(log_returns) > 0 else 0.0
-            log_ret_std  = log_returns.std() + 1e-8 if len(log_returns) > 0 else 1.0
-
-            vol_norm = (volumes - volumes.mean()) / (volumes.std() + 1e-8)
-            recent_vol = float(vol_norm[-1]) if len(vol_norm) > 0 else 0.0
-
-            close_norm = (closes - closes.mean()) / (closes.std() + 1e-8)
-            high_norm  = (highs  - closes.mean()) / (closes.std() + 1e-8)
-            low_norm   = (lows   - closes.mean()) / (closes.std() + 1e-8)
-
-            ohlcv_feat = np.array([
-                float(close_norm[-1]) if len(close_norm) > 0 else 0.0,
-                float(high_norm[-1])  if len(high_norm)  > 0 else 0.0,
-                float(low_norm[-1])   if len(low_norm)   > 0 else 0.0,
-                recent_vol,
-                log_ret_mean / (log_ret_std + 1e-8),
-                float(log_returns[-1]) / (log_ret_std + 1e-8) if len(log_returns) > 0 else 0.0,
-                float(log_returns[-5:].mean()) / (log_ret_std + 1e-8) if len(log_returns) >= 5 else 0.0,
-                float(log_returns[-20:].mean()) / (log_ret_std + 1e-8) if len(log_returns) >= 20 else 0.0,
-                float(log_returns[-5:].std()) / (log_ret_std + 1e-8) if len(log_returns) >= 5 else 0.0,
-                float(log_returns[-20:].std()) / (log_ret_std + 1e-8) if len(log_returns) >= 20 else 0.0,
-                float((closes[-1] - closes[-2]) / (closes[-2] + 1e-8)) if len(closes) >= 2 else 0.0,
-                float((closes[-1] - closes[-5]) / (closes[-5] + 1e-8)) if len(closes) >= 5 else 0.0,
-                float((closes[-1] - closes[-20]) / (closes[-20] + 1e-8)) if len(closes) >= 20 else 0.0,
-                float((closes[-1] - closes[-60]) / (closes[-60] + 1e-8)) if len(closes) >= 60 else 0.0,
-                float((highs[-1] - lows[-1]) / (closes[-1] + 1e-8)),         # intraday range
-                float((highs[-5:].max() - lows[-5:].min()) / (closes[-1] + 1e-8)) if len(highs) >= 5 else 0.0,
-                float(np.percentile(closes, 80) - np.percentile(closes, 20)) / (closes.mean() + 1e-8),
-                float(log_returns[-10:].sum()) / (log_ret_std + 1e-8) if len(log_returns) >= 10 else 0.0,
-                float(np.sign(log_returns[-5:]).mean()) if len(log_returns) >= 5 else 0.0,
-                float(((closes[-1] - closes.min()) / (closes.max() - closes.min() + 1e-8)))
-            ], dtype=np.float32)
-
-            # --- Technical features ---
-            rsi = _compute_rsi(closes)
-            bb_upper, bb_mid, bb_lower = _compute_bollinger_bands(closes)
-            atr = _compute_atr(highs, lows, closes)
-            macd_line, macd_sig = _compute_macd(closes)
-            zscore_5  = _rolling_zscore(closes, 5)
-            zscore_20 = _rolling_zscore(closes, 20)
-            zscore_60 = _rolling_zscore(closes, 60)
-            vol_zscore = _rolling_zscore(volumes, 20)
-
-            # Momentum features
-            mom_1  = float((closes[-1] - closes[-2]) / (closes[-2] + 1e-8)) if len(closes) >= 2 else 0.0
-            mom_5  = float((closes[-1] - closes[-6]) / (closes[-6] + 1e-8)) if len(closes) >= 6 else 0.0
-            mom_20 = float((closes[-1] - closes[-21]) / (closes[-21] + 1e-8)) if len(closes) >= 21 else 0.0
-
-            tech_feat = np.array([
-                rsi, bb_upper, bb_mid, bb_lower, atr,
-                macd_line, macd_sig,
-                zscore_5, zscore_20, zscore_60,
-                vol_zscore, mom_20,
-            ], dtype=np.float32)
-
-            # --- Position features ---
-            pos = float(state.positions[i])
-            entry = float(state.avg_entry_prices[i])
-            current_price = float(current_prices[i])
-            unrealized_pnl = pos * (current_price - entry) / (entry + 1e-8) if abs(entry) > 1e-8 else 0.0
-            pos_feat = np.array([pos, unrealized_pnl, float(state.step) / max(self.config.max_episode_steps, 1)],
-                                dtype=np.float32)
-
-            # --- BH features ---
-            instrument_features = [ohlcv_feat, tech_feat, pos_feat]
-            if self.config.use_bh_features and bh_baseline is not None:
-                bh_feat = bh_baseline.get_features(state.portfolio_value, state.return_history)
-                instrument_features.append(bh_feat)
-
-            obs_parts.extend(instrument_features)
-
-        # --- Global features ---
-        portfolio_norm = float(state.portfolio_value / self.config.initial_capital - 1.0)
-        cash_ratio = float(state.cash / (state.portfolio_value + 1e-8))
-        drawdown = float(state.max_drawdown)
-        episode_prog = float(episode_progress)
-        total_pos = float(np.abs(state.positions).sum() / self.n)
-
-        recent_returns = state.return_history[-20:]
-        sharpe_est = float(np.mean(recent_returns) / (np.std(recent_returns) + 1e-8) * np.sqrt(252)) \
-            if len(recent_returns) >= 2 else 0.0
-
-        trade_rate = float(state.total_trades / max(state.step, 1))
-
-        win_rate = float(state.winning_trades / max(state.total_trades, 1))
-
-        global_feat = np.array([
-            portfolio_norm,
-            cash_ratio,
-            drawdown,
-            episode_prog,
-            total_pos,
-            sharpe_est,
-            trade_rate,
-            win_rate,
+    def to_array(self) -> np.ndarray:
+        """Return state as float32 numpy array of shape (10,)."""
+        return np.array([
+            self.position_pnl_pct,
+            self.bars_held,
+            self.bh_mass,
+            self.bh_active,
+            self.atr_ratio,
+            self.hurst_h,
+            self.nav_omega,
+            self.vol_percentile,
+            self.time_of_day_sin,
+            self.time_of_day_cos,
         ], dtype=np.float32)
 
-        obs_parts.append(global_feat)
-
-        obs = np.concatenate([p.flatten() for p in obs_parts], axis=0)
-        obs = np.nan_to_num(obs, nan=0.0, posinf=5.0, neginf=-5.0)
-        obs = np.clip(obs, -10.0, 10.0)
-        return obs.astype(np.float32)
-
-
-# ---------------------------------------------------------------------------
-# Reward computation
-# ---------------------------------------------------------------------------
-
-class RewardComputer:
-    """Computes the reward signal for the RL agent."""
-
-    def __init__(self, config: TradingConfig):
-        self.config = config
-        self._return_buffer: deque = deque(maxlen=60)
-
-    def reset(self) -> None:
-        self._return_buffer.clear()
-
-    def compute(
-        self,
-        step_return: float,
-        state: EpisodeState,
-        transaction_costs: float,
-        position_changes: np.ndarray,
-        drawdown: float,
-    ) -> Tuple[float, Dict[str, float]]:
-        """Compute reward and return component breakdown."""
-        self._return_buffer.append(step_return)
-        returns_arr = np.array(self._return_buffer)
-
-        reward = 0.0
-        info: Dict[str, float] = {}
-
-        if self.config.reward_type == "sharpe":
-            if len(returns_arr) >= 2:
-                excess = returns_arr - self.config.risk_free_rate
-                sharpe_step = float(excess.mean() / (returns_arr.std() + 1e-8) * np.sqrt(self.config.sharpe_annualize))
-            else:
-                sharpe_step = float(step_return - self.config.risk_free_rate) * np.sqrt(self.config.sharpe_annualize)
-            reward += sharpe_step * self.config.reward_scaling
-            info["sharpe_reward"] = sharpe_step
-
-        elif self.config.reward_type == "pnl":
-            reward += step_return * self.config.reward_scaling
-            info["pnl_reward"] = step_return
-
-        elif self.config.reward_type == "calmar":
-            ann_return = step_return * 252
-            calmar = ann_return / (drawdown + 1e-4)
-            reward += float(np.clip(calmar, -10.0, 10.0)) * self.config.reward_scaling
-            info["calmar_reward"] = float(calmar)
-
-        # Drawdown penalty
-        dd_penalty = -self.config.drawdown_penalty_coef * (drawdown ** 2)
-        reward += dd_penalty
-        info["drawdown_penalty"] = dd_penalty
-
-        # Transaction cost penalty
-        tc_penalty = -float(transaction_costs) * 100
-        reward += tc_penalty
-        info["tc_penalty"] = tc_penalty
-
-        # Position holding cost
-        pos_penalty = -self.config.position_penalty * float(np.abs(position_changes).sum())
-        reward += pos_penalty
-        info["position_penalty"] = pos_penalty
-
-        info["total_reward"] = reward
-        info["step_return"] = step_return
-
-        return float(reward), info
+    @staticmethod
+    def from_array(arr: np.ndarray) -> "TradingState":
+        arr = np.asarray(arr, dtype=np.float32)
+        assert arr.shape == (N_FEATURES,), f"Expected shape ({N_FEATURES},), got {arr.shape}"
+        return TradingState(
+            position_pnl_pct=float(arr[0]),
+            bars_held=float(arr[1]),
+            bh_mass=float(arr[2]),
+            bh_active=float(arr[3]),
+            atr_ratio=float(arr[4]),
+            hurst_h=float(arr[5]),
+            nav_omega=float(arr[6]),
+            vol_percentile=float(arr[7]),
+            time_of_day_sin=float(arr[8]),
+            time_of_day_cos=float(arr[9]),
+        )
 
 
 # ---------------------------------------------------------------------------
-# Main TradingEnv
+# TradeEpisode -- container for a simulated historical trade path
 # ---------------------------------------------------------------------------
 
-class TradingEnv:
+@dataclass
+class TradeEpisode:
     """
-    OpenAI Gym-compatible multi-asset trading environment.
+    A single simulated trade episode.
 
-    Observation space: concatenated OHLCV, technical, BH, and position features.
-    Action space: continuous position sizes in [-1, +1] per instrument.
-    Reward: Sharpe-adjusted return minus drawdown penalty minus transaction costs.
+    Contains bar-by-bar price and regime data for one trade from entry to
+    a fixed maximum horizon.
+
+    Attributes
+    ----------
+    prices : np.ndarray
+        Array of shape (T,) with bar close prices. prices[0] = entry price.
+    bh_mass_series : np.ndarray
+        BH oscillator mass at each bar, shape (T,).
+    bh_active_series : np.ndarray
+        Binary BH active flag at each bar, shape (T,).
+    atr_series : np.ndarray
+        ATR values at each bar, shape (T,).
+    hurst_series : np.ndarray
+        Hurst exponent estimate at each bar, shape (T,).
+    vol_pct_series : np.ndarray
+        Volatility percentile at each bar, shape (T,).
+    bar_minutes : np.ndarray
+        Minutes since market open for each bar, shape (T,).
+    episode_type : str
+        One of "bh_trending", "bh_inactive", "mixed".
+    """
+
+    prices: np.ndarray
+    bh_mass_series: np.ndarray
+    bh_active_series: np.ndarray
+    atr_series: np.ndarray
+    hurst_series: np.ndarray
+    vol_pct_series: np.ndarray
+    bar_minutes: np.ndarray
+    episode_type: str = "bh_trending"
+
+    def __len__(self) -> int:
+        return len(self.prices)
+
+
+# ---------------------------------------------------------------------------
+# TradeEpisodeGenerator
+# ---------------------------------------------------------------------------
+
+class TradeEpisodeGenerator:
+    """
+    Generates synthetic trade episodes using stochastic processes.
+
+    Three episode types are supported:
+
+    bh_trending -- GBM with positive drift (momentum regime).
+        Price tends to trend upward. BH mass high, BH active.
+
+    bh_inactive -- Ornstein-Uhlenbeck mean reversion.
+        Price oscillates around entry. BH mass low, BH inactive.
+
+    mixed -- BH active for first N bars, then becomes inactive.
+        Tests whether agent can adapt when regime shifts mid-trade.
+    """
+
+    def __init__(self, seed: Optional[int] = None) -> None:
+        self.rng = np.random.default_rng(seed)
+
+    def generate(
+        self,
+        episode_type: str = "bh_trending",
+        n_bars: int = MAX_BARS + 4,
+        entry_price: float = 100.0,
+    ) -> TradeEpisode:
+        """
+        Generate one synthetic trade episode.
+
+        Parameters
+        ----------
+        episode_type : str
+            "bh_trending", "bh_inactive", or "mixed".
+        n_bars : int
+            Number of bars to simulate (includes entry bar at index 0).
+        entry_price : float
+            Starting price at bar 0.
+
+        Returns
+        -------
+        TradeEpisode
+        """
+        if episode_type == "bh_trending":
+            return self._gen_bh_trending(n_bars, entry_price)
+        elif episode_type == "bh_inactive":
+            return self._gen_bh_inactive(n_bars, entry_price)
+        elif episode_type == "mixed":
+            return self._gen_mixed(n_bars, entry_price)
+        else:
+            raise ValueError(f"Unknown episode_type: {episode_type!r}. Use 'bh_trending', 'bh_inactive', or 'mixed'.")
+
+    def _gen_bh_trending(self, n_bars: int, entry_price: float) -> TradeEpisode:
+        """GBM with positive drift -- momentum regime."""
+        mu = self.rng.uniform(0.001, 0.004)    # per-bar drift
+        sigma = self.rng.uniform(0.005, 0.015)  # per-bar vol
+        prices = self._gbm(entry_price, mu, sigma, n_bars)
+
+        # BH mass rises from 0.4 to 0.9 over episode
+        bh_mass = np.clip(
+            np.linspace(0.4, 0.9, n_bars) + self.rng.normal(0, 0.05, n_bars),
+            0.0, 1.0,
+        )
+        bh_active = (bh_mass > 0.55).astype(np.float32)
+
+        atr = self._atr_from_prices(prices, sigma)
+        hurst = np.clip(
+            np.full(n_bars, 0.65) + self.rng.normal(0, 0.05, n_bars),
+            0.5, 0.95,
+        )
+        vol_pct = np.clip(
+            np.linspace(0.5, 0.7, n_bars) + self.rng.normal(0, 0.05, n_bars),
+            0.0, 1.0,
+        )
+        bar_minutes = self._market_bar_minutes(n_bars)
+        return TradeEpisode(
+            prices=prices,
+            bh_mass_series=bh_mass.astype(np.float32),
+            bh_active_series=bh_active,
+            atr_series=atr.astype(np.float32),
+            hurst_series=hurst.astype(np.float32),
+            vol_pct_series=vol_pct.astype(np.float32),
+            bar_minutes=bar_minutes,
+            episode_type="bh_trending",
+        )
+
+    def _gen_bh_inactive(self, n_bars: int, entry_price: float) -> TradeEpisode:
+        """Ornstein-Uhlenbeck mean reversion -- no momentum."""
+        theta = self.rng.uniform(0.05, 0.2)   # mean-reversion speed
+        sigma = self.rng.uniform(0.005, 0.012)
+        mu_ou = entry_price                    # revert to entry price
+
+        prices = np.zeros(n_bars, dtype=np.float32)
+        prices[0] = entry_price
+        for t in range(1, n_bars):
+            drift = theta * (mu_ou - prices[t - 1])
+            noise = sigma * prices[t - 1] * self.rng.standard_normal()
+            prices[t] = max(prices[t - 1] + drift + noise, 0.01)
+
+        bh_mass = np.clip(
+            np.linspace(0.45, 0.25, n_bars) + self.rng.normal(0, 0.05, n_bars),
+            0.0, 1.0,
+        )
+        bh_active = (bh_mass > 0.55).astype(np.float32)
+
+        atr = self._atr_from_prices(prices, sigma)
+        hurst = np.clip(
+            np.full(n_bars, 0.35) + self.rng.normal(0, 0.04, n_bars),
+            0.1, 0.5,
+        )
+        vol_pct = np.clip(
+            np.linspace(0.4, 0.3, n_bars) + self.rng.normal(0, 0.05, n_bars),
+            0.0, 1.0,
+        )
+        bar_minutes = self._market_bar_minutes(n_bars)
+        return TradeEpisode(
+            prices=prices,
+            bh_mass_series=bh_mass.astype(np.float32),
+            bh_active_series=bh_active,
+            atr_series=atr.astype(np.float32),
+            hurst_series=hurst.astype(np.float32),
+            vol_pct_series=vol_pct.astype(np.float32),
+            bar_minutes=bar_minutes,
+            episode_type="bh_inactive",
+        )
+
+    def _gen_mixed(self, n_bars: int, entry_price: float) -> TradeEpisode:
+        """BH active for first half of episode, inactive for second half."""
+        split = n_bars // 2
+
+        # First half: GBM trending
+        mu = self.rng.uniform(0.001, 0.003)
+        sigma = self.rng.uniform(0.005, 0.012)
+        prices_a = self._gbm(entry_price, mu, sigma, split + 1)
+
+        # Second half: OU reverting from transition price
+        theta = self.rng.uniform(0.05, 0.15)
+        sigma_ou = self.rng.uniform(0.006, 0.013)
+        prices_b = np.zeros(n_bars - split, dtype=np.float32)
+        prices_b[0] = prices_a[-1]
+        for t in range(1, len(prices_b)):
+            drift = theta * (prices_a[-1] - prices_b[t - 1])  # revert to split price
+            noise = sigma_ou * prices_b[t - 1] * self.rng.standard_normal()
+            prices_b[t] = max(prices_b[t - 1] + drift + noise, 0.01)
+
+        prices = np.concatenate([prices_a[:-1], prices_b]).astype(np.float32)
+
+        bh_mass = np.zeros(n_bars, dtype=np.float32)
+        bh_mass[:split] = np.clip(
+            np.linspace(0.5, 0.85, split) + self.rng.normal(0, 0.04, split), 0.0, 1.0
+        )
+        bh_mass[split:] = np.clip(
+            np.linspace(0.6, 0.2, n_bars - split) + self.rng.normal(0, 0.04, n_bars - split), 0.0, 1.0
+        )
+        bh_active = (bh_mass > 0.55).astype(np.float32)
+
+        atr = self._atr_from_prices(prices, sigma)
+        hurst_vals = np.zeros(n_bars, dtype=np.float32)
+        hurst_vals[:split] = np.clip(0.65 + self.rng.normal(0, 0.04, split), 0.5, 0.95)
+        hurst_vals[split:] = np.clip(0.35 + self.rng.normal(0, 0.04, n_bars - split), 0.1, 0.5)
+
+        vol_pct = np.clip(0.5 + self.rng.normal(0, 0.1, n_bars), 0.0, 1.0).astype(np.float32)
+        bar_minutes = self._market_bar_minutes(n_bars)
+        return TradeEpisode(
+            prices=prices,
+            bh_mass_series=bh_mass,
+            bh_active_series=bh_active,
+            atr_series=atr.astype(np.float32),
+            hurst_series=hurst_vals,
+            vol_pct_series=vol_pct,
+            bar_minutes=bar_minutes,
+            episode_type="mixed",
+        )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _gbm(self, s0: float, mu: float, sigma: float, n: int) -> np.ndarray:
+        """Simulate Geometric Brownian Motion."""
+        dt = 1.0  # 1 bar per step
+        prices = np.zeros(n, dtype=np.float32)
+        prices[0] = s0
+        z = self.rng.standard_normal(n - 1)
+        log_returns = (mu - 0.5 * sigma ** 2) * dt + sigma * math.sqrt(dt) * z
+        prices[1:] = s0 * np.exp(np.cumsum(log_returns))
+        return prices
+
+    def _atr_from_prices(self, prices: np.ndarray, base_sigma: float) -> np.ndarray:
+        """Approximate ATR as rolling std scaled by price, with ratio to mean."""
+        n = len(prices)
+        atr_abs = np.abs(np.diff(prices, prepend=prices[0]))
+        # Normalize to ratio form (1.0 = average)
+        mean_atr = np.mean(atr_abs[1:]) + 1e-8
+        atr_ratio = atr_abs / mean_atr
+        atr_ratio[0] = 1.0
+        return atr_ratio.astype(np.float32)
+
+    def _market_bar_minutes(self, n: int) -> np.ndarray:
+        """Return simulated bar timestamps as minutes since market open (0-390)."""
+        # Randomly pick a starting minute in the trading day
+        start = int(self.rng.integers(0, 360))
+        return np.array([(start + i * 15) % 390 for i in range(n)], dtype=np.float32)
+
+    def random_episode(self, n_bars: int = MAX_BARS + 4) -> TradeEpisode:
+        """Generate a random episode from a uniformly sampled type."""
+        ep_type = self.rng.choice(["bh_trending", "bh_inactive", "mixed"])
+        entry_price = float(self.rng.uniform(50.0, 500.0))
+        return self.generate(ep_type, n_bars=n_bars, entry_price=entry_price)
+
+
+# ---------------------------------------------------------------------------
+# TradingEnvironment -- main Gym-compatible environment
+# ---------------------------------------------------------------------------
+
+class TradingEnvironment(_Env):
+    """
+    OpenAI Gym-compatible trading environment for RL exit policy training.
+
+    The agent controls when to exit a trade position. At each step the agent
+    observes a 10-dimensional state vector and chooses from:
+
+      0 -- HOLD: stay in position, pay holding cost + possible BH-inactivity penalty
+      1 -- PARTIAL_EXIT: liquidate 50% of position, pay transaction cost
+      2 -- FULL_EXIT: liquidate 100%, episode terminates
+
+    Episodes also terminate automatically if:
+      - bars_held > MAX_BARS (32)
+      - position_pnl_pct < STOP_LOSS_PCT (-3%)
+      - FULL_EXIT action is taken
+
+    Parameters
+    ----------
+    episode_generator : TradeEpisodeGenerator, optional
+        Used for synthetic episode generation. Created with default seed if None.
+    seed : int, optional
+        Random seed for reproducibility.
+    reward_scale : float
+        Scale factor applied to all rewards.
     """
 
     metadata = {"render.modes": ["human", "ansi"]}
 
     def __init__(
         self,
-        data: Union[pd.DataFrame, Dict[str, pd.DataFrame]],
-        instruments: Optional[List[Instrument]] = None,
-        config: Optional[TradingConfig] = None,
-    ):
-        self.config = config or TradingConfig()
-
-        # Normalize data to dict[symbol -> DataFrame with OHLCV]
-        if isinstance(data, pd.DataFrame):
-            sym = "ASSET"
-            self._data: Dict[str, pd.DataFrame] = {sym: data}
-        else:
-            self._data = data
-
-        if instruments is None:
-            self.instruments = [Instrument(symbol=s) for s in self._data]
-        else:
-            self.instruments = instruments
-
-        self.n_instruments = len(self.instruments)
-        self._validate_data()
-
-        # Align all data to common index
-        self._aligned_data = self._align_data()  # shape (T, n, 5)
-        self.T = len(self._aligned_data)
-
-        # Build obs/action spaces
-        self.obs_builder = ObservationBuilder(self.config, self.instruments)
-        self.obs_dim = self.obs_builder.obs_dim
-        self.act_dim = self.n_instruments
-
-        if GYM_AVAILABLE:
-            self.observation_space = spaces.Box(
-                low=-10.0, high=10.0, shape=(self.obs_dim,), dtype=np.float32
-            )
-            self.action_space = spaces.Box(
-                low=-1.0, high=1.0, shape=(self.act_dim,), dtype=np.float32
-            )
-        else:
-            self.observation_space = None
-            self.action_space = None
-
-        # State
-        self._state: Optional[EpisodeState] = None
-        self._current_idx: int = 0
-        self._episode_start_idx: int = 0
-        self._bh_baseline = BHBaseline(self.n_instruments, self.config.initial_capital)
-        self._reward_computer = RewardComputer(self.config)
-        self._ohlcv_window: deque = deque(maxlen=self.config.window_size)
-
-        # Curriculum: episode start ranges
-        self._curriculum_ranges = {
-            0: (0.0, 0.5),    # easy: first half (lower volatility expected)
-            1: (0.0, 0.75),   # medium: first 75%
-            2: (0.0, 1.0),    # hard: full dataset
-        }
-
-        self.np_random = np.random.default_rng(42)
-        self._info_history: List[Dict] = []
-
-    def _validate_data(self) -> None:
-        for sym, df in self._data.items():
-            required = ["open", "high", "low", "close", "volume"]
-            cols = [c.lower() for c in df.columns]
-            for req in required:
-                if req not in cols:
-                    raise ValueError(f"Instrument {sym} missing column: {req}")
-
-    def _align_data(self) -> np.ndarray:
-        """Align all instruments to a common date index, return (T, n, 5)."""
-        dfs = []
-        for instr in self.instruments:
-            df = self._data[instr.symbol].copy()
-            df.columns = [c.lower() for c in df.columns]
-            arr = df[["open", "high", "low", "close", "volume"]].values.astype(np.float32)
-            dfs.append(arr)
-
-        min_len = min(len(d) for d in dfs)
-        aligned = np.stack([d[-min_len:] for d in dfs], axis=1)  # (T, n, 5)
-        return aligned
-
-    def seed(self, seed: Optional[int] = None) -> List[int]:
-        if seed is not None:
-            self.np_random = np.random.default_rng(seed)
-        return [seed or 0]
-
-    def reset(
-        self,
+        episode_generator: Optional[TradeEpisodeGenerator] = None,
         seed: Optional[int] = None,
-        options: Optional[Dict] = None,
-    ) -> Tuple[np.ndarray, Dict]:
-        if seed is not None:
-            self.seed(seed)
+        reward_scale: float = 100.0,
+    ) -> None:
+        super().__init__()
 
-        # Pick episode start based on curriculum
-        level = self.config.curriculum_level
-        low_frac, high_frac = self._curriculum_ranges.get(level, (0.0, 1.0))
-        low_idx = int(low_frac * self.T)
-        high_idx = int(high_frac * self.T) - self.config.max_episode_steps - self.config.window_size
-        high_idx = max(high_idx, low_idx + 1)
+        self.rng = np.random.default_rng(seed)
+        self.episode_gen = episode_generator or TradeEpisodeGenerator(seed=seed)
+        self.reward_scale = reward_scale
 
-        start = int(self.np_random.integers(low_idx, high_idx))
-        self._episode_start_idx = start
-        self._current_idx = start
+        # Action and observation spaces
+        self.action_space = _Discrete(N_ACTIONS)
+        low = np.array([-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -1.0, -1.0], dtype=np.float32)
+        high = np.array([1.0, 1.0, 1.0, 1.0, 5.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+        self.observation_space = _Box(low=low, high=high, shape=(N_FEATURES,), dtype=np.float32)
 
-        # Initialize state
-        self._state = EpisodeState(
-            step=0,
-            portfolio_value=self.config.initial_capital,
-            cash=self.config.initial_capital,
-            positions=np.zeros(self.n_instruments, dtype=np.float32),
-            avg_entry_prices=np.zeros(self.n_instruments, dtype=np.float32),
-            peak_value=self.config.initial_capital,
-        )
+        # Episode state -- initialized by reset()
+        self._episode: Optional[TradeEpisode] = None
+        self._bar: int = 0
+        self._position_fraction: float = 1.0   # 1.0 = full, 0.5 = after partial exit
+        self._realized_pnl: float = 0.0
+        self._done: bool = True
+        self._prev_pnl_pct: float = 0.0
 
-        # Fill initial window
-        self._ohlcv_window.clear()
-        window_start = max(0, start - self.config.window_size)
-        for idx in range(window_start, start):
-            self._ohlcv_window.append(self._aligned_data[idx])
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
 
-        # Pad if needed
-        while len(self._ohlcv_window) < self.config.window_size:
-            self._ohlcv_window.appendleft(self._aligned_data[window_start])
-
-        # Initialize BH baseline
-        current_prices = self._get_current_prices()
-        self._bh_baseline.initialize(current_prices)
-        self._reward_computer.reset()
-        self._info_history.clear()
-
-        obs = self._build_observation()
-        return obs, {}
-
-    def _get_current_prices(self) -> np.ndarray:
-        """Get closing prices at current index."""
-        return self._aligned_data[self._current_idx, :, 3].copy()
-
-    def _get_ohlcv_array(self) -> np.ndarray:
-        """Get (window, n, 5) array from deque."""
-        return np.array(list(self._ohlcv_window), dtype=np.float32)
-
-    def _build_observation(self) -> np.ndarray:
-        ohlcv = self._get_ohlcv_array()
-        prices = self._get_current_prices()
-        progress = self._state.step / max(self.config.max_episode_steps, 1)
-        return self.obs_builder.build(
-            ohlcv, self._state, prices, self._bh_baseline, progress
-        )
-
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
+    def reset(self, trade_episode: Optional[TradeEpisode] = None) -> np.ndarray:
         """
-        Execute one trading step.
+        Start a new episode.
 
-        Args:
-            action: np.ndarray of shape (n_instruments,), values in [-1, +1]
+        Parameters
+        ----------
+        trade_episode : TradeEpisode, optional
+            If provided, use this historical/pre-generated episode.
+            Otherwise generate a new synthetic episode.
 
-        Returns:
-            obs, reward, terminated, truncated, info
+        Returns
+        -------
+        np.ndarray of shape (10,)
+            Initial observation.
         """
-        assert self._state is not None, "Call reset() before step()"
+        if trade_episode is not None:
+            self._episode = trade_episode
+        else:
+            self._episode = self.episode_gen.random_episode()
 
-        action = np.clip(np.asarray(action, dtype=np.float32), -1.0, 1.0)
+        self._bar = 0
+        self._position_fraction = 1.0
+        self._realized_pnl = 0.0
+        self._done = False
+        self._prev_pnl_pct = 0.0
 
-        # Current prices (close of current bar, used for execution on next open)
-        current_prices = self._get_current_prices()
-        current_bar = self._aligned_data[self._current_idx]
+        obs = self._get_observation()
+        self._prev_pnl_pct = float(obs[0])
+        return obs
 
-        # Execute trades
-        transaction_costs, position_changes = self._execute_trades(action, current_prices)
+    def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+        """
+        Take one step in the environment.
 
-        # Advance to next bar
-        self._current_idx += 1
-        if self._current_idx < self.T:
-            self._ohlcv_window.append(self._aligned_data[self._current_idx])
-        self._state.step += 1
+        Parameters
+        ----------
+        action : int
+            0 = HOLD, 1 = PARTIAL_EXIT, 2 = FULL_EXIT.
 
-        # Update portfolio value
-        new_prices = self._get_current_prices() if self._current_idx < self.T else current_prices
-        prev_value = self._state.portfolio_value
-        self._update_portfolio_value(new_prices)
-        new_value = self._state.portfolio_value
+        Returns
+        -------
+        obs : np.ndarray, shape (10,)
+        reward : float
+        done : bool
+        info : dict
+        """
+        if self._done:
+            raise RuntimeError("Environment is done. Call reset() before step().")
+        if not self.action_space.contains(int(action)):
+            raise ValueError(f"Invalid action {action}. Must be 0, 1, or 2.")
 
-        # Compute step return
-        step_return = float((new_value - prev_value) / (prev_value + 1e-8))
-        self._state.return_history.append(step_return)
-        self._state.pnl_history.append(new_value - self.config.initial_capital)
-        self._state.total_pnl = float(new_value - self.config.initial_capital)
+        ep = self._episode
+        assert ep is not None
 
-        # Update peak and drawdown
-        if new_value > self._state.peak_value:
-            self._state.peak_value = new_value
-        drawdown = float(1.0 - new_value / (self._state.peak_value + 1e-8))
-        self._state.max_drawdown = max(self._state.max_drawdown, drawdown)
-
-        # BH update
-        self._bh_baseline.step(new_prices)
-
-        # Compute reward
-        reward, reward_info = self._reward_computer.compute(
-            step_return, self._state, transaction_costs, position_changes, drawdown
-        )
-
-        # Check termination conditions
-        terminated = False
-        truncated = False
-
-        if self._state.max_drawdown > self.config.max_drawdown_limit:
-            terminated = True
-            reward -= 10.0  # large penalty for blowup
-
-        if self._state.step >= self.config.max_episode_steps:
-            truncated = True
-
-        if self._current_idx >= self.T - 1:
-            truncated = True
-
-        obs = self._build_observation() if not (terminated or truncated) else np.zeros(self.obs_dim, dtype=np.float32)
-
-        # Build info dict
-        info = {
-            "step": self._state.step,
-            "portfolio_value": float(new_value),
-            "cash": float(self._state.cash),
-            "positions": self._state.positions.tolist(),
-            "drawdown": float(drawdown),
-            "max_drawdown": float(self._state.max_drawdown),
-            "step_return": float(step_return),
-            "total_pnl": float(self._state.total_pnl),
-            "transaction_costs": float(transaction_costs),
-            "total_trades": int(self._state.total_trades),
-            "win_rate": float(self._state.winning_trades / max(self._state.total_trades, 1)),
-            **reward_info,
+        current_pnl_pct = self._compute_pnl_pct(self._bar)
+        bh_active = bool(ep.bh_active_series[self._bar] > 0.5)
+        reward = 0.0
+        done = False
+        info: Dict[str, Any] = {
+            "bar": self._bar,
+            "action": action,
+            "pnl_pct": current_pnl_pct,
+            "position_fraction": self._position_fraction,
+            "bh_active": bh_active,
         }
-        self._info_history.append(info)
 
-        return obs, float(reward), terminated, truncated, info
+        if action == HOLD:
+            # PnL change since last bar
+            pnl_change = current_pnl_pct - self._prev_pnl_pct
+            # Holding cost (opportunity cost, slippage drag)
+            cost = HOLDING_COST
+            # Extra penalty if BH has become inactive -- agent should exit sooner
+            if not bh_active:
+                cost += BH_INACTIVITY_PENALTY
+            reward = (pnl_change - cost) * self.reward_scale
+            self._bar += 1
 
-    def _execute_trades(
-        self, target_positions: np.ndarray, prices: np.ndarray
-    ) -> Tuple[float, np.ndarray]:
-        """
-        Map target position fractions to actual holdings.
-        Returns (total_transaction_cost, position_changes).
-        """
-        total_cost = 0.0
-        old_positions = self._state.positions.copy()
-        position_changes = np.zeros(self.n_instruments, dtype=np.float32)
+        elif action == PARTIAL_EXIT:
+            # Realize half the position at current price
+            realized_fraction = 0.5 * self._position_fraction
+            realized_pnl = realized_fraction * current_pnl_pct
+            reward = (realized_pnl - TRANSACTION_COST) * self.reward_scale
+            # Bonus: exiting with profit while BH still active
+            if bh_active and current_pnl_pct > 0:
+                reward += BH_BONUS * self.reward_scale
+            self._realized_pnl += realized_pnl
+            self._position_fraction *= 0.5
+            self._bar += 1
+            info["realized_pnl"] = realized_pnl
 
-        for i, (instr, target) in enumerate(zip(self.instruments, target_positions)):
-            current_pos = float(self._state.positions[i])
-            delta = float(target) - current_pos
+        elif action == FULL_EXIT:
+            # Realize entire remaining position
+            realized_pnl = self._position_fraction * current_pnl_pct
+            reward = (realized_pnl - TRANSACTION_COST) * self.reward_scale
+            if bh_active and current_pnl_pct > 0:
+                reward += BH_BONUS * self.reward_scale
+            self._realized_pnl += realized_pnl
+            self._position_fraction = 0.0
+            done = True
+            info["realized_pnl"] = realized_pnl
+            info["total_pnl"] = self._realized_pnl + realized_pnl
 
-            if abs(delta) < 1e-4:
-                continue
+        # Check terminal conditions even after HOLD or PARTIAL_EXIT
+        # Re-evaluate PnL at the new bar position (after _bar was advanced)
+        if not done:
+            bars_held = self._bar
+            new_pnl_pct = self._compute_pnl_pct(min(self._bar, len(ep) - 1))
+            if bars_held >= MAX_BARS:
+                # Force exit at max hold -- treated as FULL_EXIT with no extra cost
+                forced_pnl = self._position_fraction * new_pnl_pct
+                reward += forced_pnl * self.reward_scale
+                self._realized_pnl += forced_pnl
+                done = True
+                info["terminal"] = "max_bars"
+            elif new_pnl_pct < STOP_LOSS_PCT:
+                # Hard stop loss -- forced full exit at new bar price
+                forced_pnl = self._position_fraction * new_pnl_pct
+                reward += forced_pnl * self.reward_scale
+                self._realized_pnl += forced_pnl
+                done = True
+                info["terminal"] = "stop_loss"
 
-            price = float(prices[i])
-            slippage = instr.slippage * abs(delta)
-            tc = instr.transaction_cost * abs(delta)
-            exec_price = price * (1.0 + np.sign(delta) * (slippage + tc))
+        self._done = done
+        self._prev_pnl_pct = current_pnl_pct
 
-            # Update cash
-            notional = abs(delta) * self.config.initial_capital
-            cost = notional * (slippage + tc)
-            self._state.cash -= cost
-            total_cost += cost
+        if done:
+            info["episode_pnl"] = self._realized_pnl
+        else:
+            obs = self._get_observation()
+            self._prev_pnl_pct = float(obs[0])
+            return obs, float(reward), done, info
 
-            # Track trade
-            if abs(delta) > 0.01:
-                self._state.total_trades += 1
-                # Simple win/loss tracking
-                prev_pos = current_pos
-                if abs(prev_pos) > 1e-4:
-                    prev_entry = float(self._state.avg_entry_prices[i])
-                    pnl = prev_pos * (price - prev_entry) / (prev_entry + 1e-8)
-                    if pnl > 0:
-                        self._state.winning_trades += 1
-
-            # Update avg entry price (FIFO approximation)
-            if abs(float(target)) > 1e-4:
-                old_pos = float(self._state.positions[i])
-                if np.sign(float(target)) == np.sign(old_pos) and abs(old_pos) > 1e-4:
-                    w_old = abs(old_pos) / (abs(old_pos) + abs(delta))
-                    w_new = abs(delta) / (abs(old_pos) + abs(delta))
-                    self._state.avg_entry_prices[i] = (
-                        w_old * float(self._state.avg_entry_prices[i]) + w_new * exec_price
-                    )
-                else:
-                    self._state.avg_entry_prices[i] = exec_price
-            else:
-                self._state.avg_entry_prices[i] = 0.0
-
-            self._state.positions[i] = float(target)
-            position_changes[i] = delta
-
-        return total_cost, position_changes
-
-    def _update_portfolio_value(self, current_prices: np.ndarray) -> None:
-        """Recompute portfolio value from positions + cash."""
-        position_value = 0.0
-        for i in range(self.n_instruments):
-            pos = float(self._state.positions[i])
-            if abs(pos) > 1e-8:
-                entry = float(self._state.avg_entry_prices[i])
-                price = float(current_prices[i])
-                notional = abs(pos) * self.config.initial_capital
-                pnl = pos * (price - entry) / (entry + 1e-8) * self.config.initial_capital
-                position_value += pnl
-
-        self._state.portfolio_value = float(self._state.cash + position_value + self.config.initial_capital)
+        # If done, return a terminal observation (zeroed out or last valid)
+        terminal_obs = self._get_observation_at(min(self._bar, len(ep) - 1))
+        return terminal_obs, float(reward), done, info
 
     def render(self, mode: str = "human") -> Optional[str]:
-        """Render current state."""
-        if self._state is None:
+        ep = self._episode
+        if ep is None:
             return None
-        s = (
-            f"Step {self._state.step:4d} | "
-            f"Value: ${self._state.portfolio_value:,.0f} | "
-            f"PnL: ${self._state.total_pnl:+,.0f} | "
-            f"DD: {self._state.max_drawdown:.1%} | "
-            f"Pos: {self._state.positions}"
+        pnl = self._compute_pnl_pct(min(self._bar, len(ep) - 1))
+        msg = (
+            f"Bar {self._bar}/{MAX_BARS} | "
+            f"PnL {pnl*100:.2f}% | "
+            f"Pos frac {self._position_fraction:.2f} | "
+            f"BH active {ep.bh_active_series[min(self._bar, len(ep)-1)] > 0.5}"
         )
         if mode == "human":
-            print(s)
-        return s
+            print(msg)
+        return msg
 
     def close(self) -> None:
-        pass
+        self._episode = None
 
-    def get_episode_stats(self) -> Dict[str, Any]:
-        """Return summary statistics for the completed episode."""
-        if not self._state or not self._state.return_history:
-            return {}
-        returns = np.array(self._state.return_history)
-        sharpe = float(returns.mean() / (returns.std() + 1e-8) * np.sqrt(252))
-        ann_return = float(returns.mean() * 252)
-        calmar = float(ann_return / (self._state.max_drawdown + 1e-4))
-        win_rate = float(self._state.winning_trades / max(self._state.total_trades, 1))
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
-        return {
-            "sharpe": sharpe,
-            "annualized_return": ann_return,
-            "max_drawdown": float(self._state.max_drawdown),
-            "calmar": calmar,
-            "total_pnl": float(self._state.total_pnl),
-            "total_trades": int(self._state.total_trades),
-            "win_rate": win_rate,
-            "final_value": float(self._state.portfolio_value),
-        }
+    def _compute_pnl_pct(self, bar_idx: int) -> float:
+        """Unrealized PnL fraction relative to entry price at bar 0."""
+        ep = self._episode
+        assert ep is not None
+        bar_idx = min(bar_idx, len(ep) - 1)
+        entry_price = float(ep.prices[0])
+        current_price = float(ep.prices[bar_idx])
+        if entry_price == 0:
+            return 0.0
+        return (current_price - entry_price) / entry_price
 
+    def _get_observation(self) -> np.ndarray:
+        bar = min(self._bar, len(self._episode) - 1)  # type: ignore[arg-type]
+        return self._get_observation_at(bar)
 
-# ---------------------------------------------------------------------------
-# Vectorized environment wrapper
-# ---------------------------------------------------------------------------
+    def _get_observation_at(self, bar: int) -> np.ndarray:
+        ep = self._episode
+        assert ep is not None
+        bar = min(bar, len(ep) - 1)
 
-class VecTradingEnv:
-    """
-    Vectorized wrapper: runs N independent TradingEnv instances in parallel
-    (using Python threads or multiprocessing).
-    """
+        pnl_pct = self._compute_pnl_pct(bar)
+        bars_held_norm = float(bar) / MAX_BARS  # [0, 1]
 
-    def __init__(self, env_fns: List[callable], use_multiprocessing: bool = False):
-        self.envs = [fn() for fn in env_fns]
-        self.n_envs = len(self.envs)
-        self.obs_dim = self.envs[0].obs_dim
-        self.act_dim = self.envs[0].act_dim
-        self._dones = np.zeros(self.n_envs, dtype=bool)
+        bh_mass = float(ep.bh_mass_series[bar])
+        bh_active = float(ep.bh_active_series[bar])
+        atr_ratio = float(ep.atr_series[bar])
+        hurst_h = float(ep.hurst_series[bar])
+        vol_pct = float(ep.vol_pct_series[bar])
 
-    def reset(self) -> np.ndarray:
-        obs_list = []
-        for env in self.envs:
-            obs, _ = env.reset()
-            obs_list.append(obs)
-        self._dones[:] = False
-        return np.stack(obs_list, axis=0)
+        # NAV omega: recent PnL velocity over last 3 bars
+        start_bar = max(0, bar - 3)
+        nav_omega = 0.0
+        if bar > 0:
+            past_pnl = self._compute_pnl_pct(start_bar)
+            nav_omega = np.clip((pnl_pct - past_pnl) / 3.0, -1.0, 1.0)
 
-    def step(self, actions: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict]]:
-        """
-        Args:
-            actions: (n_envs, act_dim)
-        Returns:
-            obs: (n_envs, obs_dim)
-            rewards: (n_envs,)
-            dones: (n_envs,)
-            infos: list of info dicts
-        """
-        obs_list, reward_list, done_list, info_list = [], [], [], []
+        # Time-of-day encoding
+        minutes = float(ep.bar_minutes[bar])
+        angle = 2.0 * math.pi * minutes / 390.0
+        tod_sin = math.sin(angle)
+        tod_cos = math.cos(angle)
 
-        for i, (env, action) in enumerate(zip(self.envs, actions)):
-            if self._dones[i]:
-                obs, _ = env.reset()
-                reward = 0.0
-                done = False
-                info = {}
-            else:
-                obs, reward, terminated, truncated, info = env.step(action)
-                done = terminated or truncated
-                self._dones[i] = done
-                if done:
-                    # Auto-reset
-                    obs, _ = env.reset()
-                    self._dones[i] = False
-
-            obs_list.append(obs)
-            reward_list.append(reward)
-            done_list.append(done)
-            info_list.append(info)
-
-        return (
-            np.stack(obs_list, axis=0),
-            np.array(reward_list, dtype=np.float32),
-            np.array(done_list, dtype=bool),
-            info_list,
+        state = TradingState(
+            position_pnl_pct=float(np.clip(pnl_pct, -1.0, 1.0)),
+            bars_held=bars_held_norm,
+            bh_mass=bh_mass,
+            bh_active=bh_active,
+            atr_ratio=float(np.clip(atr_ratio, 0.0, 5.0)),
+            hurst_h=float(np.clip(hurst_h, 0.0, 1.0)),
+            nav_omega=float(nav_omega),
+            vol_percentile=vol_pct,
+            time_of_day_sin=tod_sin,
+            time_of_day_cos=tod_cos,
         )
+        return state.to_array()
 
-    def close(self) -> None:
-        for env in self.envs:
-            env.close()
+    # ------------------------------------------------------------------
+    # Utility: discretize state for Q-table export
+    # ------------------------------------------------------------------
 
+    @staticmethod
+    def discretize_state_key(
+        pnl_pct: float,
+        bars_held_norm: float,
+        bh_mass: float,
+        bh_active: float,
+        atr_ratio: float,
+        n_bins: int = 5,
+    ) -> str:
+        """
+        Produce the 5-feature discretized state key compatible with RLExitPolicy
+        in tools/live_trader_alpaca.py.
 
-# ---------------------------------------------------------------------------
-# Regime-aware environment (wraps TradingEnv, samples different market regimes)
-# ---------------------------------------------------------------------------
+        Uses the same scaling as RLExitPolicy._state_key().
+        """
 
-class RegimeTradingEnv(TradingEnv):
-    """
-    Extends TradingEnv with regime labeling and regime-conditioned resets.
-    Regimes: 0=bull, 1=bear, 2=sideways, 3=high_vol, 4=low_vol
-    """
+        def _disc(v: float, lo: float = -1.0, hi: float = 1.0) -> int:
+            clipped = max(lo, min(hi, v))
+            idx = int((clipped - lo) / (hi - lo) * n_bins)
+            return min(n_bins - 1, max(0, idx))
 
-    REGIME_NAMES = ["bull", "bear", "sideways", "high_vol", "low_vol"]
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._regimes = self._label_regimes()
-        self._current_regime: int = 0
-
-    def _label_regimes(self) -> np.ndarray:
-        """Label each bar with a regime index."""
-        regimes = np.zeros(self.T, dtype=np.int32)
-
-        # Use first instrument's close prices for regime detection
-        closes = self._aligned_data[:, 0, 3]
-        volumes = self._aligned_data[:, 0, 4]
-
-        window = 20
-        for t in range(window, self.T):
-            start = t - window
-            price_change = (closes[t] - closes[start]) / (closes[start] + 1e-8)
-            vol_std = closes[start:t].std() / (closes[start:t].mean() + 1e-8)
-
-            if price_change > 0.05:
-                regime = 0  # bull
-            elif price_change < -0.05:
-                regime = 1  # bear
-            elif vol_std > 0.03:
-                regime = 3  # high_vol
-            elif vol_std < 0.005:
-                regime = 4  # low_vol
-            else:
-                regime = 2  # sideways
-            regimes[t] = regime
-
-        return regimes
-
-    def reset(self, regime: Optional[int] = None, **kwargs) -> Tuple[np.ndarray, Dict]:
-        obs, info = super().reset(**kwargs)
-        self._current_regime = int(self._regimes[self._current_idx])
-        if regime is not None:
-            # Try to find an episode starting in the requested regime
-            candidates = np.where(self._regimes == regime)[0]
-            if len(candidates) > 0:
-                valid = candidates[candidates < self.T - self.config.max_episode_steps]
-                if len(valid) > 0:
-                    start = int(self.np_random.choice(valid))
-                    self._episode_start_idx = start
-                    self._current_idx = start
-                    self._current_regime = regime
-                    obs = self._build_observation()
-        info["regime"] = self._current_regime
-        info["regime_name"] = self.REGIME_NAMES[self._current_regime]
-        return obs, info
-
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
-        obs, reward, terminated, truncated, info = super().step(action)
-        if self._current_idx < self.T:
-            self._current_regime = int(self._regimes[self._current_idx])
-        info["regime"] = self._current_regime
-        info["regime_name"] = self.REGIME_NAMES[self._current_regime]
-        return obs, reward, terminated, truncated, info
-
-
-# ---------------------------------------------------------------------------
-# Factory helpers
-# ---------------------------------------------------------------------------
-
-def make_trading_env(
-    data: Union[pd.DataFrame, Dict[str, pd.DataFrame]],
-    instruments: Optional[List[Instrument]] = None,
-    config: Optional[TradingConfig] = None,
-    regime_aware: bool = False,
-) -> TradingEnv:
-    """Factory function for creating trading environments."""
-    cls = RegimeTradingEnv if regime_aware else TradingEnv
-    return cls(data=data, instruments=instruments, config=config)
-
-
-def make_vec_env(
-    data: Union[pd.DataFrame, Dict[str, pd.DataFrame]],
-    n_envs: int = 8,
-    instruments: Optional[List[Instrument]] = None,
-    config: Optional[TradingConfig] = None,
-    regime_aware: bool = False,
-    seeds: Optional[List[int]] = None,
-) -> VecTradingEnv:
-    """Create a vectorized set of trading environments."""
-    def _make_fn(seed: int):
-        def fn():
-            env = make_trading_env(data, instruments, config, regime_aware)
-            env.seed(seed)
-            return env
-        return fn
-
-    seeds = seeds or list(range(n_envs))
-    env_fns = [_make_fn(s) for s in seeds]
-    return VecTradingEnv(env_fns)
-
-
-def generate_synthetic_data(
-    n_assets: int = 3,
-    n_days: int = 1000,
-    seed: int = 42,
-    regime_changes: bool = True,
-) -> Dict[str, pd.DataFrame]:
-    """
-    Generate synthetic OHLCV data for testing.
-    Optionally adds regime changes (trending, mean-reverting, high-vol).
-    """
-    rng = np.random.default_rng(seed)
-    symbols = [f"ASSET_{i}" for i in range(n_assets)]
-    result = {}
-
-    for sym in symbols:
-        prices = np.zeros(n_days)
-        prices[0] = rng.uniform(50, 200)
-
-        for t in range(1, n_days):
-            if regime_changes:
-                # Rotate regimes every ~100 bars
-                regime = (t // 100) % 5
-                if regime == 0:    # bull
-                    drift, vol = 0.001, 0.01
-                elif regime == 1:  # bear
-                    drift, vol = -0.001, 0.012
-                elif regime == 2:  # sideways
-                    drift, vol = 0.0, 0.008
-                elif regime == 3:  # high_vol
-                    drift, vol = 0.0, 0.025
-                else:              # low_vol
-                    drift, vol = 0.0002, 0.004
-            else:
-                drift, vol = 0.0003, 0.01
-
-            prices[t] = prices[t - 1] * np.exp(drift + vol * rng.standard_normal())
-
-        # Generate OHLCV
-        opens  = prices * (1 + rng.uniform(-0.002, 0.002, n_days))
-        highs  = prices * (1 + rng.uniform(0.001, 0.015, n_days))
-        lows   = prices * (1 - rng.uniform(0.001, 0.015, n_days))
-        closes = prices
-        volumes = rng.lognormal(10, 1, n_days).astype(np.float32)
-
-        df = pd.DataFrame({
-            "open": opens, "high": highs, "low": lows,
-            "close": closes, "volume": volumes
-        })
-        result[sym] = df
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Quick self-test
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("Generating synthetic data...")
-    data = generate_synthetic_data(n_assets=2, n_days=500)
-
-    config = TradingConfig(
-        initial_capital=100_000,
-        max_episode_steps=50,
-        window_size=30,
-        reward_type="sharpe",
-        use_bh_features=True,
-    )
-
-    env = make_trading_env(data, config=config, regime_aware=True)
-    obs, info = env.reset()
-    print(f"Obs dim: {len(obs)}, expected: {env.obs_dim}")
-
-    total_reward = 0.0
-    for step in range(50):
-        action = np.random.uniform(-1, 1, env.act_dim)
-        obs, reward, terminated, truncated, info = env.step(action)
-        total_reward += reward
-        if terminated or truncated:
-            break
-
-    stats = env.get_episode_stats()
-    print(f"Episode stats: {stats}")
-    print(f"Total reward: {total_reward:.4f}")
-    print("TradingEnv self-test passed.")
+        f0 = _disc(pnl_pct * 2.0)              # pnl_pct scaled to [-1,1] at +-50%
+        f1 = _disc(bars_held_norm * 2.0 - 1.0)  # bars_held_norm -> [-1,1]
+        f2 = _disc(bh_mass * 2.0 - 1.0)         # bh_mass [0,1] -> [-1,1]
+        f3 = 1 if bh_active > 0.5 else 0
+        f4 = _disc(atr_ratio - 1.0)              # atr_ratio centered at 1.0
+        return f"{f0},{f1},{f2},{f3},{f4}"

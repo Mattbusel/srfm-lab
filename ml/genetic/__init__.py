@@ -1,4 +1,44 @@
-"""Genetic Algorithm Strategy Optimizer."""
+"""
+Genetic Algorithm Strategy Optimizer + GP-based Alpha Signal Discovery.
+
+Original GA module: parameter optimization for trading strategies.
+New GP sub-system: symbolic expression trees for discovering alpha signals.
+"""
+
+# -- GP sub-system (symbolic expression trees / signal discovery)
+from .expression_tree import (
+    NodeType,
+    ExpressionNode,
+    ExpressionTree,
+    TreeGenerator,
+    FunctionArity,
+    ALL_FUNCTION_NAMES,
+    BINARY_FUNCTION_NAMES,
+    UNARY_FUNCTION_NAMES,
+    ALL_TERMINALS,
+    SIGNAL_NAMES,
+    RAW_FEATURES,
+    FUNCTION_ARITY,
+)
+from .gp_operators import (
+    fitness_proportional_select,
+    tournament_select,
+    lexicase_select,
+    subtree_crossover,
+    point_mutation,
+    subtree_mutation,
+    hoist_mutation,
+    apply_random_mutation,
+)
+from .gp_engine import (
+    Individual,
+    GPConfig,
+    GPEngine,
+)
+from .signal_validator import (
+    SignalValidator,
+    ValidationResult,
+)
 from .genome import (
     StrategyGenome, GenomeFactory, Chromosome, Gene,
     ParamRange, ParamType,

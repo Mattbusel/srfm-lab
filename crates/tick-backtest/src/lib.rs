@@ -2,13 +2,16 @@
 //
 // Public module declarations and re-exports.
 
+pub mod bar_from_ticks;
 pub mod bh_physics;
 pub mod csv_loader;
 pub mod engine;
 pub mod indicators;
+pub mod intraday_patterns;
 pub mod monte_carlo;
 pub mod multi_engine;
 pub mod param_sweep;
+pub mod tick_replay;
 pub mod types;
 
 // ---------------------------------------------------------------------------

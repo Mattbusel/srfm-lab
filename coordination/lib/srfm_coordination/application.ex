@@ -3,15 +3,21 @@ defmodule SrfmCoordination.Application do
   OTP Application entry point for the SRFM Coordination Service.
 
   Supervision tree (all :one_for_one):
-    1. ServiceRegistry      - ETS-backed Registry for service PIDs/metadata
-    2. ServiceSupervisor    - DynamicSupervisor for external process launchers
-    3. HealthMonitor        - GenServer polling all services every 30s
-    4. CircuitBreakerSup    - Supervisor owning one CircuitBreaker per API
-    5. EventBus             - GenServer pub/sub with ETS history
-    6. MetricsCollector     - GenServer aggregating Prometheus metrics
-    7. ParameterCoordinator - GenServer coordinating parameter updates
-    8. AlertManager         - GenServer centralizing alert routing
-    9. HTTPServer           - Plug.Cowboy on port 8781
+    1.  ServiceRegistry      -- ETS-backed Registry for service PIDs/metadata
+    2.  ServiceSupervisor    -- DynamicSupervisor for external process launchers
+    3.  HealthMonitor        -- GenServer polling all services every 30s
+    4.  CircuitBreakerSup    -- Supervisor owning one CircuitBreaker per API
+    5.  EventBus             -- GenServer pub/sub with ETS history
+    6.  MetricsCollector     -- GenServer aggregating Prometheus metrics
+    7.  ParameterCoordinator -- GenServer coordinating parameter updates
+    8.  AlertManager         -- GenServer centralizing alert routing (legacy)
+    9.  MetricsBridge        -- Prometheus scraper/aggregator (15s cadence)
+    10. PerformanceTracker   -- Equity curve, Sharpe, rollback trigger
+    11. ParameterHistory     -- Persistent param change log (ETS + SQLite)
+    12. GenomeReceiver       -- Polls Go IAE /genome/best every 5 minutes
+    13. DrainController      -- Zero-downtime drain coordinator
+    14. Alerting             -- Routes EventBus events to Slack/PagerDuty
+    15. HTTPServer           -- Plug.Cowboy on port 8781
 
   Max restarts: 10 in 60 seconds before the application itself shuts down.
   """
@@ -47,10 +53,28 @@ defmodule SrfmCoordination.Application do
       # 7. Parameter coordination across IAE services
       {SrfmCoordination.ParameterCoordinator, []},
 
-      # 8. Alert manager
+      # 8. Alert manager (legacy)
       {SrfmCoordination.AlertManager, []},
 
-      # 9. HTTP API server
+      # 9. Prometheus metrics scraper and aggregator
+      {SrfmCoordination.MetricsBridge, []},
+
+      # 10. Live trader performance tracking and rollback trigger
+      {SrfmCoordination.PerformanceTracker, []},
+
+      # 11. Persistent parameter change history with analytics
+      {SrfmCoordination.ParameterHistory, []},
+
+      # 12. Genome evolution receiver -- polls Go IAE every 5 minutes
+      {SrfmCoordination.GenomeReceiver, []},
+
+      # 13. Graceful drain controller for zero-downtime restarts
+      {SrfmCoordination.DrainController, []},
+
+      # 14. Alerting -- routes EventBus events to Slack/PagerDuty
+      {SrfmCoordination.Alerting, []},
+
+      # 15. HTTP API server
       build_cowboy_spec()
     ]
 
