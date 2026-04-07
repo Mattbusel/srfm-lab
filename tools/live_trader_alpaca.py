@@ -121,6 +121,14 @@ INSTRUMENTS = {
 }
 N_INST = len(INSTRUMENTS)
 
+# Safety: hard-block penny/micro-cap tokens that cause runaway qty math
+_FORBIDDEN_SYMS = {"SHIB", "SUSHI", "CRV", "BAT", "UNI", "DOT", "DOGE"}
+_in_forbidden = set(INSTRUMENTS) & _FORBIDDEN_SYMS
+assert not _in_forbidden, (
+    f"CRITICAL: Forbidden penny tokens still in INSTRUMENTS: {_in_forbidden}. "
+    "Remove them — sub-cent prices cause infinite fill loops."
+)
+
 BH_FORM     = 1.92
 BH_CTL_MIN  = 3
 BH_DECAY    = 0.924
@@ -142,10 +150,10 @@ OU_FRAC                 = 0.08
 DELTA_MAX_FRAC          = 0.40
 STALE_15M_MOVE          = 0.002
 WINNER_PROTECTION_PCT   = 0.005
-BLOCKED_ENTRY_HOURS_UTC = {1, 13, 14, 15, 17, 18}
+BLOCKED_ENTRY_HOURS_UTC = {1, 13, 14, 15, 17, 18}  # default; override via config/risk_limits.yaml blocked_entry_hours
 BOOST_ENTRY_HOURS_UTC   = {3, 9, 16, 19}
 HOUR_BOOST_MULTIPLIER   = 1.25
-OU_DISABLED_SYMS        = {"AVAX", "DOT", "LINK"}
+OU_DISABLED_SYMS        = {"AVAX", "LINK"}  # DOT removed (no longer in INSTRUMENTS)
 
 TF_CAP = {7: 1.0, 6: 1.0, 4: 0.60, 3: 0.50, 2: 0.40, 1: 0.20, 0: 0.0}
 
@@ -753,7 +761,7 @@ def _init_db(db_path: Path) -> sqlite3.Connection:
             notional         REAL    NOT NULL,
             fill_time        TEXT    NOT NULL,
             order_id         TEXT,
-            strategy_version TEXT    DEFAULT 'larsa_v17'
+            strategy_version TEXT    DEFAULT 'larsa_v18'
         )
     """)
     conn.execute("""
@@ -767,6 +775,46 @@ def _init_db(db_path: Path) -> sqlite3.Connection:
             qty          REAL,
             pnl          REAL,
             hold_bars    INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS trade_entries (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol           TEXT    NOT NULL,
+            entry_time       TEXT    NOT NULL,
+            entry_price      REAL    NOT NULL,
+            target_frac      REAL,
+            bh_mass_1h       REAL,
+            bh_mass_4h       REAL,
+            bh_active_1h     INTEGER,
+            bh_active_4h     INTEGER,
+            garch_vol        REAL,
+            hurst            REAL,
+            ml_signal        REAL,
+            tf_score         INTEGER,
+            direction        INTEGER,
+            strategy_version TEXT    DEFAULT 'larsa_v18'
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS trade_exits (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol           TEXT    NOT NULL,
+            exit_time        TEXT    NOT NULL,
+            exit_price       REAL    NOT NULL,
+            entry_price      REAL,
+            pnl_pct          REAL,
+            bars_held        INTEGER,
+            exit_reason      TEXT,
+            rl_exit_signal   INTEGER,
+            strategy_version TEXT    DEFAULT 'larsa_v18'
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS fifo_state (
+            symbol      TEXT PRIMARY KEY,
+            fifo_json   TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
         )
     """)
     conn.commit()
@@ -898,10 +946,17 @@ class OptionOverlay:
                 return
 
             notional  = equity * OPT_NOTIONAL_FRAC
-            opt_price = float(getattr(contract, "close_price", None) or
-                              getattr(contract, "last_price", None) or 1.0)
+            # Prefer mid-market price over stale close_price for accurate sizing
+            _ask = getattr(contract, "ask_price", None)
+            _bid = getattr(contract, "bid_price", None)
+            if _ask and _bid and float(_ask) > 0 and float(_bid) > 0:
+                opt_price = (float(_ask) + float(_bid)) / 2.0
+            else:
+                opt_price = float(getattr(contract, "close_price", None) or
+                                  getattr(contract, "last_price", None) or 0.0)
             if opt_price <= 0:
-                opt_price = 1.0
+                log.warning("OPT OPEN %s: could not determine option price — skipping", sym)
+                return
             qty = max(1, int(notional / (opt_price * 100)))
 
             req = MarketOrderRequest(
@@ -1053,6 +1108,11 @@ class LiveTrader:
             sym: InstrumentState(sym) for sym in INSTRUMENTS
         }
 
+        # Pre-built reverse lookup: ticker → sym (avoids O(N) scan on every bar)
+        self._ticker_sym_map: dict[str, str] = {
+            cfg["ticker"]: sym for sym, cfg in INSTRUMENTS.items()
+        }
+
         # Dynamic correlation
         self._daily_returns: dict[str, deque] = {
             sym: deque(maxlen=30) for sym in INSTRUMENTS
@@ -1080,12 +1140,26 @@ class LiveTrader:
         # Drawdown circuit breaker
         self._equity_peak: float  = 0.0   # populated on first equity fetch
         self._dd_halted:   bool   = False
+        self._equity_start_of_day: float | None = None
+        self._daily_loss_halted: bool = False
 
         # Wave 4 enhancements
         self._event_cal   = EventCalendarFilter()
         self._granger     = NetworkSignalTracker(list(INSTRUMENTS.keys()))
         self._ml_module   = MLSignalModule()
         self._rl_policy   = RLExitPolicy() if RL_EXIT_ACTIVE else None
+
+        # Load config overrides for blocked hours
+        try:
+            import yaml as _yaml
+            _rc = _yaml.safe_load((_REPO_ROOT / "config" / "risk_limits.yaml").read_text())
+            _bh = _rc.get("portfolio", {}).get("blocked_entry_hours_utc")
+            if _bh:
+                global BLOCKED_ENTRY_HOURS_UTC
+                BLOCKED_ENTRY_HOURS_UTC = set(_bh)
+                log.info("Loaded blocked_entry_hours_utc from risk_limits.yaml: %s", BLOCKED_ENTRY_HOURS_UTC)
+        except Exception:
+            pass
 
         log.info("LiveTrader initialised — %d instruments (Wave4+QuatNav+RL active)", N_INST)
 
@@ -1263,10 +1337,7 @@ class LiveTrader:
     # ── Bar processing ─────────────────────────────────────────────────────────
 
     def _ticker_to_sym(self, ticker: str) -> str | None:
-        for sym, cfg in INSTRUMENTS.items():
-            if cfg["ticker"] == ticker:
-                return sym
-        return None
+        return self._ticker_sym_map.get(ticker)
 
     def on_bar(self, ticker: str, bar: Any) -> None:
         """
@@ -1700,19 +1771,55 @@ class LiveTrader:
                 continue
             kind, args = action
             if kind == "open":
-                asyncio.create_task(asyncio.to_thread(self._opt_overlay._submit_open, *args))
+                _t = asyncio.create_task(asyncio.to_thread(self._opt_overlay._submit_open, *args))
+                _t.add_done_callback(lambda t: t.exception() and log.error("OPT OPEN task failed: %s", t.exception()))
             elif kind == "close":
-                asyncio.create_task(asyncio.to_thread(self._opt_overlay._submit_close, *args))
+                _t = asyncio.create_task(asyncio.to_thread(self._opt_overlay._submit_close, *args))
+                _t.add_done_callback(lambda t: t.exception() and log.error("OPT CLOSE task failed: %s", t.exception()))
 
         # ── Equity / crypto positions ─────────────────────────────────────────
         # Build order list; process SELLS before BUYS so proceeds free up cash
         now_utc = datetime.now(timezone.utc)
+
+        # Load risk limits for pre-trade size enforcement
+        try:
+            import yaml
+            _risk_cfg = yaml.safe_load(
+                (_REPO_ROOT / "config" / "risk_limits.yaml").read_text()
+            )
+            _per_inst_max_frac = float(
+                _risk_cfg.get("per_instrument", {}).get("max_position_frac", DELTA_MAX_FRAC)
+            )
+            _daily_loss_limit = float(
+                _risk_cfg.get("portfolio", {}).get("max_daily_loss_pct", 0.02)
+            )
+        except Exception:
+            _per_inst_max_frac = DELTA_MAX_FRAC
+            _daily_loss_limit = 0.02
+
+        # Daily loss circuit breaker
+        _equity_sod = getattr(self, "_equity_start_of_day", None)
+        if _equity_sod is None:
+            self._equity_start_of_day = equity
+            _equity_sod = equity
+        if _equity_sod > 0:
+            _daily_loss_pct = (_equity_sod - equity) / _equity_sod
+            if _daily_loss_pct >= _daily_loss_limit:
+                if not getattr(self, "_daily_loss_halted", False):
+                    self._daily_loss_halted = True
+                    log.warning(
+                        "DAILY LOSS LIMIT: %.1f%% loss today >= %.1f%% limit — halting new entries",
+                        _daily_loss_pct * 100, _daily_loss_limit * 100,
+                    )
 
         order_items = []
         for sym, tgt_frac in targets.items():
             st = self._states[sym]
             if sym in self._pending_orders:
                 continue
+            # Pre-trade position size enforcement
+            if abs(tgt_frac) > _per_inst_max_frac:
+                tgt_frac = math.copysign(_per_inst_max_frac, tgt_frac)
 
             # Time-based min-hold gate: no exit/reversal within MIN_HOLD_MINUTES
             held_minutes = 0.0
@@ -1742,7 +1849,7 @@ class LiveTrader:
 
             # Circuit breaker: no new entries when halted (exits/reduces still allowed)
             is_new_entry = math.isclose(st.last_frac, 0.0) and not math.isclose(tgt_frac, 0.0)
-            if self._dd_halted and is_new_entry:
+            if (self._dd_halted or getattr(self, "_daily_loss_halted", False)) and is_new_entry:
                 continue
 
             delta = tgt_frac - st.last_frac
@@ -1760,6 +1867,59 @@ class LiveTrader:
             if abs(qty * cp) < 1.0:
                 continue
             order_items.append((sym, tgt_frac, qty, cp))
+
+        # Log new entries to trade_entries table
+        entry_time_str = now_utc.isoformat()
+        for sym, tgt_frac, qty, cp in order_items:
+            st = self._states[sym]
+            is_new = math.isclose(st.last_frac, 0.0) and not math.isclose(tgt_frac, 0.0)
+            if is_new and qty > 0:
+                try:
+                    d_active = st.bh_4h.active
+                    h_active = st.bh_1h.active
+                    tf_score = (4 if d_active else 0) + (2 if h_active else 0) + (1 if st.bh_15m.active else 0)
+                    direction = st.bh_1h.bh_dir or st.bh_4h.bh_dir
+                    ml_sig = 0.0
+                    try:
+                        gv = st.garch.vol or 0.5
+                        ml_sig = self._ml_module.predict(sym, list(self._daily_returns.get(sym, [])), gv)
+                    except Exception:
+                        pass
+                    self._db.execute(
+                        """INSERT INTO trade_entries
+                           (symbol, entry_time, entry_price, target_frac, bh_mass_1h, bh_mass_4h,
+                            bh_active_1h, bh_active_4h, garch_vol, hurst, ml_signal, tf_score,
+                            direction, strategy_version)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (sym, entry_time_str, cp, tgt_frac,
+                         st.bh_1h.mass, st.bh_4h.mass,
+                         int(st.bh_1h.active), int(st.bh_4h.active),
+                         st.garch.vol, st.hurst.hurst, ml_sig,
+                         tf_score, direction, STRATEGY_VERSION),
+                    )
+                    self._db.commit()
+                except Exception as _e:
+                    log.debug("trade_entries insert failed: %s", _e)
+
+        # Log exits to trade_exits table
+        for sym, tgt_frac, qty, cp in order_items:
+            st = self._states[sym]
+            is_exit = math.isclose(tgt_frac, 0.0) and not math.isclose(st.last_frac, 0.0) and qty < 0
+            if is_exit and st.entry_px:
+                try:
+                    pnl_pct = (cp - st.entry_px) / st.entry_px if st.entry_px > 0 else 0.0
+                    bars_held = int((now_utc - st.entry_time).total_seconds() / 60 / 15) if st.entry_time else 0
+                    self._db.execute(
+                        """INSERT INTO trade_exits
+                           (symbol, exit_time, exit_price, entry_price, pnl_pct, bars_held,
+                            exit_reason, rl_exit_signal, strategy_version)
+                           VALUES (?,?,?,?,?,?,?,?,?)""",
+                        (sym, now_utc.isoformat(), cp, st.entry_px, pnl_pct, bars_held,
+                         "signal_off", int(self._rl_policy is not None), STRATEGY_VERSION),
+                    )
+                    self._db.commit()
+                except Exception as _e:
+                    log.debug("trade_exits insert failed: %s", _e)
 
         # Sells first (qty < 0), then buys
         order_items.sort(key=lambda x: x[2])   # ascending: negatives first
@@ -1799,6 +1959,7 @@ class LiveTrader:
         max_slice   = MAX_ORDER_NOTIONAL
         remaining   = qty
         any_filled  = False
+        _initial_qty = qty  # used to compute partial fill fraction
 
         # Equities: DAY TIF, 2dp fractional.  Crypto: GTC, 8dp fractional.
         if asset_class == "equity":
@@ -1840,15 +2001,17 @@ class LiveTrader:
                 any_filled = True
             except Exception as exc:
                 log.error("%s submit_order failed: %s", sym, exc)
-                continue  # Don't cascade failure — try remaining slices
+                break  # Abort slice loop on first error — prevents infinite retry
 
             remaining -= slice_qty
 
         # Only update state if at least one slice was accepted by the broker.
-        # This prevents phantom positions from failed orders.
+        # Use actual_filled_qty (not full qty) to avoid overstating position on partial fills.
         if any_filled:
             st = self._states[sym]
-            st.last_frac = new_frac
+            filled_qty = _initial_qty - max(remaining, 0.0)
+            partial_frac = (filled_qty / _initial_qty) * (new_frac - st.last_frac) if _initial_qty > 0 else 0.0
+            st.last_frac = st.last_frac + partial_frac
             if side == "buy":
                 st.entry_px   = price
                 st.entry_time = datetime.now(timezone.utc)
@@ -1894,7 +2057,16 @@ class LiveTrader:
                 return
             notional  = qty * price
             order_id  = str(order.id) if hasattr(order, "id") else None
-            fill_time = datetime.now(timezone.utc).isoformat()
+            # Prefer broker-reported fill time over wall-clock for accurate reconciliation
+            _broker_fill_ts = (getattr(order, "filled_at", None)
+                               or getattr(fill_event, "timestamp", None))
+            if _broker_fill_ts is not None:
+                if hasattr(_broker_fill_ts, "isoformat"):
+                    fill_time = _broker_fill_ts.isoformat()
+                else:
+                    fill_time = str(_broker_fill_ts)
+            else:
+                fill_time = datetime.now(timezone.utc).isoformat()
 
             # Write to live_trades
             self._db.execute(
@@ -1920,6 +2092,7 @@ class LiveTrader:
             if side == "buy":
                 st._fifo.append((qty, price, fill_time))
                 log.debug("%s FIFO push %.6f @ %.4f", sym, qty, price)
+                self._persist_fifo(sym)
             elif side == "sell":
                 remaining = qty
                 while remaining > 1e-8 and st._fifo:
@@ -1943,9 +2116,45 @@ class LiveTrader:
                     else:
                         st._fifo[0] = (entry_qty - matched, entry_price, entry_time)
                     remaining -= matched
+                self._persist_fifo(sym)
 
         except Exception as exc:
             log.error("_on_fill error: %s", exc, exc_info=True)
+
+    def _persist_fifo(self, sym: str) -> None:
+        """Persist FIFO queue for sym to SQLite for crash recovery."""
+        st = self._states.get(sym)
+        if st is None:
+            return
+        try:
+            fifo_data = json.dumps(st._fifo)
+            self._db.execute(
+                """INSERT OR REPLACE INTO fifo_state (symbol, fifo_json, updated_at)
+                   VALUES (?, ?, ?)""",
+                (sym, fifo_data, datetime.now(timezone.utc).isoformat()),
+            )
+            self._db.commit()
+        except Exception as exc:
+            log.debug("FIFO persist failed [%s]: %s", sym, exc)
+
+    def _load_fifo_state(self) -> None:
+        """Restore FIFO queues from DB after a crash/restart."""
+        try:
+            rows = self._db.execute(
+                "SELECT symbol, fifo_json FROM fifo_state"
+            ).fetchall()
+            for sym, fifo_json in rows:
+                st = self._states.get(sym)
+                if st is None:
+                    continue
+                try:
+                    entries = json.loads(fifo_json)
+                    st._fifo = [tuple(e) for e in entries]
+                    log.info("FIFO restored for %s: %d entries", sym, len(st._fifo))
+                except Exception:
+                    pass
+        except Exception as exc:
+            log.debug("FIFO load failed: %s", exc)
 
     # ── Equity refresh ─────────────────────────────────────────────────────────
 
@@ -1957,8 +2166,25 @@ class LiveTrader:
                 self._equity = float(acct.equity)
                 self._equity_updated_at = now
                 log.info("Equity refreshed: $%.2f", self._equity)
+                # Reset daily loss tracking at start of new trading day
+                _now_utc = datetime.now(timezone.utc)
+                if _now_utc.hour == 9 and _now_utc.minute < 5:
+                    self._equity_start_of_day = self._equity
+                    self._daily_loss_halted = False
+                    log.info("Daily P&L reset — new equity_start_of_day=$%.2f", self._equity)
             except Exception as exc:
                 log.warning("Could not fetch equity: %s", exc)
+            # Periodic WAL checkpoint (every ~hour, roughly every 60 equity refreshes)
+            if not hasattr(self, "_wal_checkpoint_count"):
+                self._wal_checkpoint_count = 0
+            self._wal_checkpoint_count += 1
+            if self._wal_checkpoint_count % 60 == 0:
+                try:
+                    self._db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                    self._db.commit()
+                    log.debug("WAL checkpoint executed")
+                except Exception:
+                    pass
         return self._equity
 
     # ── Stream entry point ─────────────────────────────────────────────────────
@@ -2032,7 +2258,7 @@ class LiveTrader:
         import pandas as pd
 
         end   = datetime.now(timezone.utc)
-        start = end - timedelta(days=15)   # 15d × 24h = 360 hourly bars > 250
+        start = end - timedelta(days=60)   # 60d × 24h = 1440 hourly bars — covers 200-bar EMA warmup
 
         crypto_client = CryptoHistoricalDataClient(
             api_key    = self._api_key,
@@ -2142,6 +2368,7 @@ class LiveTrader:
             )
 
         self._sync_positions_from_broker()
+        self._load_fifo_state()
 
     def _sync_positions_from_broker(self) -> None:
         """
@@ -2186,10 +2413,10 @@ class LiveTrader:
             st.last_frac  = frac
             st.entry_px   = avg_px
             st.dollar_pos = mkt_val
-            # Reset hold clock on sync — prevents immediate exit after restart.
-            # Alpaca doesn't provide original entry time, so we conservatively
-            # start the MIN_HOLD_MINUTES clock from now.
-            st.entry_time = datetime.now(timezone.utc)
+            # Reset hold clock on sync — Alpaca doesn't provide original entry time,
+            # so use a 30-minute conservative offset (not full MIN_HOLD_MINUTES)
+            # to avoid locking into bad trades for 4 hours after a crash.
+            st.entry_time = datetime.now(timezone.utc) - timedelta(minutes=MIN_HOLD_MINUTES - 30)
             if self._last_price.get(sym) is None:
                 st._prev_close = avg_px
                 self._last_price[sym] = avg_px
@@ -2203,26 +2430,45 @@ class LiveTrader:
 
     def run(self) -> None:
         """Main entry point — blocks until interrupted."""
-        log.info("LARSA v17 LiveTrader starting (strategy_version=%s)", STRATEGY_VERSION)
+        log.info("LARSA v18 LiveTrader starting (strategy_version=%s)", STRATEGY_VERSION)
         self._bootstrap_history()
         if _OBS_HEALTH:
             try: _OBS_HEALTH.set_state(broker_connected=True)
             except Exception: pass
+        _reconnect_attempt = 0
+        _MAX_BACKOFF = 300  # cap at 5 minutes
         while True:
             try:
                 if _OBS_HEALTH:
                     try: _OBS_HEALTH.set_state(stream_connected=True)
                     except Exception: pass
+                _reconnect_attempt = 0  # reset on successful run
                 asyncio.run(self._run_stream())
             except KeyboardInterrupt:
-                log.info("Shutdown requested — exiting.")
+                log.info("Shutdown requested — cancelling pending orders, flushing DB, exiting.")
+                try:
+                    from alpaca.trading.requests import CancelOrdersRequest
+                    self._trading_client.cancel_orders()
+                    log.info("Cancelled all open orders on shutdown")
+                except Exception as _e:
+                    log.warning("Could not cancel orders on shutdown: %s", _e)
+                try:
+                    self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    self._db.commit()
+                except Exception:
+                    pass
                 break
             except Exception as exc:
-                log.error("Stream crashed: %s — reconnecting in 10s", exc, exc_info=True)
+                _reconnect_attempt += 1
+                backoff = min(_MAX_BACKOFF, 10 * (2 ** min(_reconnect_attempt - 1, 5)))
+                log.error(
+                    "Stream crashed (attempt %d): %s — reconnecting in %ds",
+                    _reconnect_attempt, exc, backoff, exc_info=True,
+                )
                 if _OBS_HEALTH:
                     try: _OBS_HEALTH.set_state(stream_connected=False)
                     except Exception: pass
-                time.sleep(10)
+                time.sleep(backoff)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
