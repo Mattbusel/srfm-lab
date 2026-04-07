@@ -1,6 +1,6 @@
 # SRFM Trading Lab
 
-A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** — from raw tick data to live paper trading and autonomous idea discovery, across 9 languages and **560K+ lines of code**.
+A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** — from raw tick data to live paper trading and autonomous idea discovery, across 9 languages and **705K+ lines of code**.
 
 > Mad scientist workshop. Everything automated, everything measurable, rapid iteration at scale.
 
@@ -31,6 +31,12 @@ A full-stack quantitative trading research platform built on **Special Relativis
 | [Wave 4 Backtest](docs/wave4_backtest.md) | EventCalendarFilter, Granger lead signal, ML signal module, 4-variant comparison |
 | [Statistical Tooling](docs/statistical_tooling.md) | All Julia and R modules - purpose, key functions, usage |
 | [Stack Overview](docs/stack_overview.md) | Every language, what it does, how to run it, integration diagram |
+| [C++ Signal Engine](docs/signal_engine_cpp.md) | SignalOutput struct, InstrumentState, SIMD indicators, ring buffer, binary protocol, latency |
+| [Rust Crates Reference](docs/rust_crates.md) | All 25 Rust crates: genome evolution, Monte Carlo, portfolio, risk, execution, fractal, FIX |
+| [Market Data Service](docs/market_data_service.md) | Dual-feed L2 aggregation, 15m bar assembly, WebSocket hub, failover, Prometheus metrics |
+| [Coordination Layer](docs/coordination_layer.md) | Elixir/OTP supervision, circuit breakers, parameter validation, rollback, event bus |
+| [Native Layer](docs/native_layer.md) | Zig ITCH 5.0 decoder, lock-free L2 book, AVX2 L3 book, SIMD matrix, ring buffer |
+| [Primitive Interactions](docs/primitive_interactions.md) | Full dependency map: every primitive, what it reads, writes, and calls |
 
 ---
 
@@ -166,6 +172,55 @@ cd idea-engine/idea-dashboard && npm run dev  # Dashboard :5175
 
 All executable tools, engines, and core primitives flagged by language and role.
 
+Full dependency map showing which primitives call which: **[Primitive Interactions](docs/primitive_interactions.md)**
+
+### Primitive Interaction Summary
+
+```
+Bar arrives from market-data :8780
+  |
+  v
+BHState.update(bar)                   -- Minkowski ds^2, mass accumulation
+  |-- MinkowskiClassifier             -- TIMELIKE / SPACELIKE classification
+  |-- GeodesicAnalyzer                -- 20-bar regression quality
+  |-- GravitationalLens               -- mu = tanh(mass / scale)
+  |
+  +-> GARCHTracker.update(bar)        -- conditional vol h_t
+  +-> OUDetector.update(bar)          -- mean-reversion theta, mu, sigma
+  +-> ATRTracker.update(bar)          -- stop/size distance
+  +-> BullScale.update(bar, bh)       -- BTC lead scaler
+  |
+  +-> agent_d3qn(features)            -- trend + momentum signal
+  +-> agent_ddqn(features)            -- alignment composite
+  +-> agent_td3qn(features)           -- mean-reversion contrarian
+  |   each weighted by MarketRegime (BULL/BEAR/SIDEWAYS/HIGH_VOL)
+  |
+  +-> QuatNavPy.update(bar, bh)       -- nav observability (read-only)
+      NavStateWriter -> live_trades.db (nav_state table)
+  |
+  v
+SmartRouter.route(signal, size)
+  BookManager.get_spread()            -- live L2 spread check
+    AlpacaL2Feed (primary)
+    BinanceL2Feed (fallback, 30s failover)
+  CircuitBreaker[alpaca/binance]      -- fast-fail if API degraded
+  |
+  v
+OrderManager.submit()
+  RiskGuard.pre_trade_check()         -- notional, VAR, Greeks
+  AuditLog.record()                   -- immutable event store
+  |
+  v
+execution/live_trades.db (WAL)
+  |
+  v (every 4-6h)
+IAE ingestion -> GenomeEngine (Rust NSGA-II)
+  tick-backtest (Rust rayon)          -- parallel fitness evaluation
+  CounterfactualEngine                -- Sobol sensitivity validation
+  ParameterCoordinator (Elixir)       -- schema + delta validation
+  LiveParamBridge (30s poll)          -- hot-reload to LiveTrader
+```
+
 ### 🐍 Python — Core Trading
 
 | Tool / Primitive | Path | Role | Flag |
@@ -228,15 +283,6 @@ All executable tools, engines, and core primitives flagged by language and role.
 | `portfolio-engine` | `crates/portfolio-engine/` | Ledoit-Wolf, HRP, Black-Litterman | **OPTIMIZER** |
 | `risk-engine` | `crates/risk-engine/` | VaR/CVaR, Greeks, stress scenarios | **RISK** |
 
-### 🐹 Go — Microservices
-
-| Service | Port | Role | Flag |
-|---|---|---|---|
-| `cmd/api/main.go` | `:8767` | REST API: hypotheses, genomes, signals | **API** |
-| `cmd/bus/main.go` | `:8768` | Internal pub/sub event bus | **MESSAGE BUS** |
-| `cmd/scheduler/main.go` | `:8769` | Cron task orchestration | **SCHEDULER** |
-| `cmd/webhook/main.go` | `:8770` | Alpaca webhooks + external alerts | **WEBHOOK** |
-| `infra/research-api/main.go` | `:8766` | Research data API | **API** |
 
 ### 🔷 Julia — Statistical Primitives
 
@@ -290,18 +336,62 @@ All executable tools, engines, and core primitives flagged by language and role.
 
 ### ⚡ C/C++ — Low-Latency Primitives
 
+> Deep dive: **[C++ Signal Engine](docs/signal_engine_cpp.md)**
+
 | Component | Path | Role | Flag |
 |---|---|---|---|
-| Fast indicators (20 signals) | `lib/` | SIMD-accelerated signal computation | **PRIMITIVE** |
-| L3 orderbook | `lib/` | AVX2 price ladder, sub-microsecond updates | **PRIMITIVE** |
-| Matrix ops | `lib/` | SIMD matrix multiply for portfolio math | **PRIMITIVE** |
+| `BHState` (C++) | `cpp/signal-engine/src/bh_physics/` | Sub-millisecond BH mass accumulation | **PRIMITIVE** |
+| `QuatNav` (C++) | `cpp/signal-engine/src/quaternion/` | C++ quaternion nav (validation / future path) | **PRIMITIVE** |
+| `GARCHState` (C++) | `cpp/signal-engine/src/bh_physics/` | GARCH(1,1) vol forecaster | **PRIMITIVE** |
+| `OUDetector` (C++) | `cpp/signal-engine/src/bh_physics/` | OU mean-reversion detector | **PRIMITIVE** |
+| Fast indicators (20 signals) | `cpp/signal-engine/src/indicators/` | SIMD-accelerated RSI/MACD/BB/ATR/VWAP | **PRIMITIVE** |
+| `SignalOutput` struct | `cpp/signal-engine/include/srfm/types.hpp` | 320-byte output frame (5 cache lines) | **PRIMITIVE** |
+| `RingBuffer` | `cpp/signal-engine/include/srfm/ring_buffer.hpp` | Lock-free SPSC bar event queue | **PRIMITIVE** |
+| L3 orderbook (C) | `native/orderbook/` | AVX2 price ladder, VWAP fill estimation | **PRIMITIVE** |
+| SIMD matrix (C) | `native/matrix/` | AVX2 matmul for portfolio covariance | **PRIMITIVE** |
 
 ### 🦎 Zig — Ultra Low Latency
 
+> Deep dive: **[Native Layer](docs/native_layer.md)**
+
 | Component | Path | Role | Flag |
 |---|---|---|---|
-| ITCH 5.0 decoder | `zig/` | NASDAQ ITCH protocol parser | **DECODER** |
-| Low-latency orderbook | `zig/` | Lock-free L2 book | **PRIMITIVE** |
+| ITCH 5.0 decoder | `native/zig/itch/` | NASDAQ ITCH 5.0 binary protocol parser | **DECODER** |
+| Lock-free L2 book | `native/zig/orderbook/` | ~180ns add/cancel, ~15ns best bid/ask | **PRIMITIVE** |
+| Lock-free ring buffer (C) | `native/ringbuffer/` | 180M ops/sec SPSC, cache-line padded | **PRIMITIVE** |
+
+### 🐹 Go — Market Data + Microservices
+
+> Deep dive: **[Market Data Service](docs/market_data_service.md)**
+
+| Service | Port | Path | Role | Flag |
+|---|---|---|---|---|
+| Market Data | `:8780` | `market-data/` | L2 aggregation, 15m bar assembly, WebSocket fan-out | **LIVE** |
+| IAE API | `:8767` | `idea-engine/cmd/api/` | Hypotheses, patterns, backtest jobs | **API** |
+| IAE Event Bus | `:8768` | `idea-engine/cmd/bus/` | Pub/sub: pattern_confirmed, backtest_complete | **MESSAGE BUS** |
+| IAE Scheduler | `:8769` | `idea-engine/cmd/scheduler/` | Cron: mine (1h/4h/daily), tune (4h) | **SCHEDULER** |
+| IAE Webhook | `:8770` | `idea-engine/cmd/webhook/` | Alpaca fill ingest + external alerts | **WEBHOOK** |
+| Research API | `:8766` | `infra/research-api/` | Research data query API | **API** |
+| Alerter | internal | `cmd/alerter/` | Slack/email/PagerDuty alert routing | **INFRA** |
+| TUI | terminal | `cmd/srfm-tui/` | Terminal live trading dashboard | **UI** |
+
+Key Go primitives:
+- `BookManager` (market-data): dual-feed failover state machine, 30s Alpaca timeout
+- `BarAggregator` (market-data): tick-to-OHLCV, wall-clock-anchored 15m windows
+- `WebSocketHub` (market-data): fan-out to all subscribers, 100-message slow-consumer limit
+- `AlertEngine` (cmd/alerter): dedup, snooze, maintenance window, multi-channel routing
+
+### 🔮 Elixir/OTP — Coordination Layer
+
+> Deep dive: **[Coordination Layer](docs/coordination_layer.md)**
+
+| Component | Port | Role | Flag |
+|---|---|---|---|
+| `ParameterCoordinator` | `:8781` | Validates + fans out IAE parameter updates | **LIVE** |
+| `CircuitBreaker` (Elixir) | `:8781` | Per-API fault isolation (Alpaca, Binance, Polygon) | **LIVE** |
+| `HealthMonitor` | `:8781` | 30s health polls, automatic service restarts | **LIVE** |
+| `EventBus` (Elixir) | `:8781` | In-process pub/sub with 1000-event ETS history | **LIVE** |
+| `ServiceRegistry` | `:8781` | ETS-backed service PID + metadata registry | **LIVE** |
 
 ### 🐳 Infrastructure
 
@@ -324,13 +414,14 @@ All executable tools, engines, and core primitives flagged by language and role.
 | Python | ~235K | Live trader, backtesting, IAE pipeline, ML, research | [Execution Stack](docs/execution_stack.md) |
 | Julia | ~100K | Statistical tooling: copulas, SVI/SABR, Kalman, AMM, CoVaR, RL | [Statistical Tooling](docs/statistical_tooling.md) |
 | TypeScript/React | ~42K | IAE dashboard (:5175), research dashboard (:5174), trading terminal | [Stack Overview](docs/stack_overview.md) |
-| Go | ~38K | IAE microservices (API/bus/scheduler/webhook), research API | [IAE Architecture](docs/iae_architecture.md) |
+| Go | ~38K | IAE microservices (API/bus/scheduler/webhook), market data, research API | [Market Data Service](docs/market_data_service.md) |
 | R | ~45K | HMM, regime models, WFA, factor analysis, stress testing | [Statistical Tooling](docs/statistical_tooling.md) |
-| Rust | ~24K | Genome engine (NSGA-II), Monte Carlo, tick backtest, portfolio/risk | [IAE Architecture](docs/iae_architecture.md) |
-| C/C++ | ~15K | 20 fast indicators (SIMD), L3 orderbook (AVX2), matrix ops | [Stack Overview](docs/stack_overview.md) |
-| Zig | ~8K | ITCH 5.0 decoder, lock-free orderbook | [Stack Overview](docs/stack_overview.md) |
+| Rust | ~24K | Genome engine (NSGA-II), Monte Carlo, tick backtest, portfolio/risk | [Rust Crates Reference](docs/rust_crates.md) |
+| C/C++ | ~15K | Signal engine (SIMD indicators), L3 orderbook (AVX2), matrix ops | [C++ Signal Engine](docs/signal_engine_cpp.md) |
+| Zig | ~8K | ITCH 5.0 decoder, lock-free L2 book, ring buffer | [Native Layer](docs/native_layer.md) |
+| Elixir/OTP | ~7K | Coordination: OTP supervision, circuit breakers, param validation | [Coordination Layer](docs/coordination_layer.md) |
 | SQL | ~5K | SQLite (16 migrations, WAL), DuckDB analytics, BH UDFs | [Stack Overview](docs/stack_overview.md) |
-| **Total** | **~560K** | | |
+| **Total** | **~705K** | | |
 
 ---
 
@@ -446,10 +537,17 @@ srfm-lab/
 ├── docs/                                # ★ Deep documentation
 │   ├── bh_physics.md                   # BH engine: Minkowski, mass, Hawking, delta
 │   ├── iae_architecture.md             # IAE: genome, hypothesis, causal, regime
+│   ├── quaternion_nav.md               # Quaternion nav: 4-space, rotation, geodesic, Lorentz
 │   ├── execution_stack.md              # L2 orderbook, smart router, supervisor
 │   ├── wave4_backtest.md               # EventCalendar, Granger lead, ML signal
 │   ├── statistical_tooling.md          # All Julia + R modules reference
-│   └── stack_overview.md              # Full tech stack with integration diagram
+│   ├── stack_overview.md               # Full tech stack with integration diagram
+│   ├── signal_engine_cpp.md            # C++ signal engine: SignalOutput, SIMD, ring buffer
+│   ├── rust_crates.md                  # All 25 Rust crates: genome, MC, portfolio, risk
+│   ├── market_data_service.md          # Go L2 aggregation, bar assembly, failover
+│   ├── coordination_layer.md           # Elixir/OTP: supervision, circuit breakers, params
+│   ├── native_layer.md                 # Zig/C: ITCH decoder, lock-free book, SIMD matrix
+│   └── primitive_interactions.md       # Full dependency map: every primitive interaction
 │
 ├── run_full_analysis.py                # Macro + on-chain + alt data + IAE pipeline
 ├── run_iae_analysis.py                 # IAE idea miner (63K trades)
