@@ -461,6 +461,7 @@ mod tests {
         let mut ds: DataStore = HashMap::new();
         let bars: Vec<crate::bar_data::BarData> = (0..200)
             .map(|i| crate::bar_data::BarData {
+                symbol: "BTC".to_string(),
                 timestamp: i as i64 * 900,
                 open: 100.0,
                 high: 101.0,

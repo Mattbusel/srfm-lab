@@ -1543,6 +1543,9 @@ def tech_mass_index(prices: pd.Series, volume: pd.Series = None,
     h = high if high is not None else prices
     l = low if low is not None else prices
     hl_range = h - l
+    # When high==low (e.g. close-only data), use rolling std as proxy for range
+    if hl_range.abs().sum() < 1e-9:
+        hl_range = prices.rolling(fast, min_periods=2).std().fillna(0.001)
     ema1 = _ema(hl_range, fast)
     ema2 = _ema(ema1, fast)
     ratio = ema1 / ema2.replace(0.0, float("nan"))

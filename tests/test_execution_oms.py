@@ -175,12 +175,14 @@ def test_fill_validator_suspicious_price_not_stored():
 
 
 def test_fill_validator_sell_slippage_direction():
-    """For SELL, paying less than decision_price is positive (adverse) slippage."""
+    """For SELL, filling below decision_price is adverse = positive slippage_bps.
+    Convention: slippage_bps = (fill-ref)/ref * 10000 * side_sign where
+    side_sign=-1 for SELL, so underselling gives positive (adverse) value."""
     o = make_order(side=Side.SELL, quantity=100.0, decision_price=400.0)
     o.mark_filled(fill_qty=100.0, fill_price=380.0)
-    # SELL at 380 vs decision 400 -> slippage negative (got worse price)
+    # SELL at 380 vs decision 400: (380-400)/400 * 10000 * -1 = +500 bps (adverse)
     assert o.slippage_bps is not None
-    assert o.slippage_bps < 0.0
+    assert o.slippage_bps > 0.0
 
 
 def test_fill_aggregator_vwap_across_partials():
@@ -480,12 +482,21 @@ def test_order_manager_handle_fill_partial(manager):
     assert updated.status == OrderStatus.PARTIAL
 
 
-def test_order_manager_get_open_orders_only_non_terminal(manager):
-    o1 = manager.submit_order("SPY", Side.BUY, 0.05, curr_price=450.0)
-    o2 = manager.submit_order("QQQ", Side.BUY, 0.05, curr_price=350.0)
+def test_order_manager_get_open_orders_only_non_terminal():
+    # Need unique broker IDs per order so fills target the right order
+    counter = [0]
+    def _unique_id(_order):
+        counter[0] += 1
+        return f"BROKER-{counter[0]:03d}"
+    router = MagicMock()
+    router.route.side_effect = _unique_id
+    risk = make_risk_guard(allow=True)
+    mgr = OrderManager(router=router, risk=risk, equity=100_000.0)
+    o1 = mgr.submit_order("SPY", Side.BUY, 0.05, curr_price=450.0)
+    o2 = mgr.submit_order("QQQ", Side.BUY, 0.05, curr_price=350.0)
     # Fill o2
-    manager.handle_fill(FillEvent(o2.broker_order_id, o2.quantity, 350.0))
-    open_orders = manager.book.open_orders()
+    mgr.handle_fill(FillEvent(o2.broker_order_id, o2.quantity, 350.0))
+    open_orders = mgr.book.open_orders()
     assert all(not o.is_terminal for o in open_orders)
     assert o1 in open_orders
     assert o2 not in open_orders

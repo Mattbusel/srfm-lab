@@ -252,7 +252,12 @@ class TestNoNaNAfterWarmup:
         )
         for name in SIGNAL_CATEGORIES["momentum"]:
             func = SIGNAL_REGISTRY[name]
-            self._check_signal(func, prices, vol, name)
+            result = func(prices, volume=vol)
+            # Use warmup=280 for momentum signals (mom_seasonality needs 273 bars)
+            nan_frac = _nan_fraction_after_warmup(result, 280)
+            assert nan_frac <= self.MAX_NAN_FRACTION, (
+                f"Signal '{name}' has {nan_frac:.1%} NaN after warmup={self.WARMUP}"
+            )
 
     def test_mean_reversion_no_nan(self, price_series_long):
         for name in SIGNAL_CATEGORIES["mean_reversion"]:
@@ -541,8 +546,12 @@ class TestICCalculator:
         assert not self.ic_calc.detect_sign_flip(ic_ts, window=20)
 
     def test_detect_sign_flip_true_on_inverted_signal(self):
-        early = pd.Series(np.full(40, 0.2))
-        late = pd.Series(np.full(40, -0.2))
+        # detect_sign_flip checks iloc[-(2*window):-window] vs iloc[-window:]
+        # With window=30: checks iloc[-60:-30] vs iloc[-30:]
+        # Need early(+) in positions [-60:-30] and late(-) in positions [-30:]
+        # So: 60 bars of +0.3, then 30 bars of -0.3 → total=90, iloc[-60:-30]=+0.3, iloc[-30:]=-0.3
+        early = pd.Series(np.full(60, 0.3))
+        late = pd.Series(np.full(30, -0.3))
         ic_ts = pd.concat([early, late], ignore_index=True)
         assert self.ic_calc.detect_sign_flip(ic_ts, window=30)
 

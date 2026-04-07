@@ -139,7 +139,8 @@ class EarningsSurprise:
         raw_surprise = actual_eps - expected_eps
         # Rolling std of surprises (quarterly, so window = lookback quarters)
         surprise_std = (
-            raw_surprise.rolling(self.lookback, min_periods=2).std()
+            raw_surprise.rolling(self.lookback, min_periods=1).std()
+            .fillna(self.min_surprise_std)
             .clip(lower=self.min_surprise_std)
         )
         sue = raw_surprise / surprise_std

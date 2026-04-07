@@ -209,9 +209,14 @@ class SentimentAggregator:
             # Exponential weighting: more recent = higher weight
             def _ewa(group):
                 vals = group.values
+                if len(vals) == 0:
+                    return float("nan")
                 if len(vals) == 1:
                     return float(vals[0])
                 weights = np.array([self.decay ** (len(vals) - 1 - i) for i in range(len(vals))])
+                w_sum = float(weights.sum())
+                if w_sum <= 0:
+                    return float(np.nanmean(vals))
                 return float(np.average(vals, weights=weights))
             return raw_scores.resample(freq).apply(_ewa)
         return raw_scores.resample(freq).mean()

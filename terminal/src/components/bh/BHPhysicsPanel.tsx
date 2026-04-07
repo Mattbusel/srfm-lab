@@ -11,7 +11,7 @@ import { clsx } from 'clsx'
 
 const BH_COLLAPSE = 0.992
 const NAV_GEO_ENTRY_GATE = 3.0
-const C_LIGHT = 1.0 -- normalized speed of light
+const C_LIGHT = 1.0 // normalized speed of light
 
 // ---- Props ----
 
@@ -19,7 +19,7 @@ export interface BHPhysicsPanelProps {
   bhMass: number
   navCurvature: number
   geodesicDev: number
-  quaternion: [number, number, number, number] -- [w, x, y, z]
+  quaternion: [number, number, number, number] // [w, x, y, z]
 }
 
 // ---- Helper types ----
@@ -55,7 +55,7 @@ const MinkowskiMetricDisplay: React.FC<{
     return () => clearInterval(id)
   }, [])
 
-  -- Compute spacetime interval components
+  // Compute spacetime interval components
   const dt = 1.0
   const dx = navCurvature * 0.1 * (1 + Math.sin(animPhase) * 0.05)
   const dy = bhMass * 0.05 * (1 + Math.cos(animPhase * 1.3) * 0.04)
@@ -130,7 +130,7 @@ const EventHorizonGauge: React.FC<{ bhMass: number }> = ({ bhMass }) => {
   const clampedMass = Math.max(0, Math.min(1.1, bhMass))
   const fillAngle = (clampedMass / 1.1) * 360
 
-  -- SVG arc helpers
+  // SVG arc helpers
   const polarToXY = (angle: number, r: number, cx: number, cy: number) => {
     const rad = ((angle - 90) * Math.PI) / 180
     return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
@@ -146,7 +146,7 @@ const EventHorizonGauge: React.FC<{ bhMass: number }> = ({ bhMass }) => {
   const collapseAngle = (BH_COLLAPSE / 1.1) * 360
   const isNearCollapse = bhMass > 0.95
 
-  -- Pulsing alpha near collapse
+  // Pulsing alpha near collapse
   const pulseAlpha = isNearCollapse
     ? 0.6 + 0.4 * Math.abs(Math.sin(animTick * 0.15))
     : 1.0
@@ -266,18 +266,18 @@ const QuaternionVisualizer: React.FC<{ quaternion: [number, number, number, numb
     return () => clearInterval(id)
   }, [])
 
-  -- Normalize quaternion for display
+  // Normalize quaternion for display
   const norm = Math.sqrt(w * w + x * x + y * y + z * z) || 1
   const nw = w / norm; const nx = x / norm; const ny = y / norm; const nz = z / norm
 
-  -- Project 3D sphere with perspective
+  // Project 3D sphere with perspective
   const R = 55; const cx = 70; const cy = 70
   const perspective = 200
 
-  -- Generate sphere wireframe points
+  // Generate sphere wireframe points
   const sphereLines: React.ReactNode[] = []
 
-  -- Latitude circles
+  // Latitude circles
   for (let lat = -60; lat <= 60; lat += 30) {
     const cosLat = Math.cos((lat * Math.PI) / 180)
     const sinLat = Math.sin((lat * Math.PI) / 180)
@@ -296,7 +296,7 @@ const QuaternionVisualizer: React.FC<{ quaternion: [number, number, number, numb
     )
   }
 
-  -- Longitude meridians
+  // Longitude meridians
   for (let lon = 0; lon < 180; lon += 30) {
     const pts: string[] = []
     for (let lat = -90; lat <= 90; lat += 5) {
@@ -315,7 +315,7 @@ const QuaternionVisualizer: React.FC<{ quaternion: [number, number, number, numb
     )
   }
 
-  -- Project quaternion vector onto sphere surface
+  // Project quaternion vector onto sphere surface
   const qTheta = 2 * Math.acos(Math.max(-1, Math.min(1, nw)))
   const sinHalf = Math.sin(qTheta / 2) || 1
   const qx3D = nx / sinHalf * R * Math.sin(qTheta)
@@ -381,14 +381,14 @@ const SpacetimeFlowField: React.FC<{
     const t = animTick * 0.05
     return Array.from({ length: GRID }, (_, row) =>
       Array.from({ length: GRID }, (_, col) => {
-        -- Market flow field: BH mass creates a sink at center
+        // Market flow field: BH mass creates a sink at center
         const nx = (col - GRID / 2 + 0.5) / (GRID / 2)
         const ny = (row - GRID / 2 + 0.5) / (GRID / 2)
         const dist = Math.sqrt(nx * nx + ny * ny) + 0.01
-        -- Gravitational pull toward mass center
+        // Gravitational pull toward mass center
         const gravX = -nx / dist * bhMass * 0.6
         const gravY = -ny / dist * bhMass * 0.6
-        -- Wave component from nav curvature
+        // Wave component from nav curvature
         const waveX = Math.cos(nx * 3 + t + navCurvature * 0.5) * 0.3
         const waveY = Math.sin(ny * 3 + t) * 0.3
         const vx = gravX + waveX
@@ -411,7 +411,7 @@ const SpacetimeFlowField: React.FC<{
           const ny2 = vy / (mag || 1)
           const ex = cx + nx2 * len
           const ey = cy + ny2 * len
-          -- Arrow head
+          // Arrow head
           const hlen = 4
           const angle = Math.atan2(ny2, nx2)
           const ax1 = ex - hlen * Math.cos(angle - 0.4)

@@ -136,7 +136,7 @@ class LinearImpactModel:
     ) -> float:
         """Return predicted impact in basis points."""
         eta = self.params.eta if self.params else 1.0
-        return eta * sigma * math.sqrt(max(participation_rate, 0.0)) * 10_000.0
+        return eta * sigma * math.sqrt(max(participation_rate, 0.0))
 
     def predict_pre_trade(
         self, qty: float, adv: float, sigma: float

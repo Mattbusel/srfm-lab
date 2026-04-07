@@ -248,13 +248,8 @@ class TestSensitivity:
 
         tl_high_cf = count_timelike(0.003)
         tl_low_cf  = count_timelike(0.0005)
-        assert tl_low_cf >= tl_high_cf, (  # lower CF should not produce fewer timelike
-            # Actually: lower CF → smaller threshold → HARDER to be timelike
-            # Wait: beta = |dr| / cf → lower cf → higher beta → MORE spacelike
-            # So higher CF → more timelike.
-            f"NOTE: lower cf makes more spacelike, got tl_low={tl_low_cf}, tl_high={tl_high_cf}"
-        )
-        # Correct assertion: higher CF → more timelike
+        # beta = |dr| / cf → lower cf → higher beta → MORE spacelike
+        # So higher CF → more TIMELIKE bars
         assert tl_high_cf >= tl_low_cf, (
             f"Higher CF should produce more TIMELIKE bars: high_cf={tl_high_cf}, low_cf={tl_low_cf}")
 

@@ -150,9 +150,9 @@ class TestBlackScholes:
         assert 0.50 <= delta <= 0.65
 
     def test_put_delta_near_neg_half_atm(self):
-        """ATM put delta ≈ -0.5."""
+        """ATM put delta between -0.65 and -0.35 (shifts toward -0.4 when r>0)."""
         delta = bs_delta_put(self.S, self.K, self.T, self.r, self.sigma)
-        assert -0.65 <= delta <= -0.45
+        assert -0.65 <= delta <= -0.35
 
     def test_gamma_positive_always(self):
         """Gamma > 0 for all strikes and maturities."""

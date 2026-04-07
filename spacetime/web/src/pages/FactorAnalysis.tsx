@@ -46,7 +46,7 @@ interface ICPoint {
 
 interface FamaMacBethResult {
   factor: FactorName;
-  lambda: number;     -- risk premium estimate
+  lambda: number;     // risk premium estimate
   t_stat: number;
   p_value: number;
   significant: boolean;
@@ -56,7 +56,7 @@ interface FactorAttributionData {
   exposures: FactorExposure[];
   return_decomp: FactorReturnPoint[];
   ic_series: ICPoint[];
-  factor_corr: number[][];  -- 7x7 matrix
+  factor_corr: number[][];  // 7x7 matrix
   fama_macbeth: FamaMacBethResult[];
 }
 
@@ -88,7 +88,7 @@ function buildDemoData(): FactorAttributionData {
     };
   });
 
-  -- Build 120 daily return decomposition points
+  // Build 120 daily return decomposition points
   const return_decomp: FactorReturnPoint[] = [];
   const cumRets: Record<string, number> = {};
   FACTORS.forEach((f) => { cumRets[f] = 0; });
@@ -114,7 +114,7 @@ function buildDemoData(): FactorAttributionData {
     });
   }
 
-  -- IC series for top 5 factors
+  // IC series for top 5 factors
   const ic_series: ICPoint[] = Array.from({ length: 60 }, (_, d) => ({
     date: `2025-${String(Math.floor(d / 20) + 2).padStart(2, '0')}-${String((d % 20) + 1).padStart(2, '0')}`,
     BH: 0.08 + Math.sin(d * 0.3) * 0.06,
@@ -124,7 +124,7 @@ function buildDemoData(): FactorAttributionData {
     Momentum: 0.05 + Math.sin(d * 0.2) * 0.05,
   }));
 
-  -- 7x7 correlation matrix
+  // 7x7 correlation matrix
   const factor_corr: number[][] = Array.from({ length: 7 }, (_, r) =>
     Array.from({ length: 7 }, (_, c) => {
       if (r === c) return 1.0;

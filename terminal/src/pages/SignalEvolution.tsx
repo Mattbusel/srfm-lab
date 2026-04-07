@@ -18,7 +18,7 @@ interface GenomeNode {
   fitness: number
   generation: number
   mutationType: 'mutation' | 'crossover' | 'seed'
-  genes: number[] -- 31 gene values [0,1]
+  genes: number[] // 31 gene values [0,1]
   isActive: boolean
   novelty: number
 }
@@ -29,7 +29,7 @@ interface EquityCurvePoint {
 }
 
 interface ICPoint {
-  horizon: number -- 1 to 20 bars
+  horizon: number // 1 to 20 bars
   ic: number
 }
 
@@ -84,10 +84,10 @@ function makeGenes(seed: number): number[] {
 }
 
 function buildDemoData() {
-  -- Build a tree of ~20 genomes across 6 generations
+  // Build a tree of ~20 genomes across 6 generations
   const nodes: GenomeNode[] = []
 
-  -- Seed
+  // Seed
   nodes.push({
     id: 'G1', parentId: null, fitness: 0.42, generation: 1,
     mutationType: 'seed', genes: makeGenes(1), isActive: false, novelty: 0.8,
@@ -119,7 +119,7 @@ function buildDemoData() {
     })
   })
 
-  -- Top 5 equity curves
+  // Top 5 equity curves
   const TOP5 = ['G20', 'G18', 'G19', 'G16', 'G17']
   const eqCurves: EquityCurvePoint[] = []
   for (let b = 0; b <= 100; b++) {
@@ -132,20 +132,20 @@ function buildDemoData() {
     eqCurves.push(pt)
   }
 
-  -- IC decay curve
+  // IC decay curve
   const icDecay: ICPoint[] = Array.from({ length: 20 }, (_, i) => ({
     horizon: i + 1,
     ic: Math.max(-0.05, 0.18 * Math.exp(-i * 0.15) + Math.sin(i * 0.8) * 0.02),
   }))
 
-  -- Gene contributions for best genome G20
+  // Gene contributions for best genome G20
   const geneContribs = GENE_META.map((g, i) => ({
     name: g.name,
     type: g.type,
     contribution: Math.max(-0.05, 0.25 * Math.abs(Math.sin(20 + i * 1.37)) - 0.02),
   })).sort((a, b) => b.contribution - a.contribution)
 
-  -- Novelty scatter
+  // Novelty scatter
   const noveltyScatter = nodes.map((n) => ({
     id: n.id,
     fitness: n.fitness,
@@ -159,7 +159,7 @@ function buildDemoData() {
 // ---- Tree layout helpers ----
 
 function layoutTree(nodes: GenomeNode[]): Map<string, { x: number; y: number }> {
-  -- Group by generation
+  // Group by generation
   const byGen = new Map<number, GenomeNode[]>()
   nodes.forEach((n) => {
     if (!byGen.has(n.generation)) byGen.set(n.generation, [])

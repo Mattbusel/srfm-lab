@@ -265,6 +265,23 @@ class TCAStore:
     # Write operations
     # ------------------------------------------------------------------
 
+    def upsert(self, record: dict) -> None:
+        """
+        Insert or update a TCAResult record from a plain dict.
+        Accepts keys matching TCAResult fields; missing required fields default to 0.0.
+        Optional 'order_id' key is used as trade_id.
+        """
+        from execution.tca.tca_engine import TCAResult
+        import dataclasses
+        trade_id = str(record.get("order_id", ""))
+        defaults = {f.name: f.default if f.default is not dataclasses.MISSING
+                    else (f.default_factory() if f.default_factory is not dataclasses.MISSING else 0.0)
+                    for f in dataclasses.fields(TCAResult)}
+        kwargs = {k: record.get(k, defaults.get(k, 0.0))
+                  for k in defaults}
+        result = TCAResult(**kwargs)
+        self.insert(trade_id, result)
+
     def insert(self, trade_id: str, result) -> None:
         """
         Insert or update a TCAResult record.

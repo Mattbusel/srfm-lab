@@ -189,8 +189,8 @@ const ConsistencyMetrics: React.FC<{
 const FoldTimeline: React.FC<{ folds: WFFold[] }> = ({ folds }) => {
   const data = folds.map((f) => ({
     fold: `F${f.fold}`,
-    is: 90, -- IS bar length in units
-    oos: 30, -- OOS bar length
+    is: 90, // IS bar length in units
+    oos: 30, // OOS bar length
   }));
 
   return (
@@ -218,7 +218,7 @@ const FoldTimeline: React.FC<{ folds: WFFold[] }> = ({ folds }) => {
 const ParameterStabilityChart: React.FC<{
   stability: { name: string; values: number[]; std: number; cv: number }[];
 }> = ({ stability }) => {
-  -- Build chart data: one series per param, x = fold index
+  // Build chart data: one series per param, x = fold index
   const N = stability[0]?.values.length ?? 0;
   const data = Array.from({ length: N }, (_, i) => {
     const pt: Record<string, number | string> = { fold: `F${i + 1}` };
@@ -261,7 +261,7 @@ const ParameterStabilityChart: React.FC<{
 };
 
 const OOSSharpeDistribution: React.FC<{ folds: WFFold[] }> = ({ folds }) => {
-  -- Build histogram with 10 bins from -0.5 to 2.5
+  // Build histogram with 10 bins from -0.5 to 2.5
   const bins = 12;
   const minS = -0.5; const maxS = 2.5;
   const binW = (maxS - minS) / bins;
@@ -313,7 +313,7 @@ export function WalkForward() {
     retry: false,
   });
 
-  -- Fall back to demo data if API not available
+  // Fall back to demo data if API not available
   const results = useMemo(() => {
     if (data) return data;
     return buildDemoResults();

@@ -9,6 +9,20 @@ import statistics
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+
+
+def _ols(X: np.ndarray, y: np.ndarray):
+    """Minimal OLS: returns (beta, rmse, r2)."""
+    beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+    y_hat = X @ beta
+    res = y - y_hat
+    ss_res = float(np.sum(res ** 2))
+    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else 0.0
+    rmse = math.sqrt(ss_res / max(len(y), 1))
+    return beta, rmse, r2
+
 # ---------------------------------------------------------------------------
 # Data containers
 # ---------------------------------------------------------------------------
@@ -327,6 +341,36 @@ class ReversionAnalyzer:
             "pct_significant": sum(1 for p in profiles if abs(p.t_stat) > 2.0) / n,
             "n_profiles": n,
         }
+
+    def fit(
+        self,
+        times: List[float],
+        impacts: List[float],
+    ) -> Dict[str, float]:
+        """
+        Fit an exponential decay model: impact(t) = A * exp(-lambda * t) + C.
+        Returns dict with keys: A, lambda, C, half_life, r_squared.
+        Raises ValueError if fewer than 2 data points.
+        """
+        if len(times) < 2 or len(impacts) < 2:
+            raise ValueError("Need at least 2 data points for exponential fit")
+        n = min(len(times), len(impacts))
+        t = np.array(times[:n], dtype=float)
+        y = np.array(impacts[:n], dtype=float)
+        # Linearise: log(y - C) ~ log(A) - lambda * t
+        # Use simple OLS on log(|y|) as approximation (C=0)
+        safe_y = np.maximum(np.abs(y), 1e-12)
+        log_y = np.log(safe_y)
+        X = np.column_stack([t, np.ones(n)])
+        beta, _, _ = _ols(X, log_y)
+        lam = float(-beta[0])
+        A = float(math.exp(beta[1]))
+        half_life = math.log(2) / max(lam, 1e-9)
+        y_pred = A * np.exp(-lam * t)
+        ss_res = float(np.sum((y - y_pred) ** 2))
+        ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+        r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else 0.0
+        return {"A": A, "lambda": lam, "C": 0.0, "half_life": half_life, "r_squared": r2}
 
 
 # ---------------------------------------------------------------------------

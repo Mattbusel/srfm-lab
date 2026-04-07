@@ -37,7 +37,7 @@ export interface GenerationStats {
   mutation_rate: number             // current adaptive mutation rate
   crossover_rate: number
   elite_count: number
-  stagnation_counter: number        -- generations without improvement
+  stagnation_counter: number        // generations without improvement
   best_genome_id: string
   timestamp: string
 }

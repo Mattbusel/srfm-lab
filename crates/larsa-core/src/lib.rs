@@ -334,7 +334,7 @@ struct TradeRecord {
 
 impl TradeRecord {
     fn into_pydict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let d = PyDict::new(py);
+        let d = PyDict::new_bound(py);
         d.set_item("entry_bar", self.entry_bar)?;
         d.set_item("exit_bar", self.exit_bar)?;
         d.set_item("entry_price", self.entry_price)?;
@@ -560,13 +560,13 @@ fn full_backtest(
     }
 
     // Serialize trades as list of Python dicts
-    let py_trades = pyo3::types::PyList::empty(py);
+    let py_trades = pyo3::types::PyList::empty_bound(py);
     for tr in &trades {
         py_trades.append(tr.into_pydict(py)?)?;
     }
 
     // Build output dict
-    let result = PyDict::new(py);
+    let result = PyDict::new_bound(py);
     result.set_item("equity_curve", equity)?;
     result.set_item("positions", positions)?;
     result.set_item("bh_masses", bh_masses)?;

@@ -295,11 +295,35 @@ class RiskParity:
         cov = np.maximum(cov, np.eye(len(cov)) * 1e-6)  # regularize
         return self._risk_parity_weights(cov)
 
-    def risk_contributions(self, weights: np.ndarray, cov: np.ndarray) -> np.ndarray:
+    def risk_contributions(self, weights_or_prices, cov: np.ndarray = None) -> object:
         """
         Compute the risk contribution of each asset.
         RC_i = w_i * (Cov @ w)_i / sqrt(w.T @ Cov @ w)
+
+        Can be called as:
+          risk_contributions(weights: np.ndarray, cov: np.ndarray) -> np.ndarray
+          risk_contributions(prices: pd.DataFrame) -> pd.DataFrame (time-series)
         """
+        if isinstance(weights_or_prices, pd.DataFrame):
+            prices = weights_or_prices
+            cols = self.assets if self.assets is not None else list(prices.columns)
+            returns = prices[cols].pct_change().fillna(0)
+            n_bars = len(prices)
+            rc_rows = []
+            for i in range(1, n_bars):
+                window = returns.iloc[max(0, i - 252):i]
+                if len(window) < 2:
+                    rc_rows.append([np.nan] * len(cols))
+                    continue
+                cov_w = window.cov().values
+                w = self._risk_parity_weights(cov_w)
+                port_vol = math.sqrt(max(1e-12, w @ cov_w @ w))
+                rc = w * (cov_w @ w) / port_vol
+                rc_rows.append(rc.tolist())
+            rc_rows.insert(0, [np.nan] * len(cols))
+            return pd.DataFrame(rc_rows, index=prices.index, columns=cols)
+        # Original array interface
+        weights = weights_or_prices
         port_var = weights @ cov @ weights
         port_vol = math.sqrt(max(1e-12, port_var))
         mrc = cov @ weights
@@ -492,11 +516,34 @@ class MaxDiversification:
         except Exception:
             return np.ones(n) / n
 
-    def diversification_ratio(self, weights: np.ndarray, cov: np.ndarray) -> float:
+    def diversification_ratio(self, weights_or_prices, cov: np.ndarray = None) -> object:
         """
         Compute the diversification ratio of a portfolio.
         DR = (w.T @ sigma) / sqrt(w.T @ Cov @ w)
+
+        Can be called as:
+          diversification_ratio(weights: np.ndarray, cov: np.ndarray) -> float
+          diversification_ratio(prices: pd.DataFrame) -> pd.Series (time-series)
         """
+        if isinstance(weights_or_prices, pd.DataFrame):
+            prices = weights_or_prices
+            cols = self.assets if self.assets is not None else list(prices.columns)
+            returns = prices[cols].pct_change().fillna(0)
+            n_bars = len(prices)
+            dr_vals = [np.nan]
+            for i in range(1, n_bars):
+                window = returns.iloc[max(0, i - 252):i]
+                if len(window) < 2:
+                    dr_vals.append(np.nan)
+                    continue
+                cov_w = window.cov().values
+                w = self._max_div_weights(cov_w)
+                vols = np.sqrt(np.maximum(np.diag(cov_w), 1e-10))
+                port_vol = math.sqrt(max(1e-12, w @ cov_w @ w))
+                dr_vals.append(float(w @ vols) / port_vol)
+            return pd.Series(dr_vals, index=prices.index)
+        # Original array interface
+        weights = weights_or_prices
         vols = np.sqrt(np.maximum(np.diag(cov), 1e-10))
         weighted_vol_sum = float(weights @ vols)
         port_vol = math.sqrt(max(1e-12, weights @ cov @ weights))

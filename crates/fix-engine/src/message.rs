@@ -155,7 +155,7 @@ impl fmt::Display for FixField {
 }
 
 /// A complete FIX message with ordered fields
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FixMessage {
     /// All fields in wire order (includes header, body, trailer)
     fields: Vec<FixField>,

@@ -19,6 +19,54 @@ from enum import IntEnum
 from typing import Optional, List, Tuple
 
 
+class _ATR:
+    """Wilder ATR for batch helpers."""
+    def __init__(self, p: int = 14):
+        self._p = p; self._prev_c: Optional[float] = None; self.val = 0.0; self._n = 0
+    def update(self, h: float, lo: float, c: float) -> float:
+        if self._prev_c is None:
+            self._prev_c = c; return 0.0
+        tr = max(h - lo, abs(h - self._prev_c), abs(lo - self._prev_c))
+        if self._n < self._p:
+            self.val = (self.val * self._n + tr) / (self._n + 1)
+        else:
+            self.val = (self.val * (self._p - 1) + tr) / self._p
+        self._n += 1; self._prev_c = c; return self.val
+
+
+class _BB:
+    """Simple Bollinger band (middle, std) for batch helpers."""
+    def __init__(self, p: int = 20):
+        self._p = p; self._buf: deque = deque(maxlen=p)
+    def update(self, c: float):
+        self._buf.append(c)
+        if len(self._buf) < self._p:
+            return c, 0.0
+        arr = list(self._buf); mid = sum(arr) / len(arr)
+        std = float(np.std(arr))
+        return mid, std
+
+
+class _BHDetectResult:
+    """Simple container returned by BlackHoleDetector.detect()."""
+    __slots__ = ("bh_mass", "bh_active", "bh_dir", "ctl")
+    def __init__(self, bh_mass, bh_active, bh_dir, ctl):
+        self.bh_mass   = bh_mass
+        self.bh_active = bh_active
+        self.bh_dir    = bh_dir
+        self.ctl       = ctl
+
+
+class _GeoResult:
+    """Simple container returned by GeodesicAnalyzer.analyze()."""
+    __slots__ = ("slope", "causal_frac", "rapidity", "geo_dev")
+    def __init__(self, slope, causal_frac, rapidity, geo_dev):
+        self.slope       = slope
+        self.causal_frac = causal_frac
+        self.rapidity    = rapidity
+        self.geo_dev     = geo_dev
+
+
 class MarketRegime(IntEnum):
     BULL           = 0
     BEAR           = 1
@@ -87,6 +135,14 @@ class MinkowskiClassifier:
     @property
     def is_timelike(self) -> bool:
         return self.bit == "TIMELIKE"
+
+    def classify(self, prices) -> "pd.Series":
+        """Batch wrapper: feed a price Series and return a Series of classifications."""
+        import pandas as pd
+        clf = MinkowskiClassifier(cf=self.cf, max_vol=self.max_vol)
+        results = [clf.update(float(p)) for p in prices]
+        idx = prices.index if hasattr(prices, "index") else range(len(results))
+        return pd.Series([r.lower() if r != "UNKNOWN" else None for r in results], index=idx)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -199,6 +255,32 @@ class BlackHoleDetector:
         self.ctl = 0; self.cum_disp = 0.0; self.prev_bh_mass = 0.0
         self.reform_bars = 0
 
+    def detect(self, prices) -> "_BHDetectResult":
+        """Batch wrapper: feed a price Series and return a result object with Series attributes."""
+        import pandas as pd
+        clf = MinkowskiClassifier()
+        det = BlackHoleDetector(self.bh_form, self.bh_collapse, self.bh_decay)
+        masses, actives, dirs, ctls = [], [], [], []
+        prev = None
+        for p in prices:
+            p = float(p)
+            bit = clf.update(p) if prev is not None else "UNKNOWN"
+            if prev is not None:
+                br = (p - prev) / (prev + 1e-9)
+                det.update(bit, p, prev)
+            masses.append(det.bh_mass)
+            actives.append(int(det.bh_active))
+            dirs.append(det.bh_dir)
+            ctls.append(det.ctl)
+            prev = p
+        idx = prices.index if hasattr(prices, "index") else range(len(masses))
+        return _BHDetectResult(
+            bh_mass=pd.Series(masses, index=idx),
+            bh_active=pd.Series(actives, index=idx),
+            bh_dir=pd.Series(dirs, index=idx),
+            ctl=pd.Series(ctls, index=idx),
+        )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GeodesicAnalyzer
@@ -279,6 +361,25 @@ class GeodesicAnalyzer:
     @property
     def ready(self) -> bool:
         return len(self._closes) >= self.window
+
+    def analyze(self, prices) -> "_GeoResult":
+        """Batch wrapper: feed a price Series and return the final GeoResult."""
+        analyzer = GeodesicAnalyzer(cf=self.cf, window=self.window)
+        atr_obj = _ATR(14)
+        geo_dev = geo_slope = causal_frac = rapidity = 0.0
+        prices_list = list(prices)
+        for i, p in enumerate(prices_list):
+            p = float(p)
+            h = p * 1.001; lo = p * 0.999; c = p
+            atr_val = atr_obj.update(h, lo, c)
+            if atr_val > 0:
+                geo_dev, geo_slope, causal_frac, rapidity = analyzer.update(p, atr_val)
+        return _GeoResult(
+            slope=geo_slope,
+            causal_frac=causal_frac,
+            rapidity=rapidity,
+            geo_dev=geo_dev,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -376,6 +477,23 @@ class GravitationalLens:
 
         return self.mu
 
+    def compute_mu(self, prices) -> float:
+        """Batch wrapper: feed a price Series and return the final mu value."""
+        clf = MinkowskiClassifier()
+        lens = GravitationalLens()
+        atr_obj = _ATR(14)
+        mu = 1.0
+        prev = None
+        for p in prices:
+            p = float(p)
+            h = p * 1.001; lo = p * 0.999
+            atr_val = atr_obj.update(h, lo, p)
+            bit = clf.update(p)
+            if prev is not None and atr_val > 0:
+                mu = lens.update(p, 1.0, bit, clf.tl_confirm, atr_val)
+            prev = p
+        return mu
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HawkingMonitor  (Bollinger-band Z² proxy for Hawking temperature)
@@ -412,3 +530,15 @@ class HawkingMonitor:
     @property
     def is_inverted(self) -> bool:
         return self.ht < -1.5
+
+    def compute_temperature(self, prices) -> float:
+        """Batch wrapper: feed a price Series and return the final Hawking temperature."""
+        bb_obj = _BB(20)
+        monitor = HawkingMonitor()
+        ht = 0.0
+        for p in prices:
+            p = float(p)
+            mid, std = bb_obj.update(p)
+            if std > 0:
+                ht = monitor.update(p, mid, std)
+        return ht

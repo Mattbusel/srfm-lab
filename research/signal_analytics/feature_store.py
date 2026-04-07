@@ -738,7 +738,9 @@ class FeaturePipeline:
 
         for symbol, ohlcv in symbol_data.items():
             try:
-                prices = ohlcv.get("prices") or ohlcv.get("close")
+                prices = ohlcv.get("prices")
+                if prices is None:
+                    prices = ohlcv.get("close")
                 if prices is None or len(prices) < 10:
                     logger.debug("Skipping %s: insufficient price data", symbol)
                     n_failed += 1
@@ -747,7 +749,9 @@ class FeaturePipeline:
                 volume = ohlcv.get("volume")
                 high = ohlcv.get("high")
                 low = ohlcv.get("low")
-                open_ = ohlcv.get("open") or ohlcv.get("open_")
+                open_ = ohlcv.get("open")
+                if open_ is None:
+                    open_ = ohlcv.get("open_")
 
                 features = self.computer.compute_all_to_features(
                     symbol=symbol,
