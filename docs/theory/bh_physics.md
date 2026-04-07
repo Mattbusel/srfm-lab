@@ -2,7 +2,7 @@
 
 ## Overview
 
-The SRFM (Spacetime Relativistic Financial Mechanics) framework applies concepts from general relativity to model momentum accumulation in financial markets. The core idea is that large price moves are not merely statistical outliers — they are events where a market "approaches the speed of light" relative to its own natural volatility scale, causing spacetime curvature that traps momentum and creates a persistent directional force.
+The SRFM (Spacetime Relativistic Financial Mechanics) framework applies concepts from general relativity to model momentum accumulation in financial markets. The core idea is that large price moves are not merely statistical outliers -- they are events where a market "approaches the speed of light" relative to its own natural volatility scale, causing spacetime curvature that traps momentum and creates a persistent directional force.
 
 This document derives the full mathematical framework from first principles.
 
@@ -125,7 +125,7 @@ The steady-state mass from a constant β-value input is:
 m_ss = (γ - 1) / (1 - decay)
 ```
 
-For decay = 0.95: m_ss = 20 × (γ - 1). A β = 0.3 bar (γ ≈ 1.048) contributes 20 × 0.048 ≈ 0.96 units in steady state — just below the default formation threshold of 1.5.
+For decay = 0.95: m_ss = 20 × (γ - 1). A β = 0.3 bar (γ ≈ 1.048) contributes 20 × 0.048 ≈ 0.96 units in steady state -- just below the default formation threshold of 1.5.
 
 A β = 0.4 bar (γ ≈ 1.091) contributes 20 × 0.091 ≈ 1.82 units, exceeding the threshold after a single large bar. This is the "single-bar formation" case seen in gap events.
 
@@ -189,7 +189,7 @@ Bonus: if all active timeframes agree on direction, add 1 (max 7).
 | 6        | 1h + 1d (same direction)             | 55%         |
 | 7        | All three + directional agreement    | 65%         |
 
-**Why does multi-TF agreement matter?** When the daily BH forms (slow momentum), the hourly BH often confirms within hours (fast momentum catches up). The 15m BH then acts as the immediate entry trigger. All three firing together means the market is moving coherently at all timescales — a true momentum regime rather than a single large bar.
+**Why does multi-TF agreement matter?** When the daily BH forms (slow momentum), the hourly BH often confirms within hours (fast momentum catches up). The 15m BH then acts as the immediate entry trigger. All three firing together means the market is moving coherently at all timescales -- a true momentum regime rather than a single large bar.
 
 ---
 
@@ -250,7 +250,7 @@ pos_floor is a "minimum conviction floor." When BH is active with tf_score ≥ m
 | Signal persistence       | None after entry        | Mass continues updating  |
 | Directional flip         | Stop hit → re-entry     | Direction flips with mass|
 
-The key difference is that BH mass is **self-normalizing via the CF parameter**. A 1% move in ES (CF_1d = 0.005) generates β = 0.2 and γ ≈ 1.02 — a small contribution. The same 1% move in BTC (CF_1d = 0.05) generates β = 0.02 and γ ≈ 1.0002 — negligible. This means CF calibration automatically accounts for the instrument's natural volatility, making the same threshold (bh_form = 1.5) appropriate across asset classes with wildly different volatility levels.
+The key difference is that BH mass is **self-normalizing via the CF parameter**. A 1% move in ES (CF_1d = 0.005) generates β = 0.2 and γ ≈ 1.02 -- a small contribution. The same 1% move in BTC (CF_1d = 0.05) generates β = 0.02 and γ ≈ 1.0002 -- negligible. This means CF calibration automatically accounts for the instrument's natural volatility, making the same threshold (bh_form = 1.5) appropriate across asset classes with wildly different volatility levels.
 
 ---
 

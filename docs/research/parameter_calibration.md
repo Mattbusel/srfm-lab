@@ -41,7 +41,7 @@ CF_1h  = CF_1d  / sqrt(6.5)       # 6.5 trading hours per day
 CF_15m = CF_1h  / sqrt(4)          # 4 fifteen-minute bars per hour
 ```
 
-The sqrt-of-time rule assumes i.i.d. returns — in practice, this slightly underestimates intraday CF due to intraday volatility clustering, so add a 10% buffer:
+The sqrt-of-time rule assumes i.i.d. returns -- in practice, this slightly underestimates intraday CF due to intraday volatility clustering, so add a 10% buffer:
 
 ```
 CF_1h  = CF_1d  / sqrt(6.5) * 1.1
@@ -92,7 +92,7 @@ So without additional momentum input, the BH collapses after ~8 bars.
 
 For a faster-decaying BH (decay=0.90): half_life ≈ 3.9 bars.
 
-**Guideline**: Set decay so that half_life ≈ (average_trade_duration / 2). If your average winning trade lasts 15 bars, decay ≈ 0.95 gives half_life ≈ 8 bars — the BH expires naturally around the time a normal trade would exit.
+**Guideline**: Set decay so that half_life ≈ (average_trade_duration / 2). If your average winning trade lasts 15 bars, decay ≈ 0.95 gives half_life ≈ 8 bars -- the BH expires naturally around the time a normal trade would exit.
 
 ---
 

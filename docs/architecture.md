@@ -10,7 +10,7 @@ SRFM Lab is a multi-language quant research and live trading platform built arou
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         SRFM Lab — Full System                                  │
+│                         SRFM Lab -- Full System                                  │
 │                                                                                  │
 │  ┌────────────────────────────────┐  ┌────────────────────────────────────────┐  │
 │  │       Research Pipeline        │  │         Live Trading Pipeline           │  │

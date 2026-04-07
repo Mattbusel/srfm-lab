@@ -1,4 +1,4 @@
-# Wave 4 Backtest — Signal Extension Deep Dive
+# Wave 4 Backtest -- Signal Extension Deep Dive
 
 > SRFM Lab · `tools/backtest_wave4.py`  
 > Last updated: 2026-04-05
@@ -17,7 +17,7 @@ backtest results into actionable live-system parameters.
 3. [BTC Granger Lead Signal](#3-btc-granger-lead-signal)
 4. [MLSignalModule](#4-mlsignalmodule)
 5. [Four-Variant Comparison Framework](#5-four-variant-comparison-framework)
-6. [Walk-Forward Validation — CPCV](#6-walk-forward-validation--cpcv)
+6. [Walk-Forward Validation -- CPCV](#6-walk-forward-validation--cpcv)
 7. [Monte Carlo Simulation](#7-monte-carlo-simulation)
 8. [Parameter Sensitivity](#8-parameter-sensitivity)
 9. [Integration with Live Trader](#9-integration-with-live-trader)
@@ -52,7 +52,7 @@ to isolate its marginal contribution.
 
 ## 2. EventCalendarFilter
 
-**File:** `tools/backtest_wave4.py` — class `EventCalendarFilter`
+**File:** `tools/backtest_wave4.py` -- class `EventCalendarFilter`
 
 ### Event Schedule
 
@@ -98,7 +98,7 @@ class EventCalendarFilter:
         return 1.0
 ```
 
-The 0.5× multiplier is applied to **all** raw position sizes — not just new
+The 0.5× multiplier is applied to **all** raw position sizes -- not just new
 entries. This means existing positions are also halved during the window,
 creating an implicit "reduce before event" behaviour.
 
@@ -150,7 +150,7 @@ if _event_mult != 1.0:
 
 ## 3. BTC Granger Lead Signal
 
-**File:** `tools/backtest_wave4.py` — class `NetworkSignalTracker`
+**File:** `tools/backtest_wave4.py` -- class `NetworkSignalTracker`
 
 ### Hypothesis
 
@@ -175,8 +175,8 @@ F-test: H0: all γ_i = 0  (X does not Granger-cause Y)
 For crypto daily returns, formal Granger tests at lag 1 typically fail to
 reject H0 at the 5% level (the crypto market is informationally efficient at
 the daily horizon for simple pairwise tests). However, **rolling cross-
-correlation** — measuring whether BTC and an altcoin have moved together
-consistently over a 30-day window — provides a practical proxy that captures
+correlation** -- measuring whether BTC and an altcoin have moved together
+consistently over a 30-day window -- provides a practical proxy that captures
 regime-dependent lead-lag behaviour without requiring the strict Granger test.
 
 ### NetworkSignalTracker Implementation
@@ -253,7 +253,7 @@ windows while filtering the highest-noise periods.
 
 ## 4. MLSignalModule
 
-**File:** `tools/backtest_wave4.py` — classes `_LogisticRegressor` and `MLSignalModule`
+**File:** `tools/backtest_wave4.py` -- classes `_LogisticRegressor` and `MLSignalModule`
 
 ### Architecture
 
@@ -331,7 +331,7 @@ elif ml_sig < -0.3:
     # (existing positions are maintained)
 ```
 
-The asymmetric treatment — boost when positive, skip when negative — reflects
+The asymmetric treatment -- boost when positive, skip when negative -- reflects
 the strategy's long-only stance. The model is never used to initiate short
 positions.
 
@@ -361,7 +361,7 @@ is a planned Wave 5 improvement.
 
 ### GARCH Vol Estimate as a Feature
 
-The sixth feature — `vol_t` from `GARCHTracker` — encodes the current
+The sixth feature -- `vol_t` from `GARCHTracker` -- encodes the current
 volatility regime. High volatility reduces the logistic score for positive
 forecasts (the model learns that high-vol periods correlate with mean
 reversion, not momentum), effectively providing a vol-regime filter orthogonal
@@ -463,7 +463,7 @@ the combined boost from creating an over-leveraged portfolio.
 
 ---
 
-## 6. Walk-Forward Validation — CPCV
+## 6. Walk-Forward Validation -- CPCV
 
 **File:** `research/walk_forward/engine.py`
 
@@ -542,7 +542,7 @@ A strategy is considered robustly validated if:
 
 ## 7. Monte Carlo Simulation
 
-**File:** `tools/crypto_backtest_mc.py` — function `run_mc()`
+**File:** `tools/crypto_backtest_mc.py` -- function `run_mc()`
 
 ### Methodology
 
@@ -577,7 +577,7 @@ underestimates the probability of extended drawdown sequences.
 
 Mitigation: the Monte Carlo uses **per-month trade counts** drawn from a
 Gaussian around the historical average. This preserves the temporal clustering
-partially — a bad month has its trades grouped in the same portfolio state.
+partially -- a bad month has its trades grouped in the same portfolio state.
 
 ```
 True path (ordered):   + + + - - - - - + + + + + + ...
@@ -586,7 +586,7 @@ True path (ordered):   + + + - - - - - + + + + + + ...
                          (trades correlated)
 
 Bootstrap path:        + - + + - - + + + - + - + - ...
-                        (trades independent — underestimates cluster risk)
+                        (trades independent -- underestimates cluster risk)
 
 Monte Carlo output:
   Median final equity:   $340,000
@@ -632,7 +632,7 @@ MONTE CARLO RESULTS  (10,000 paths, 24 months)
 Wave 4 includes sensitivity analysis for each new module parameter. The tables
 below show directional effects:
 
-**EventCalendarFilter — window size:**
+**EventCalendarFilter -- window size:**
 
 | Window (hours) | Effect on Sharpe | Effect on Max DD | Notes |
 |---|---|---|---|
@@ -641,7 +641,7 @@ below show directional effects:
 | ±4h | +0.08 | -1.1% | Window too wide, misses too many good bars |
 | ±8h | -0.03 | -2.1% | Over-filtering, CAGR penalty dominates |
 
-**EventCalendarFilter — position multiplier:**
+**EventCalendarFilter -- position multiplier:**
 
 | Multiplier | Effect on Sharpe | Effect on CAGR |
 |---|---|---|
@@ -650,7 +650,7 @@ below show directional effects:
 | 0.75 | +0.06 | -0.6% |
 | 1.0 (off) | 0.00 | 0.0% (baseline) |
 
-**NetworkSignalTracker — correlation threshold:**
+**NetworkSignalTracker -- correlation threshold:**
 
 | Threshold | Active fraction of windows | Sharpe vs baseline |
 |---|---|---|
@@ -664,7 +664,7 @@ The peak at 0.30 reflects a sweet spot: the boost activates in sustained
 bull-correlation regimes but not during the noisy periods where the
 relationship is unstable.
 
-**MLSignalModule — signal threshold:**
+**MLSignalModule -- signal threshold:**
 
 | Threshold | Skip entry when signal < | Sharpe | CAGR | Win Rate |
 |---|---|---|---|---|
@@ -676,7 +676,7 @@ At threshold 0.3, the negative signal skip fires for approximately 15% of
 potential new entries, filtering out the lowest-quality signals without
 over-restricting the strategy.
 
-**Effect matrix — combined module sensitivities on Sharpe vs drawdown:**
+**Effect matrix -- combined module sensitivities on Sharpe vs drawdown:**
 
 ```
              │  Sharpe ↑  │  Max DD ↓  │  CAGR ↑  │
@@ -711,14 +711,14 @@ directly as constants, and structurally as architectural choices.
 | Dynamic CORR stress threshold | `CORR_STRESS_THRESHOLD` | 0.60 |
 | Min hold from IAE | `MIN_HOLD` | 8 bars |
 
-The live trader uses a simplified version of the Granger lead signal — it
+The live trader uses a simplified version of the Granger lead signal -- it
 checks whether BTC's 4h and 1h BH are both active simultaneously (`btc_lead =
 btc.bh_4h.active and btc.bh_1h.active`) and applies a 1.4× multiplier to all
 altcoins rather than a symbol-by-symbol correlation check. This trades
 precision for operational simplicity, consistent with the live trader's
 design goal of minimal latency in the bar-processing loop.
 
-### EventCalendarFilter — Not Yet Live
+### EventCalendarFilter -- Not Yet Live
 
 The EventCalendarFilter is not yet integrated into the live trader as of
 v16. The primary reason is the synthetic calendar's limited precision for
@@ -730,7 +730,7 @@ actual FOMC dates. A planned v17 integration will:
 3. This way the live trader architecture (hot-reload overrides) absorbs
    the feature without code changes
 
-### MLSignalModule — Not Yet Live
+### MLSignalModule -- Not Yet Live
 
 The ML signal is also not live. The IS/OOS architecture requires a stable
 model file, which would need to be:
@@ -768,7 +768,7 @@ second, ML inference last.
 
 ---
 
-## Appendix A — Key Formulas Reference
+## Appendix A -- Key Formulas Reference
 
 **Kelly fraction (simplified, used in per_inst_risk):**
 
@@ -816,7 +816,7 @@ CAGR = (final_equity / start_equity)^(1 / years) - 1
 
 ---
 
-## Appendix B — Running the Wave 4 Backtest
+## Appendix B -- Running the Wave 4 Backtest
 
 ```bash
 # With cached data (fastest):
@@ -826,7 +826,7 @@ python tools/backtest_wave4.py --cache tools/backtest_output/crypto_data_cache.p
 python tools/backtest_wave4.py --no-ml
 
 # Output files:
-#   tools/backtest_output/wave4_comparison.csv   — module comparison table
+#   tools/backtest_output/wave4_comparison.csv   -- module comparison table
 ```
 
 The script prints:

@@ -1,31 +1,31 @@
 # Black Hole Physics Trading Engine
 
-## SRFM — Special Relativistic Financial Mechanics
+## SRFM -- Special Relativistic Financial Mechanics
 
 > "Markets are not random walks. They are causal manifolds punctuated by
 > phase transitions. The Black Hole engine detects when price momentum has
-> become gravitationally bound — and bets accordingly."
+> become gravitationally bound -- and bets accordingly."
 
 ---
 
 ## Table of Contents
 
-1. [Theoretical Foundation — Minkowski Spacetime for Price Bars](#1-theoretical-foundation)
-2. [MinkowskiClassifier — TIMELIKE vs SPACELIKE](#2-minkowskiclassifier)
-3. [BlackHoleDetector — Mass Accumulation & Decay](#3-blackholedetector)
+1. [Theoretical Foundation -- Minkowski Spacetime for Price Bars](#1-theoretical-foundation)
+2. [MinkowskiClassifier -- TIMELIKE vs SPACELIKE](#2-minkowskiclassifier)
+3. [BlackHoleDetector -- Mass Accumulation & Decay](#3-blackholedetector)
 4. [BH Formation Threshold (BH_FORM)](#4-bh-formation-threshold)
 5. [Hawking Temperature Monitor](#5-hawking-temperature-monitor)
-6. [GravitationalLens — Lensing Amplification μ](#6-gravitationallens)
-7. [GeodesicAnalyzer — 20-Bar Regression & Causal Fraction](#7-geodesicanalyzer)
-8. [Delta Score — The Allocation Signal](#8-delta-score)
-9. [BTC Lead Signal — Cross-Asset Momentum](#9-btc-lead-signal)
+6. [GravitationalLens -- Lensing Amplification μ](#6-gravitationallens)
+7. [GeodesicAnalyzer -- 20-Bar Regression & Causal Fraction](#7-geodesicanalyzer)
+8. [Delta Score -- The Allocation Signal](#8-delta-score)
+9. [BTC Lead Signal -- Cross-Asset Momentum](#9-btc-lead-signal)
 10. [Mayer Multiple Dampener](#10-mayer-multiple-dampener)
-11. [OU Overlay — Mean Reversion Sleeve](#11-ou-overlay)
+11. [OU Overlay -- Mean Reversion Sleeve](#11-ou-overlay)
 12. [GARCH(1,1) Volatility Scaling](#12-garch11-volatility-scaling)
 13. [Three-Timeframe Fusion](#13-three-timeframe-fusion)
 14. [Parameter Calibration Table](#14-parameter-calibration-table)
-15. [Worked Example — Full BTC Signal Trace](#15-worked-example)
-16. [Why It Works — Physical Intuition](#16-why-it-works)
+15. [Worked Example -- Full BTC Signal Trace](#15-worked-example)
+16. [Why It Works -- Physical Intuition](#16-why-it-works)
 
 ---
 
@@ -41,9 +41,9 @@ ds² = c²dt² − dx²
 
 where `c` is the speed of light, `dt` is elapsed time, and `dx` is spatial
 displacement. An interval is **TIMELIKE** (`ds² > 0`) when the spatial
-displacement is smaller than what light can cover in the time elapsed — the
+displacement is smaller than what light can cover in the time elapsed -- the
 two events can be causally connected. It is **SPACELIKE** (`ds² < 0`) when
-displacement exceeds what any causal signal can achieve — the events are
+displacement exceeds what any causal signal can achieve -- the events are
 causally disconnected.
 
 SRFM maps this directly onto price bars:
@@ -56,7 +56,7 @@ ds² = CF²·dt² − (ΔP/P)²
 |---------|-----------------------------------------------|
 | `dt`    | One bar period (normalised to 1)              |
 | `ΔP/P`  | Fractional price move: `|close_t − close_{t-1}| / close_{t-1}` |
-| `CF`    | "Speed of light" for the instrument — maximum velocity of an *ordered* move |
+| `CF`    | "Speed of light" for the instrument -- maximum velocity of an *ordered* move |
 
 Dividing both sides by `CF²dt²` and setting `dt = 1`:
 
@@ -74,9 +74,9 @@ This is the `beta` field computed by `MinkowskiClassifier`.
 `CF` (the "financial speed of light") encodes how much a *normal* ordered
 move looks like for a given instrument in a single bar period:
 
-- **Low CF** (e.g. `EURUSD = 0.0005`): tight, well-regulated market — even a
+- **Low CF** (e.g. `EURUSD = 0.0005`): tight, well-regulated market -- even a
   0.05% move per bar is "super-luminal."
-- **High CF** (e.g. `SOL = 0.010`, `NG = 0.020`): volatile instrument — a 2%
+- **High CF** (e.g. `SOL = 0.010`, `NG = 0.020`): volatile instrument -- a 2%
   bar is still within the causal cone.
 
 CF is calibrated so that roughly 80–90% of all bars are TIMELIKE in normal
@@ -114,7 +114,7 @@ class MinkowskiClassifier:
 ### Proper Time
 
 Proper time `τ` accumulates slower when price moves fast. A sequence of
-violent bars produces less proper time than a slow grind — mirroring
+violent bars produces less proper time than a slow grind -- mirroring
 relativistic time dilation. This provides a secondary measure of "how much
 ordered time has elapsed" that discounts shock episodes.
 
@@ -170,7 +170,7 @@ bh_mass* = (|r| × 100 × 2) / (1 − BH_DECAY)
 ```
 
 For a typical BTC hourly bar of `|r| ≈ 0.0008` (0.08%), the steady-state
-mass is around 3.2 — comfortably above the formation threshold. This means
+mass is around 3.2 -- comfortably above the formation threshold. This means
 a sufficiently long streak of consistent moves will always form a black hole,
 no matter how small each individual bar is.
 
@@ -185,7 +185,7 @@ bh_mass_new = bh_mass × 0.95 + new_input
 This is a half-life of approximately `ln(2)/ln(1/0.95) ≈ 13.5 bars`. After
 13–14 bars of silence (zero-return environment), mass halves. After 27 bars,
 three-quarters is gone. This ensures that stale conviction cannot linger
-indefinitely — it must be continuously refreshed by fresh TIMELIKE bars.
+indefinitely -- it must be continuously refreshed by fresh TIMELIKE bars.
 
 ### Reform Memory
 
@@ -212,7 +212,7 @@ Collapse   : bh_mass ≤ BH_COLLAPSE  OR ctl < 5
 ```
 
 The `ctl ≥ 5` gate ensures the detector requires at least 5 consecutive
-TIMELIKE bars before declaring a gravitational well — single spikes cannot
+TIMELIKE bars before declaring a gravitational well -- single spikes cannot
 trigger formation.
 
 ### Default vs Crypto Thresholds
@@ -232,7 +232,7 @@ The gap between formation (1.5) and collapse (1.0) creates **hysteresis**: a
 BH that has formed will persist through mild disruptions, only collapsing when
 mass falls 33% below where it started. This prevents rapid oscillation.
 
-### ASCII Illustration — BH Formation
+### ASCII Illustration -- BH Formation
 
 ```
 bh_mass
@@ -258,7 +258,7 @@ Hawking radiation from a black hole of mass M has temperature:
 T_H = ℏc³ / (8πGMk_B)  ∝  1 / (8πM)
 ```
 
-As the black hole grows more massive (higher mass), it radiates less — it
+As the black hole grows more massive (higher mass), it radiates less -- it
 becomes *colder*. Conversely a small or shrinking BH runs hot.
 
 ### SRFM Implementation
@@ -271,7 +271,7 @@ class HawkingMonitor:
         return ht
 ```
 
-The Hawking Temperature proxy is a **second-order Z-score derivative** — it
+The Hawking Temperature proxy is a **second-order Z-score derivative** -- it
 measures how quickly the price is departing from its Bollinger mean relative
 to where it was last bar.
 
@@ -281,13 +281,13 @@ T_H ~ z × (z − z_{prev})
 
 | Reading     | Value     | Market Interpretation                     |
 |-------------|-----------|-------------------------------------------|
-| Cold well   | T_H < −1.5| Price accelerating back toward mean — mean reversion signal, add to long |
+| Cold well   | T_H < −1.5| Price accelerating back toward mean -- mean reversion signal, add to long |
 | Neutral     | −1.5 to 1.8| Normal operating regime                  |
-| Hot well    | T_H > 1.8 | Price racing away from mean — BH evaporating, reduce longs |
+| Hot well    | T_H > 1.8 | Price racing away from mean -- BH evaporating, reduce longs |
 
 A **hot well** warns that the gravitational field is losing coherence. The
 physical analogy: a very light BH evaporates quickly via Hawking radiation.
-A massive, cold BH is stable and persistent — exactly what the momentum
+A massive, cold BH is stable and persistent -- exactly what the momentum
 strategy wants.
 
 ```python
@@ -302,7 +302,7 @@ def is_inverted(self) -> bool: return self.ht < -1.5
 ## 6. GravitationalLens
 
 Gravitational lensing amplification μ measures how far price has drifted
-from the TIMELIKE VWAP — the "Einstein radius" construct:
+from the TIMELIKE VWAP -- the "Einstein radius" construct:
 
 ```
 M     = ctl + (1 if TIMELIKE else 0)
@@ -315,8 +315,8 @@ r     = |price − VWAP| / ATR
 When `M < 2`: `μ = max(0.3, M/3.0)` (weak field regime).
 
 Interpretation:
-- **μ ≈ 1.0**: price is far from VWAP — weak lensing, low amplification
-- **μ → 2.0**: price sits exactly on top of the TIMELIKE VWAP — maximum
+- **μ ≈ 1.0**: price is far from VWAP -- weak lensing, low amplification
+- **μ → 2.0**: price sits exactly on top of the TIMELIKE VWAP -- maximum
   lensing, strongest signal alignment
 - μ acts as an additional confidence multiplier on the delta score
 
@@ -346,7 +346,7 @@ causal_frac = cc / (window − 1)
 
 `causal_frac` measures what fraction of recent price history lies within
 the causal light cone. A high causal fraction (> 0.75) means price has been
-moving in an ordered, self-consistent manner — the trajectory is "smooth."
+moving in an ordered, self-consistent manner -- the trajectory is "smooth."
 A low causal fraction signals the market has been jumping around randomly.
 
 ### Rapidity
@@ -359,12 +359,12 @@ rapidity = tanh(0.5 × ln((E + p_x) / (E − p_x)))
 
 where `E = p_x = 19-bar return`. In the production formula the denominator
 collapses to `1e-9` whenever returns are symmetric, giving rapidity ≈ 0.
-This functions as a symmetry detector — non-zero rapidity signals a
+This functions as a symmetry detector -- non-zero rapidity signals a
 directionally asymmetric momentum burst.
 
 ---
 
-## 8. Delta Score — The Allocation Signal
+## 8. Delta Score -- The Allocation Signal
 
 The delta score is the primary output that flows into position sizing:
 
@@ -378,7 +378,7 @@ where:
 |------------|-------------|
 | `tf_score` | Bitmask: bit 2 = daily BH active, bit 1 = hourly BH active, bit 0 = 15m BH active. Values 0–7. |
 | `bh_mass`  | Current mass of the daily BH (or dominant timeframe) |
-| `ATR`      | 14-bar Average True Range — scales signal by current volatility |
+| `ATR`      | 14-bar Average True Range -- scales signal by current volatility |
 
 ### TF Score → Position Cap Mapping
 
@@ -416,12 +416,12 @@ if tf_score < 4 or target_frac == 0:
     pos_floor = 0.0                              # clear floor on exit signal
 ```
 
-The floor decays at 5% per bar — similar to the mass half-life — so it
+The floor decays at 5% per bar -- similar to the mass half-life -- so it
 naturally fades if no fresh BH signal reinforces it.
 
 ---
 
-## 9. BTC Lead Signal — Cross-Asset Momentum
+## 9. BTC Lead Signal -- Cross-Asset Momentum
 
 For altcoins, BTC acts as the gravitational anchor of the crypto market:
 
@@ -437,7 +437,7 @@ is in a gravitational well. The intuition: when BTC momentum is strong and
 directed, altcoins tend to follow with leverage. BTC black holes are leading
 indicators for alt black holes.
 
-The signal is asymmetric by design — BTC can only boost, not suppress, alt
+The signal is asymmetric by design -- BTC can only boost, not suppress, alt
 signals. Suppression is handled separately by the Mayer Multiple dampener.
 
 ---
@@ -465,12 +465,12 @@ scale = min(1.0, 2 × MA200 / price)
 
 The dampener only activates when price is more than 2× the 200-bar moving
 average. Below that level it has no effect. This is deliberately conservative
-— it does not fight strong trends, it only scales back extreme parabolic moves
+-- it does not fight strong trends, it only scales back extreme parabolic moves
 where historical crash risk is highest.
 
 ---
 
-## 11. OU Overlay — Mean Reversion Sleeve
+## 11. OU Overlay -- Mean Reversion Sleeve
 
 An Ornstein-Uhlenbeck process models mean-reverting dynamics:
 
@@ -480,7 +480,7 @@ dX = θ(μ − X)dt + σdW
 
 | Parameter | Financial Meaning |
 |-----------|-----------------|
-| `θ` (kappa) | Mean reversion speed — higher = reverts faster |
+| `θ` (kappa) | Mean reversion speed -- higher = reverts faster |
 | `μ`        | Long-run mean (typically 0 for log-returns) |
 | `σ`        | Volatility of the noise term |
 | `dW`       | Wiener process increment |
@@ -489,13 +489,13 @@ The OU overlay operates as a **separate 8% equity sleeve** dedicated purely
 to mean reversion trades. It looks for situations where:
 
 1. Price has deviated significantly from the OU mean (Hawking temperature
-   is "inverted" — `T_H < −1.5`)
+   is "inverted" -- `T_H < −1.5`)
 2. The BH is NOT active (no directional gravitational well)
 3. The OU half-life `τ = ln(2)/θ` suggests reversion within a reasonable
    holding period
 
 This keeps mean-reversion capital insulated from the momentum capital. The
-two strategies are designed to be uncorrelated — momentum (BH engine) trades
+two strategies are designed to be uncorrelated -- momentum (BH engine) trades
 with the trend, OU overlay fades extremes.
 
 ---
@@ -587,16 +587,16 @@ For `long_only=True` mode, negative direction is treated as zero (flat).
 | BTC      | Crypto          | 0.005   | 0.5% bar = boundary of ordered move   |
 | ETH      | Crypto          | 0.007   | More volatile than BTC                 |
 | SOL      | Crypto          | 0.010   | High-beta alt                          |
-| ES       | Equity Index    | 0.001   | S&P 500 futures — tight                |
+| ES       | Equity Index    | 0.001   | S&P 500 futures -- tight                |
 | NQ       | Equity Index    | 0.0012  | Nasdaq slightly wider                  |
 | QQQ      | Equity Index    | 0.0012  | ETF equivalent of NQ                   |
-| CL       | Energy          | 0.015   | Crude oil — wide swings                |
-| NG       | Energy          | 0.020   | Natural gas — widest                   |
+| CL       | Energy          | 0.015   | Crude oil -- wide swings                |
+| NG       | Energy          | 0.020   | Natural gas -- widest                   |
 | GC       | Metals          | 0.008   | Gold                                   |
 | SI       | Metals          | 0.008   | Silver                                 |
 | ZB       | Bond            | 0.003   | 30-year T-Bond                         |
 | ZN       | Bond            | 0.003   | 10-year T-Note                         |
-| EURUSD   | Forex           | 0.0005  | Major pair — very tight                |
+| EURUSD   | Forex           | 0.0005  | Major pair -- very tight                |
 | GBPUSD   | Forex           | 0.0005  | Major pair                             |
 | USDJPY   | Forex           | 0.0005  | Major pair                             |
 | VIX      | Volatility      | 0.025   | VIX is inherently spiky                |
@@ -619,7 +619,7 @@ For `long_only=True` mode, negative direction is treated as zero (flat).
 
 ---
 
-## 15. Worked Example — Full BTC Signal Trace
+## 15. Worked Example -- Full BTC Signal Trace
 
 ### Setup
 
@@ -636,13 +636,13 @@ Starting bh_mass: 0.0, ctl: 0
 Bar  Close    ΔP/P     beta    bit        ctl  sb     mass_input  bh_mass   active
 ─────────────────────────────────────────────────────────────────────────────────
  1   42000    +0.001   0.20    TIMELIKE   1    1.10   0.110       0.104     False
- 2   42250    +0.006   1.19    SPACELIKE  0    —      decay×0.7   0.073     False
+ 2   42250    +0.006   1.19    SPACELIKE  0    --      decay×0.7   0.073     False
  3   42100    −0.004   0.71    TIMELIKE   1    1.10   0.377       0.444     False
- 4   42400    +0.007   1.40    SPACELIKE  0    —      decay×0.7   0.311     False
+ 4   42400    +0.007   1.40    SPACELIKE  0    --      decay×0.7   0.311     False
  5   42600    +0.005   1.00    TIMELIKE   1    1.10   0.527       0.822     False
- 6   42900    +0.007   1.40    SPACELIKE  0    —      decay×0.7   0.575     False
+ 6   42900    +0.007   1.40    SPACELIKE  0    --      decay×0.7   0.575     False
  7   43100    +0.005   0.94    TIMELIKE   1    1.10   0.527       1.073     False
- 8   43350    +0.006   1.11    SPACELIKE  0    —      decay×0.7   0.751     False
+ 8   43350    +0.006   1.11    SPACELIKE  0    --      decay×0.7   0.751     False
  9   43600    +0.006   1.11    TIMELIKE   1    1.10   0.631       1.345     False
 10   43900    +0.007   1.33    TIMELIKE   2    1.20   0.800       2.078     False
 11   44200    +0.007   1.30    TIMELIKE   3    1.30   0.869       2.843     False
@@ -713,7 +713,7 @@ dollar_position = 0.087 × equity / price
 
 ---
 
-## 16. Why It Works — Physical Intuition
+## 16. Why It Works -- Physical Intuition
 
 ### Causal vs Non-Causal Price Moves
 
@@ -723,12 +723,12 @@ different types of price movement:
 **TIMELIKE moves** (β < 1): These are *informed* moves. They propagate at a
 rate consistent with information diffusion through a network of connected
 participants. When a market trends in a consistent, sub-luminal manner, it
-is signalling that there is an ongoing imbalance of information — someone
+is signalling that there is an ongoing imbalance of information -- someone
 knows something and is gradually expressing it. These moves are *causal* in
 the Granger sense: past prices predict future prices within the light cone.
 
 **SPACELIKE moves** (β ≥ 1): These are *shocked* moves. They propagate faster
-than any causal mechanism can explain — they are market microstructure
+than any causal mechanism can explain -- they are market microstructure
 events: stop-hunting cascades, gap openings, news shocks, forced
 liquidations. These moves have no predictive content; they are noise that
 interrupts the signal.
@@ -738,7 +738,7 @@ interrupts the signal.
 The `ctl` (consecutive timelike) counter and the `ctl ≥ 5` gate are
 statistically motivated. A single TIMELIKE bar is noise. Five consecutive
 TIMELIKE bars with growing mass represents a directional flow that has
-persisted through multiple bar transitions — it is unlikely to be
+persisted through multiple bar transitions -- it is unlikely to be
 coincidental.
 
 The slingshot boost `sb = min(2, 1 + ctl × 0.1)` gives extra weight to
@@ -750,11 +750,11 @@ deflect than one that has only recently begun moving.
 
 Standard momentum indicators (RSI, MACD) measure the magnitude and direction
 of price change. The BH engine measures something subtler: the **topological
-character** of price movement — whether it is occurring within or outside the
+character** of price movement -- whether it is occurring within or outside the
 causal light cone. Two price series can have identical magnitude of momentum
 but radically different BH mass depending on whether the moves were smooth
 (timelike) or spiky (spacelike).
 
-This is why BH_DECAY is critical — it is not enough to have been trending.
+This is why BH_DECAY is critical -- it is not enough to have been trending.
 The trend must be *currently active* and *continuously confirmed* by fresh
 causal evidence.

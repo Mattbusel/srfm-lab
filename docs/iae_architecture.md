@@ -1,6 +1,6 @@
 # Idea Automation Engine (IAE) Architecture
 
-## SRFM — Special Relativistic Financial Mechanics
+## SRFM -- Special Relativistic Financial Mechanics
 
 > "The IAE is a perpetual hypothesis machine. It never sleeps, never satisfies
 > itself with a single explanation, and never promotes a pattern to live
@@ -12,13 +12,13 @@
 ## Table of Contents
 
 1. [Philosophy and Design Goals](#1-philosophy-and-design-goals)
-2. [System Overview — The Autonomous Loop](#2-system-overview)
-3. [Ingestion Pipeline — 4 Stages](#3-ingestion-pipeline)
+2. [System Overview -- The Autonomous Loop](#2-system-overview)
+3. [Ingestion Pipeline -- 4 Stages](#3-ingestion-pipeline)
 4. [Miners](#4-miners)
 5. [Statistical Filters](#5-statistical-filters)
-6. [Genome Evolution — NSGA-II](#6-genome-evolution)
+6. [Genome Evolution -- NSGA-II](#6-genome-evolution)
 7. [Hypothesis Generator](#7-hypothesis-generator)
-8. [Walk-Forward Validation — CPCV](#8-walk-forward-validation)
+8. [Walk-Forward Validation -- CPCV](#8-walk-forward-validation)
 9. [Causal Discovery](#9-causal-discovery)
 10. [Regime Oracle](#10-regime-oracle)
 11. [Signal Library](#11-signal-library)
@@ -123,7 +123,7 @@ class IngestionPipeline:
     """
 ```
 
-### Stage 1 — Load
+### Stage 1 -- Load
 
 Three data sources are queried:
 
@@ -137,16 +137,16 @@ Each loader returns a typed dataclass (`BacktestResult`, `LiveTradeData`,
 `WalkForwardResult`) with normalised column names so miners can operate on
 either source without special-casing.
 
-### Stage 2 — Mine
+### Stage 2 -- Mine
 
 Miners run in parallel across the loaded data. See Section 4 for full
 miner descriptions.
 
-### Stage 3 — Filter
+### Stage 3 -- Filter
 
 Statistical filters eliminate spurious patterns. See Section 5.
 
-### Stage 4 — Persist
+### Stage 4 -- Persist
 
 Confirmed patterns are written to `idea_engine.db` (WAL-mode SQLite). An
 event is emitted to `event_log` with full pipeline run statistics.
@@ -222,7 +222,7 @@ the baseline (all other hours combined) using a bootstrap test.
 ```
 
 This captures the well-documented "US open" and "London/NY overlap" intraday
-edge — when liquidity is highest, BH momentum signals are most reliable.
+edge -- when liquidity is highest, BH momentum signals are most reliable.
 
 ### RegimeClusterMiner
 
@@ -347,7 +347,7 @@ Reject H_0 for all p_(i) ≤ p_(k*)
 At `alpha = 0.05` with 100 candidate patterns, the BH correction approximately
 reduces the effective threshold from 0.05 to ~0.02–0.03 depending on the
 distribution of p-values. This means the bar for significance rises when
-many patterns are tested — preventing the multiple comparison fallacy.
+many patterns are tested -- preventing the multiple comparison fallacy.
 
 ### Minimum Effect Size Gate
 
@@ -381,7 +381,7 @@ because strategy optimisation inherently involves competing objectives:
 | Max Drawdown    | Minimise  | Worst peak-to-trough loss |
 | Turnover        | Minimise  | Trading costs, implementation friction |
 
-No single solution dominates all three. NSGA-II finds the **Pareto front** —
+No single solution dominates all three. NSGA-II finds the **Pareto front** --
 the set of solutions where improving one objective requires worsening another.
 
 ```
@@ -442,7 +442,7 @@ Each genome encodes:
 
 ### Crossover
 
-Simulated Binary Crossover (SBX) for continuous parameters — generates
+Simulated Binary Crossover (SBX) for continuous parameters -- generates
 offspring distributed around the parents with controllable spread. Index
 `η_c = 2` (moderate spread) is used.
 
@@ -469,7 +469,7 @@ If oos_degradation > 0.40:   # >40% Sharpe degradation OOS
 ## 7. Hypothesis Generator
 
 The hypothesis generator converts `MinedPattern` objects into formal
-`Hypothesis` objects — structured, testable claims about the market.
+`Hypothesis` objects -- structured, testable claims about the market.
 
 ### Architecture
 
@@ -735,7 +735,7 @@ IC_weight(age) = IC_recent × exp(−λ × age_days)
 ```
 
 `λ` is calibrated per-signal to capture how quickly each signal's predictive
-power degrades. Signals with high `λ` are "perishable" — they must be
+power degrades. Signals with high `λ` are "perishable" -- they must be
 refreshed frequently. Signals with low `λ` provide durable alpha.
 
 | Signal Category     | Example Signals | Typical IC | Decay Half-Life |
@@ -870,7 +870,7 @@ GET  /health           # Service health check
 ### Persistence and Replay
 
 The bus persists all messages to a ring buffer. On restart, subscribers can
-request replay from a given timestamp — this ensures no events are lost if
+request replay from a given timestamp -- this ensures no events are lost if
 a module is temporarily offline.
 
 ---
@@ -988,7 +988,7 @@ every entity in the system:
 paper_idea → hypothesis → experiment → genome → shadow_variant → live config
 ```
 
-This lineage is immutable — every change to live parameters can be traced
+This lineage is immutable -- every change to live parameters can be traced
 back through the graph to the raw trade data and paper that inspired it.
 
 ---
@@ -996,7 +996,7 @@ back through the graph to the raw trade data and paper that inspired it.
 ## 15. Serendipity Engine
 
 The serendipity engine generates novel signal ideas by applying domain
-analogies and random mutations — structured randomness in hypothesis space.
+analogies and random mutations -- structured randomness in hypothesis space.
 
 ### Domain Analogy Mappings (Physics → Finance)
 
@@ -1111,7 +1111,7 @@ diff so the update is fully auditable.
 | Shadow → live update | 5 minutes    | Config write + reload |
 
 **Total minimum latency**: ~7 days from pattern discovery to live parameter
-change. This is deliberate — speed is not the goal; statistical validity is.
+change. This is deliberate -- speed is not the goal; statistical validity is.
 
 ### Safeguards Against Feedback Loops
 

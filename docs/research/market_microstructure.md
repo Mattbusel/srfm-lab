@@ -52,7 +52,7 @@ This logic is available in the strategy but disabled by default (reduces trade f
 
 ## Overnight and Weekend Gaps
 
-Gap events can cause BH mass to spike to the maximum cap (20.0) in a single bar. This is intentional — a large gap IS a momentum event. However, gaps also cause:
+Gap events can cause BH mass to spike to the maximum cap (20.0) in a single bar. This is intentional -- a large gap IS a momentum event. However, gaps also cause:
 
 1. **Entry at gap price**: If you can't enter before the gap (it occurs after hours), you enter at a worse price than the bar's close. This gap slippage can be 1–5% for commodity futures.
 

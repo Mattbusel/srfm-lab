@@ -85,13 +85,13 @@ This is the highest-value transition to catch. The BH mass starts accumulating d
 
 ### BULL → HIGH_VOLATILITY
 
-This is the most dangerous transition — a correction within an uptrend. The BH may fire short (bearish) while the broader trend is still bullish.
+This is the most dangerous transition -- a correction within an uptrend. The BH may fire short (bearish) while the broader trend is still bullish.
 
 **Filter**: Require regime confirmation for 3 bars before switching position direction.
 
 ### HIGH_VOLATILITY → any direction
 
-High-volatility regimes are followed by regime clarity within 5-15 bars historically. The market "resolves" the volatility either upward (BULL) or downward (BEAR). Monitor which way the BH fires during HIGH_VOL — it often predicts the resolution direction.
+High-volatility regimes are followed by regime clarity within 5-15 bars historically. The market "resolves" the volatility either upward (BULL) or downward (BEAR). Monitor which way the BH fires during HIGH_VOL -- it often predicts the resolution direction.
 
 ---
 

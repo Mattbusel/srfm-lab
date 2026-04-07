@@ -70,8 +70,8 @@ rho = np.corrcoef(X_demeaned[:-1], X_demeaned[1:])[0, 1]
 ```
 
 **Interpretation**:
-- `ρ > 0`: Positive serial correlation — wins beget wins, losses beget losses
-- `ρ < 0`: Negative serial correlation — alternating wins/losses (mean-reverting outcomes)
+- `ρ > 0`: Positive serial correlation -- wins beget wins, losses beget losses
+- `ρ < 0`: Negative serial correlation -- alternating wins/losses (mean-reverting outcomes)
 - `ρ = 0`: No serial correlation (standard naive MC assumption)
 
 For most trend-following strategies, ρ is in the range [0.05, 0.25], meaning loss streaks are more clustered than a naive model would predict.
@@ -174,7 +174,7 @@ The MC output shows:
 1. The historical curve is a cherry-picked realization (survivorship bias)
 2. Future conditions may differ from backtest conditions
 
-**P95 path**: This is not the ceiling — there will always be paths above P95 in a large enough simulation. Use P95 as a sanity check: if the P95 path seems unrealistically good, the historical trade distribution may be overfitted.
+**P95 path**: This is not the ceiling -- there will always be paths above P95 in a large enough simulation. Use P95 as a sanity check: if the P95 path seems unrealistically good, the historical trade distribution may be overfitted.
 
 ### Reading the fan chart
 
@@ -219,7 +219,7 @@ For LARSA with current parameters, blowup probability is typically < 0.5% over a
 
 ### Blowup vs maximum drawdown
 
-Blowup probability is not the same as P(max_drawdown > 50%). The blowup condition requires **terminal** equity to be below 50%, not just an intermediate trough. A strategy can have a 60% drawdown and recover to above 50% initial equity — that is not a blowup.
+Blowup probability is not the same as P(max_drawdown > 50%). The blowup condition requires **terminal** equity to be below 50%, not just an intermediate trough. A strategy can have a 60% drawdown and recover to above 50% initial equity -- that is not a blowup.
 
 The more conservative `max_drawdown_blowup_prob` uses:
 ```python

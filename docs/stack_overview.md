@@ -55,14 +55,14 @@ python run_iae_analysis.py
 ```
 
 ### Key dependencies
-- `alpaca-py` — Alpaca Markets REST + streaming WebSocket
-- `pandas` / `numpy` — data frames and numerical arrays
-- `scipy` / `statsmodels` — statistical tests, time series models
-- `scikit-learn` — ML preprocessing and models
-- `sqlalchemy` — ORM for SQLite (warehouse)
-- `duckdb` — analytical queries over parquet/CSV
-- `httpx` / `aiohttp` — async HTTP for IAE inter-service calls
-- `pyproject.toml` — package metadata; `requirements.txt` — pinned deps
+- `alpaca-py` -- Alpaca Markets REST + streaming WebSocket
+- `pandas` / `numpy` -- data frames and numerical arrays
+- `scipy` / `statsmodels` -- statistical tests, time series models
+- `scikit-learn` -- ML preprocessing and models
+- `sqlalchemy` -- ORM for SQLite (warehouse)
+- `duckdb` -- analytical queries over parquet/CSV
+- `httpx` / `aiohttp` -- async HTTP for IAE inter-service calls
+- `pyproject.toml` -- package metadata; `requirements.txt` -- pinned deps
 
 ---
 
@@ -94,11 +94,11 @@ docker-compose up iae-api iae-bus iae-scheduler iae-webhook
 ```
 
 ### Service responsibilities
-- **idea-api (:8767)** — REST + WebSocket gateway; routes experiment requests, streams live results, manages the idea database (`idea_engine.db`)
-- **bus (:8768)** — pub/sub event router with topic persistence; all IAE services subscribe to relevant topics
-- **scheduler (:8769)** — cron-based experiment lifecycle management, budget enforcement, dispatcher coordination
-- **webhook-service (:8770)** — outbound webhook delivery with retry, fan-out to external endpoints
-- **research-api (:8766)** — serves research dashboard with regime data, signal analytics, portfolio metrics
+- **idea-api (:8767)** -- REST + WebSocket gateway; routes experiment requests, streams live results, manages the idea database (`idea_engine.db`)
+- **bus (:8768)** -- pub/sub event router with topic persistence; all IAE services subscribe to relevant topics
+- **scheduler (:8769)** -- cron-based experiment lifecycle management, budget enforcement, dispatcher coordination
+- **webhook-service (:8770)** -- outbound webhook delivery with retry, fan-out to external endpoints
+- **research-api (:8766)** -- serves research dashboard with regime data, signal analytics, portfolio metrics
 
 ### Key dependencies
 - Standard library only for most services; `go.mod` in each service directory
@@ -154,11 +154,11 @@ cargo run -p monte-carlo-engine --release -- --n-paths 100000
 ```
 
 ### Key dependencies
-- `rayon` — data-parallel iterators (genome, MC, parallel backtest)
-- `serde` / `serde_json` — serialization
-- `tokio` — async runtime (fix-engine, order-flow-engine)
-- `ndarray` — N-dimensional arrays (portfolio-engine, risk-engine)
-- `wasm-bindgen` — WASM FFI (larsa-wasm)
+- `rayon` -- data-parallel iterators (genome, MC, parallel backtest)
+- `serde` / `serde_json` -- serialization
+- `tokio` -- async runtime (fix-engine, order-flow-engine)
+- `ndarray` -- N-dimensional arrays (portfolio-engine, risk-engine)
+- `wasm-bindgen` -- WASM FFI (larsa-wasm)
 
 ---
 
@@ -192,17 +192,17 @@ npm run build  # in each directory
 ```
 
 ### Key libraries
-- **Vite** — build tooling and dev server
-- **React 18** — UI framework
-- **Recharts** — time series charting (equity curves, P&L)
-- **D3** — custom visualizations (network graphs, volatility surfaces)
-- **Tailwind CSS** — utility-first styling
-- **TypeScript** — type safety across all three apps
+- **Vite** -- build tooling and dev server
+- **React 18** -- UI framework
+- **Recharts** -- time series charting (equity curves, P&L)
+- **D3** -- custom visualizations (network graphs, volatility surfaces)
+- **Tailwind CSS** -- utility-first styling
+- **TypeScript** -- type safety across all three apps
 
 ### Dashboard capabilities
-- **IAE dashboard** — experiment tracking, genome evolution visualization, live idea scoring, walk-forward results
-- **Research dashboard** — regime overlays, signal analytics, factor heatmaps, portfolio risk attribution
-- **Spacetime** — multi-timeframe pattern visualization, BH confluence surface, cross-asset correlation matrices
+- **IAE dashboard** -- experiment tracking, genome evolution visualization, live idea scoring, walk-forward results
+- **Research dashboard** -- regime overlays, signal analytics, factor heatmaps, portfolio risk attribution
+- **Spacetime** -- multi-timeframe pattern visualization, BH confluence surface, cross-asset correlation matrices
 
 ---
 
@@ -233,13 +233,13 @@ cd julia && julia --project -e "using Pkg; Pkg.test()"
 ```
 
 ### Key dependencies (Julia packages)
-- `Distributions.jl` — probability distributions
-- `StatsBase.jl` — statistical functions
-- `Turing.jl` — probabilistic programming / MCMC
-- `DifferentialEquations.jl` — SDE simulation
-- `Optim.jl` — numerical optimization
-- `HTTP.jl` — service HTTP server
-- `DataFrames.jl` — tabular data
+- `Distributions.jl` -- probability distributions
+- `StatsBase.jl` -- statistical functions
+- `Turing.jl` -- probabilistic programming / MCMC
+- `DifferentialEquations.jl` -- SDE simulation
+- `Optim.jl` -- numerical optimization
+- `HTTP.jl` -- service HTTP server
+- `DataFrames.jl` -- tabular data
 
 ---
 
@@ -271,15 +271,15 @@ Rscript idea-engine/stats-service/r/server.R
 ```
 
 ### Key dependencies (R packages)
-- `rugarch` — GARCH family estimation
-- `depmixS4` — HMM regime models
-- `strucchange` — structural break tests
-- `vars`, `urca` — VAR models, cointegration
-- `copula` — copula estimation
-- `CVXR` — convex optimization
-- `xgboost` — gradient boosting
-- `ggplot2` — visualization
-- `highfrequency` — realized variance estimation
+- `rugarch` -- GARCH family estimation
+- `depmixS4` -- HMM regime models
+- `strucchange` -- structural break tests
+- `vars`, `urca` -- VAR models, cointegration
+- `copula` -- copula estimation
+- `CVXR` -- convex optimization
+- `xgboost` -- gradient boosting
+- `ggplot2` -- visualization
+- `highfrequency` -- realized variance estimation
 
 ---
 
@@ -431,9 +431,9 @@ curl -X POST http://localhost:8790/restart/stats-service
 ### CI/CD (`.github/workflows/`)
 
 Three workflow files cover the full stack:
-- `ci.yml` — runs on every push: Python tests (pytest), Rust tests (cargo test), Go tests (go test ./...), TypeScript lint+build (npm run build), Julia tests
-- `backtest.yml` — runs backtests on PRs targeting main; posts Sharpe/drawdown summary as PR comment
-- `release.yml` — builds release binaries (Rust), Docker images, and publishes artifacts on version tags
+- `ci.yml` -- runs on every push: Python tests (pytest), Rust tests (cargo test), Go tests (go test ./...), TypeScript lint+build (npm run build), Julia tests
+- `backtest.yml` -- runs backtests on PRs targeting main; posts Sharpe/drawdown summary as PR comment
+- `release.yml` -- builds release binaries (Rust), Docker images, and publishes artifacts on version tags
 
 ---
 
@@ -469,7 +469,7 @@ Three workflow files cover the full stack:
            │                                                                   │
            │  ┌──────────────────────────────────────────────────────────┐    │
            │  │              IAE Event Bus  :8768                         │    │
-           │  │  (pub/sub backbone — all services subscribe here)        │    │
+           │  │  (pub/sub backbone -- all services subscribe here)        │    │
            │  └───┬──────────────┬──────────────┬──────────────┬─────────┘    │
            │      │              │              │              │               │
            │  ┌───▼───┐   ┌──────▼───┐   ┌──────▼───┐   ┌────▼────────┐     │

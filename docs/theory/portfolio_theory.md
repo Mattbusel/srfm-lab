@@ -19,7 +19,7 @@ s.t. w' μ = μ_target
 ```
 
 **Problems for SRFM use**:
-1. Requires estimating expected returns `μ` — notoriously noisy
+1. Requires estimating expected returns `μ` -- notoriously noisy
 2. Concentrates heavily in low-variance assets (bonds), ignoring momentum signals
 3. Optimization is extremely sensitive to covariance matrix estimation errors
 4. Does not account for the BH signal structure
@@ -110,7 +110,7 @@ This translates BH mass (an abstract momentum unit) into an expected return in t
 
 ### Why standard price correlation understates diversification
 
-The standard Pearson correlation of daily returns between ES and NQ is approximately 0.92 — they appear nearly identical for diversification purposes. Yet in practice, BH formations on NQ often precede or follow ES formations by 0-2 bars and carry independent information.
+The standard Pearson correlation of daily returns between ES and NQ is approximately 0.92 -- they appear nearly identical for diversification purposes. Yet in practice, BH formations on NQ often precede or follow ES formations by 0-2 bars and carry independent information.
 
 The relevant quantity for BH-based portfolio theory is **BH activation correlation**: how often do two instruments have BH events simultaneously?
 
@@ -179,7 +179,7 @@ Setting `σ_portfolio = target` and solving for `σ_inst`:
 
 LARSA v16 uses a two-gear structure:
 
-**Gear 1 (Tail Capture)**: Fixed $3M bucket allocated to BH trend-following across 8 instruments. This never increases above $3M regardless of total portfolio size — it is always "primed" for the next BH event.
+**Gear 1 (Tail Capture)**: Fixed $3M bucket allocated to BH trend-following across 8 instruments. This never increases above $3M regardless of total portfolio size -- it is always "primed" for the next BH event.
 
 **Gear 2 (Harvest Mode)**: Everything above $3M is allocated to Z-score mean reversion in SIDEWAYS regimes. This bucket grows as profits accumulate.
 

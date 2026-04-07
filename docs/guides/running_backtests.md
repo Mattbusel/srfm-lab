@@ -4,8 +4,8 @@
 
 SRFM Lab supports two backtesting paths:
 
-1. **LEAN backtests** — Full QuantConnect LEAN engine, supports futures data, realistic fill simulation, used for the primary LARSA strategies.
-2. **Spacetime Arena backtests** — Custom Python engine, faster, supports arbitrary parquet data, best for parameter sweeps and research.
+1. **LEAN backtests** -- Full QuantConnect LEAN engine, supports futures data, realistic fill simulation, used for the primary LARSA strategies.
+2. **Spacetime Arena backtests** -- Custom Python engine, faster, supports arbitrary parquet data, best for parameter sweeps and research.
 
 ---
 

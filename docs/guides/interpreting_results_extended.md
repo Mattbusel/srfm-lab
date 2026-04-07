@@ -1,4 +1,4 @@
-# Extended Results Interpretation — Walk-Forward and Cross-Validation
+# Extended Results Interpretation -- Walk-Forward and Cross-Validation
 
 ## Walk-Forward Analysis
 

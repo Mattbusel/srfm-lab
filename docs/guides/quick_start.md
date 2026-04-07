@@ -1,4 +1,4 @@
-# Quick Start — Get Running in 10 Minutes
+# Quick Start -- Get Running in 10 Minutes
 
 ## Prerequisites
 

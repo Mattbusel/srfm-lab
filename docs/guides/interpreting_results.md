@@ -7,16 +7,16 @@ The equity curve is the most important diagnostic tool. A good BH strategy equit
 ### Shape indicators
 
 **Good signs**:
-- Grows in distinct "steps" separated by flat consolidation periods — each step is a BH formation event
+- Grows in distinct "steps" separated by flat consolidation periods -- each step is a BH formation event
 - Flat periods correspond to SIDEWAYS regime (no BH signals, Gear 2 harvesting small returns)
 - Drawdowns are shallow (< 20%) and recover within 30-60 bars
 - New highs are made regularly (HWM advances)
 
 **Warning signs**:
-- Long flat periods with no new highs (> 90 bars) — signal drought
-- Drawdowns that exceed the MC P5 band — strategy is underperforming statistical expectations
-- Equity curve significantly above MC P95 band — the backtest period was anomalously favorable
-- Sharp vertical drops at specific dates — likely a regime change that wasn't handled properly
+- Long flat periods with no new highs (> 90 bars) -- signal drought
+- Drawdowns that exceed the MC P5 band -- strategy is underperforming statistical expectations
+- Equity curve significantly above MC P95 band -- the backtest period was anomalously favorable
+- Sharp vertical drops at specific dates -- likely a regime change that wasn't handled properly
 
 ### Drawdown analysis
 
@@ -49,7 +49,7 @@ $120k ──────────────────── P25
 |-----------|---------|
 | P5 terminal > initial equity | Strategy is robust to bad luck |
 | P5 terminal < initial equity | Reduce position sizes or raise min_tf_score |
-| P50 < historical backtest | Good — backtest was above average; plan for P50 |
+| P50 < historical backtest | Good -- backtest was above average; plan for P50 |
 | Blowup prob > 1% | Reduce leverage immediately |
 | P95 / P50 > 5x | Very high variance; strategy is a lottery ticket |
 
@@ -61,7 +61,7 @@ The sensitivity surface shows how Sharpe ratio (or another metric) changes as yo
 
 ### Flat regions (good)
 
-A flat region means the parameter does not matter much — small changes don't hurt performance. If bh_form is in a flat region from 1.3 to 1.8, the parameter choice is robust.
+A flat region means the parameter does not matter much -- small changes don't hurt performance. If bh_form is in a flat region from 1.3 to 1.8, the parameter choice is robust.
 
 ### Sharp peaks (bad)
 

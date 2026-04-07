@@ -1,4 +1,4 @@
-# Execution Stack — Deep Dive
+# Execution Stack -- Deep Dive
 
 > SRFM Lab · LARSA v16 · Live Alpaca (paper) deployment  
 > Last updated: 2026-04-05
@@ -14,24 +14,24 @@ component.
 1. [System Overview](#1-system-overview)
 2. [L2 Orderbook System](#2-l2-orderbook-system)
    - 2.1 OrderBook data structure
-   - 2.2 AlpacaL2Feed — primary feed
-   - 2.3 BinanceL2Feed — hot standby
-   - 2.4 BookManager — failover orchestrator
-   - 2.5 FeedMonitor — metrics logger
+   - 2.2 AlpacaL2Feed -- primary feed
+   - 2.3 BinanceL2Feed -- hot standby
+   - 2.4 BookManager -- failover orchestrator
+   - 2.5 FeedMonitor -- metrics logger
 3. [Spread-Tier Routing](#3-spread-tier-routing)
 4. [SmartRouter](#4-smartrouter)
 5. [Live Trader Order Flow](#5-live-trader-order-flow)
    - 5.1 on_bar() entry point
-   - 5.2 compute_targets() — LARSA v16 sizing
+   - 5.2 compute_targets() -- LARSA v16 sizing
    - 5.3 _apply_signal_overrides()
-   - 5.4 _place_order() — Alpaca submission
-   - 5.5 _on_fill() — trade logging
+   - 5.4 _place_order() -- Alpaca submission
+   - 5.5 _on_fill() -- trade logging
 6. [Signal Overrides](#6-signal-overrides)
 7. [SQLite Trade Logging](#7-sqlite-trade-logging)
 8. [Process Supervision](#8-process-supervision)
 9. [Docker Compose](#9-docker-compose)
 10. [IAE Improvements Applied Live](#10-iae-improvements-applied-live)
-11. [Worked Example — End-to-End Order Trace](#11-worked-example--end-to-end-order-trace)
+11. [Worked Example -- End-to-End Order Trace](#11-worked-example--end-to-end-order-trace)
 
 ---
 
@@ -39,7 +39,7 @@ component.
 
 ```
  ┌─────────────────────────────────────────────────────────────────────┐
- │                         SRFM Lab — Live Stack                       │
+ │                         SRFM Lab -- Live Stack                       │
  │                                                                     │
  │  ┌──────────────┐     15m bars      ┌──────────────────────────┐   │
  │  │ Alpaca Data  │ ──────────────── ▶│  LiveTrader (LARSA v16)  │   │
@@ -125,7 +125,7 @@ book.update(side, price, qty)    # single level (Alpaca 'q' messages; qty=0 remo
 
 ---
 
-### 2.2 AlpacaL2Feed — Primary Feed
+### 2.2 AlpacaL2Feed -- Primary Feed
 
 **File:** `execution/orderbook/alpaca_l2_feed.py`
 
@@ -138,7 +138,7 @@ wss://stream.data.alpaca.markets/v1beta3/crypto/us
 
 | Type | Description | Action |
 |---|---|---|
-| `"o"` | Full orderbook snapshot | `book.apply_snapshot(bids, asks)` — replaces all levels |
+| `"o"` | Full orderbook snapshot | `book.apply_snapshot(bids, asks)` -- replaces all levels |
 | `"q"` | Quote update (best bid/ask only) | `book.update("bid", ...)` + `book.update("ask", ...)` |
 | `"subscription"` / `"success"` | Control messages | Logged at DEBUG, ignored |
 
@@ -179,7 +179,7 @@ Every successfully parsed message (including 'q' quotes) resets
 
 ---
 
-### 2.3 BinanceL2Feed — Hot Standby
+### 2.3 BinanceL2Feed -- Hot Standby
 
 **File:** `execution/orderbook/binance_l2_feed.py`
 
@@ -229,7 +229,7 @@ checks at the 15-minute bar frequency the live trader operates on.
 
 ---
 
-### 2.4 BookManager — Failover Orchestrator
+### 2.4 BookManager -- Failover Orchestrator
 
 **File:** `execution/orderbook/book_manager.py`
 
@@ -295,7 +295,7 @@ bm.active_feed_name               # → "alpaca" | "binance"
 
 ---
 
-### 2.5 FeedMonitor — Metrics Logger
+### 2.5 FeedMonitor -- Metrics Logger
 
 **File:** `execution/orderbook/feed_monitor.py`
 
@@ -334,8 +334,8 @@ if spread > 3.0 * avg_spread and avg_spread > 0:
     record["alert"] = True
 ```
 
-This catches sudden liquidity deterioration — e.g., an exchange-side outage
-that widens crypto spreads from 5bps to 50bps — without requiring absolute
+This catches sudden liquidity deterioration -- e.g., an exchange-side outage
+that widens crypto spreads from 5bps to 50bps -- without requiring absolute
 thresholds that would need per-symbol calibration.
 
 ---
@@ -347,12 +347,12 @@ SmartRouter applies three tiers based on real-time spread from BookManager:
 ```
               Spread (bps)
               ┌──────────────────────────────────────────────┐
-     ≤ 50 bps │  MARKET ORDER  — normal execution path       │
+     ≤ 50 bps │  MARKET ORDER  -- normal execution path       │
               ├──────────────────────────────────────────────┤
-  50 – 100 bps│  IOC LIMIT @ MID — convert market to limit   │
+  50 – 100 bps│  IOC LIMIT @ MID -- convert market to limit   │
               │  at current midprice, immediate-or-cancel    │
               ├──────────────────────────────────────────────┤
-    > 100 bps │  THIN MARKET — wait 5s, alert, REJECT        │
+    > 100 bps │  THIN MARKET -- wait 5s, alert, REJECT        │
               └──────────────────────────────────────────────┘
 ```
 
@@ -412,7 +412,7 @@ route(order)
   └─ 5. Submit with retry (max 3 attempts, exponential backoff 1s base)
 ```
 
-**IOC limit at mid — BookManager path:**
+**IOC limit at mid -- BookManager path:**
 
 ```python
 def _try_limit_at_mid_bm(self, order) -> Optional[str]:
@@ -466,7 +466,7 @@ Inside `on_bar(ticker, bar)`:
 7. On UTC midnight bar: `_on_daily_close()` → update Mayer EMA-200, recompute dynamic CORR
 8. `_act_on_targets(bar_time)` → compute and execute
 
-### 5.2 compute_targets() — LARSA v16 Sizing
+### 5.2 compute_targets() -- LARSA v16 Sizing
 
 The sizing model in full:
 
@@ -527,7 +527,7 @@ After the core sizing logic, `_apply_signal_overrides(targets)` multiplies
 each symbol's target fraction by the hot-loaded override multipliers. See
 [Section 6](#6-signal-overrides) for the full override spec.
 
-### 5.4 _place_order() — Alpaca Submission
+### 5.4 _place_order() -- Alpaca Submission
 
 ```python
 def _place_order(self, sym, side, qty, price, new_frac):
@@ -552,7 +552,7 @@ The optimistic state update means the trader does not wait for fill
 confirmation before updating its position model. True fill confirmation arrives
 asynchronously via the `TradingStream` fill events.
 
-### 5.5 _on_fill() — Trade Logging
+### 5.5 _on_fill() -- Trade Logging
 
 Fill events arrive from `TradingStream.subscribe_trade_updates()`. The handler
 filters for `event_type == "fill"` and:
@@ -763,9 +763,9 @@ Compose profiles and only start when explicitly requested.
 **Shared volumes:**
 
 All Python services mount:
-- `./logs:/app/logs` — shared log directory (FeedMonitor writes here)
-- `./execution:/app/execution` — shared SQLite DB path
-- `./bridge:/app/bridge` — signal_overrides.json pickup location
+- `./logs:/app/logs` -- shared log directory (FeedMonitor writes here)
+- `./execution:/app/execution` -- shared SQLite DB path
+- `./bridge:/app/bridge` -- signal_overrides.json pickup location
 
 **Dependency ordering:**
 
@@ -819,23 +819,23 @@ requiring any manual intervention.
 
 ---
 
-## 11. Worked Example — End-to-End Order Trace
+## 11. Worked Example -- End-to-End Order Trace
 
 **Scenario:** BTC/USD 15m bar closes at 14:15 UTC on a Tuesday. The BH model
 fires a buy signal.
 
 ```
-Step 1 — Bar arrival
+Step 1 -- Bar arrival
   CryptoDataStream delivers bar: symbol="BTC/USD", close=67500, ts=14:15 UTC
   bar_handler() calls trader.on_bar("BTC/USD", bar)
 
-Step 2 — Indicator updates
+Step 2 -- Indicator updates
   st.bh_15m.update(67500)           → bh_15m.active = True, bh_dir = +1
   st.garch.update(log(67500/67300)) → vol_scale ≈ 0.94
   st.ou.update(67500)               → zscore = -0.2 (no OU signal)
   15m buffer appended; hour boundary not reached yet
 
-Step 3 — _act_on_targets(14:15 UTC)
+Step 3 -- _act_on_targets(14:15 UTC)
   compute_targets() called:
     bar_hour = 14 → in BLOCKED_ENTRY_HOURS? YES (14 ∈ {1,13,14,15,17,18})
     → new entries suppressed (last_frac["BTC"] == 0.0)
@@ -844,10 +844,10 @@ Step 3 — _act_on_targets(14:15 UTC)
 
   [Note: blocked hour prevents entry even though signal fired]
 
-Step 4 — Next bar at 15:15 UTC
+Step 4 -- Next bar at 15:15 UTC
   bar_hour = 15 → still blocked.
 
-Step 5 — Bar at 16:15 UTC
+Step 5 -- Bar at 16:15 UTC
   bar_hour = 16 → in BOOST_ENTRY_HOURS ({3,9,16,19})
   blocked = False
 
@@ -872,17 +872,17 @@ Step 5 — Bar at 16:15 UTC
     side = "buy"
     asyncio.create_task(_place_order_async("BTC", "buy", 0.6963, 67500, 0.470))
 
-Step 6 — BookManager spread check (SmartRouter, if wired in)
+Step 6 -- BookManager spread check (SmartRouter, if wired in)
   book_manager.get_spread_bps("BTC/USD") → 5.2 bps
   5.2 ≤ 50 bps → MARKET ORDER path
 
-Step 7 — Alpaca submission
+Step 7 -- Alpaca submission
   MarketOrderRequest(symbol="BTC/USD", qty=0.6963, side=BUY, tif=GTC)
   resp.id = "a1b2c3d4-..."
   log: "BTC order submitted: id=a1b2c3d4 side=buy qty=0.696300 notional=$47007"
   st.last_frac = 0.470; st.bars_held = 0; st.entry_px = 67500
 
-Step 8 — Fill arrives via TradingStream
+Step 8 -- Fill arrives via TradingStream
   event.event = "fill"
   order.filled_qty = 0.6963, order.filled_avg_price = 67512.40
   _on_fill():
@@ -892,7 +892,7 @@ Step 8 — Fill arrives via TradingStream
     st._fifo.append((0.6963, 67512.40, "2026-04-05T16:15:43Z"))
     log: "Fill logged: BTC BUY 0.696300 @ $67512.40 notional=$47007"
 
-Step 9 — Position is live
+Step 9 -- Position is live
   st.last_frac = 0.470
   st.entry_px  = 67500 (optimistic) / 67512.40 (actual from fill)
   st._fifo     = [(0.6963, 67512.40, "2026-04-05T16:15:43Z")]

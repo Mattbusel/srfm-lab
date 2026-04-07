@@ -66,7 +66,7 @@ After running MC, the equity curve area shows percentile bands:
 - Light green fill = P5–P95 (95th percentile range)
 - Red dashed line = blowup threshold (50% of initial equity)
 
-If the blowup threshold line is visible inside the P5 band, the strategy has > 5% blowup probability — reduce position sizes or raise `min_tf_score`.
+If the blowup threshold line is visible inside the P5 band, the strategy has > 5% blowup probability -- reduce position sizes or raise `min_tf_score`.
 
 ---
 
