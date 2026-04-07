@@ -73,6 +73,18 @@ _ENV_FILE       = Path(__file__).parent / ".env"
 _OVERRIDES_FILE = _REPO_ROOT / "config" / "signal_overrides.json"
 _DB_PATH        = _REPO_ROOT / "execution" / "live_trades.db"
 
+# ── Quaternion navigation (read-only observability) ────────────────────────
+try:
+    import sys as _sys
+    _sys.path.insert(0, str(_REPO_ROOT))
+    from bridge.quat_nav_bridge import QuatNavPy as _QuatNavPy
+    from bridge.quat_nav_bridge import NavStateWriter as _NavStateWriter
+    _QUAT_NAV_AVAILABLE = True
+except Exception as _qn_err:
+    _QUAT_NAV_AVAILABLE = False
+    log = logging.getLogger("live_trader")
+    log.warning("quat_nav_bridge not available: %s", _qn_err)
+
 STRATEGY_VERSION = "larsa_v17"
 
 # ── Strategy constants ─────────────────────────────────────────────────────────
@@ -343,6 +355,10 @@ class InstrumentState:
         self._fifo: list[tuple[float, float, str]] = []
         # Previous bar close — used for single-bar GARCH log-return
         self._prev_close: float | None = None
+        # Quaternion navigation (read-only observability; one per timeframe)
+        self.quat_nav_15m = _QuatNavPy() if _QUAT_NAV_AVAILABLE else None
+        self.quat_nav_1h  = _QuatNavPy() if _QUAT_NAV_AVAILABLE else None
+        self.quat_nav_4h  = _QuatNavPy() if _QUAT_NAV_AVAILABLE else None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -381,6 +397,19 @@ def _init_db(db_path: Path) -> sqlite3.Connection:
     """)
     conn.commit()
     return conn
+
+
+def _init_nav_writer(conn: sqlite3.Connection):
+    """Create NavStateWriter if quat_nav_bridge is available; else None."""
+    if not _QUAT_NAV_AVAILABLE:
+        return None
+    try:
+        return _NavStateWriter(conn)
+    except Exception as exc:
+        logging.getLogger("live_trader").warning(
+            "_init_nav_writer: could not initialise NavStateWriter: %s", exc
+        )
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -637,6 +666,7 @@ class LiveTrader:
         self._setup_alpaca()
         self._db: sqlite3.Connection = _init_db(_DB_PATH)
         log.info("SQLite DB ready at %s", _DB_PATH)
+        self._nav_writer = _init_nav_writer(self._db)
 
         # Option overlay
         self._opt_overlay: OptionOverlay = OptionOverlay(self._trading_client)
@@ -866,7 +896,29 @@ class LiveTrader:
         self._last_price[sym] = c
 
         # Update 15m BH
+        bh_was_active_15m = st.bh_15m.active
         st.bh_15m.update(c)
+
+        # Quaternion navigation — read-only observability; no entry/exit impact yet.
+        if self._nav_writer and st.quat_nav_15m is not None:
+            try:
+                ts_ns = int(ts.timestamp() * 1_000_000_000)
+                nav_out = st.quat_nav_15m.update(
+                    c,
+                    float(bar.volume) if hasattr(bar, "volume") else 0.0,
+                    ts_ns,
+                    st.bh_15m.mass,
+                    bh_was_active_15m,
+                    st.bh_15m.active,
+                )
+                if not self._bootstrapping:
+                    self._nav_writer.write(
+                        sym, "15m", ts.isoformat(), ts_ns,
+                        nav_out, st.bh_15m.mass, st.bh_15m.active,
+                        STRATEGY_VERSION,
+                    )
+            except Exception as _nav_exc:
+                log.debug("quat_nav 15m update failed for %s: %s", sym, _nav_exc)
 
         # GARCH update — always use single-bar log return (prev close → this close)
         if st._prev_close and st._prev_close > 0:
@@ -925,8 +977,23 @@ class LiveTrader:
         h1h = max(b["h"] for b in buf)
         h1l = min(b["l"] for b in buf)
         h1c = buf[-1]["c"]
+        bh_was_active_1h = st.bh_1h.active
         st.bh_1h.update(h1c)
         st.atr_1h.update(h1h, h1l, h1c)
+        if self._nav_writer and st.quat_nav_1h is not None:
+            try:
+                ts_ns = int(buf[-1]["ts"].timestamp() * 1_000_000_000)
+                nav_out = st.quat_nav_1h.update(
+                    h1c, 0.0, ts_ns,
+                    st.bh_1h.mass, bh_was_active_1h, st.bh_1h.active,
+                )
+                if not self._bootstrapping:
+                    self._nav_writer.write(
+                        sym, "1h", buf[-1]["ts"].isoformat(), ts_ns,
+                        nav_out, st.bh_1h.mass, st.bh_1h.active, STRATEGY_VERSION,
+                    )
+            except Exception as _nav_exc:
+                log.debug("quat_nav 1h update failed for %s: %s", sym, _nav_exc)
 
     def _flush_4h(self, sym: str) -> None:
         st  = self._states[sym]
@@ -936,8 +1003,23 @@ class LiveTrader:
         h4h = max(b["h"] for b in buf)
         h4l = min(b["l"] for b in buf)
         h4c = buf[-1]["c"]
+        bh_was_active_4h = st.bh_4h.active
         st.bh_4h.update(h4c)
         st.atr_4h.update(h4h, h4l, h4c)
+        if self._nav_writer and st.quat_nav_4h is not None:
+            try:
+                ts_ns = int(buf[-1]["ts"].timestamp() * 1_000_000_000)
+                nav_out = st.quat_nav_4h.update(
+                    h4c, 0.0, ts_ns,
+                    st.bh_4h.mass, bh_was_active_4h, st.bh_4h.active,
+                )
+                if not self._bootstrapping:
+                    self._nav_writer.write(
+                        sym, "4h", buf[-1]["ts"].isoformat(), ts_ns,
+                        nav_out, st.bh_4h.mass, st.bh_4h.active, STRATEGY_VERSION,
+                    )
+            except Exception as _nav_exc:
+                log.debug("quat_nav 4h update failed for %s: %s", sym, _nav_exc)
 
     # ── Target computation ─────────────────────────────────────────────────────
 

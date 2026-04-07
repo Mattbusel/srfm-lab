@@ -11,6 +11,7 @@
 #include "../bh_physics/bh_state.hpp"
 #include "../bh_physics/garch.hpp"
 #include "../bh_physics/ou_detector.hpp"
+#include "../quaternion/quat_nav.hpp"
 #include "../portfolio/risk_parity.hpp"
 #include "../portfolio/pid_controller.hpp"
 #include <array>
@@ -37,6 +38,9 @@ struct InstrumentState {
     // BH physics
     BHState  bh;
 
+    // Quaternion navigation (one per instrument; persists across bars)
+    QuatNav  quat_nav;
+
     // GARCH
     GARCHTracker garch;
 
@@ -55,6 +59,7 @@ struct InstrumentState {
         , vwap(constants::NS_PER_DAY)
         , rv(20, 252.0)
         , bh()
+        , quat_nav()
         , garch()
         , ou(constants::OU_WINDOW)
     {}
@@ -69,6 +74,7 @@ struct InstrumentState {
         vwap.reset();
         rv.reset();
         bh.reset();
+        quat_nav.reset();
         garch.reset();
         ou.reset();
     }

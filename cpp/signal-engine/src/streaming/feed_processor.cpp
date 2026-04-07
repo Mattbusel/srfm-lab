@@ -88,12 +88,32 @@ void FeedProcessor::fill_signal_output(const OHLCVBar& bar,
     }
 
     // BH physics
+    bool bh_was_active = state.bh.active();
     {
         auto bh_out  = state.bh.update(bar);
         out.bh_mass  = bh_out.mass;
         out.bh_dir   = bh_out.bh_dir;
         out.cf_scale = bh_out.cf_scale;
         out.bh_active= bh_out.bh_active ? 1 : 0;
+    }
+
+    // Quaternion navigation — hooks in after BH physics, read-only observability.
+    // Provides: Q_current orientation, angular velocity, geodesic deviation.
+    {
+        auto nav_out = state.quat_nav.update(
+            bar.close,
+            bar.volume,
+            bar.timestamp_ns,
+            out.bh_mass,
+            bh_was_active,
+            out.bh_active != 0
+        );
+        out.nav_qw           = nav_out.qw;
+        out.nav_qx           = nav_out.qx;
+        out.nav_qy           = nav_out.qy;
+        out.nav_qz           = nav_out.qz;
+        out.nav_angular_vel  = nav_out.angular_velocity;
+        out.nav_geodesic_dev = nav_out.geodesic_deviation;
     }
 
     // GARCH

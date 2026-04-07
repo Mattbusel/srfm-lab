@@ -26,9 +26,10 @@ A full-stack quantitative trading research platform built on **Special Relativis
 |---|---|
 | [BH Physics Engine](docs/bh_physics.md) | Minkowski metric, mass accumulation, Hawking temperature, delta scoring, full worked example |
 | [IAE Architecture](docs/iae_architecture.md) | Genome evolution, hypothesis engine, causal discovery, regime oracle, feedback loop |
+| [Quaternion Navigation](docs/quaternion_nav.md) | 4-space bar representation, rotation tracking, geodesic deviation, angular velocity, Lorentz boosts |
 | [Execution Stack](docs/execution_stack.md) | L2 orderbook, smart router, spread-tier routing, supervisor, Docker deployment |
 | [Wave 4 Backtest](docs/wave4_backtest.md) | EventCalendarFilter, Granger lead signal, ML signal module, 4-variant comparison |
-| [Statistical Tooling](docs/statistical_tooling.md) | All Julia and R modules — purpose, key functions, usage |
+| [Statistical Tooling](docs/statistical_tooling.md) | All Julia and R modules - purpose, key functions, usage |
 | [Stack Overview](docs/stack_overview.md) | Every language, what it does, how to run it, integration diagram |
 
 ---
@@ -171,6 +172,8 @@ All executable tools, engines, and core primitives flagged by language and role.
 |---|---|---|---|
 | `LiveTrader` | `tools/live_trader_alpaca.py` | Main live trading class | **LIVE TRADER** |
 | `BHState` | `tools/live_trader_alpaca.py` | BH mass accumulation struct | **PRIMITIVE** |
+| `QuatNavPy` | `bridge/quat_nav_bridge.py` | Quaternion navigation state machine | **PRIMITIVE** |
+| `NavStateWriter` | `bridge/quat_nav_bridge.py` | Writes nav signals to live_trades.db | **PRIMITIVE** |
 | `GARCHTracker` | `tools/live_trader_alpaca.py` | GARCH(1,1) vol forecaster | **PRIMITIVE** |
 | `OUDetector` | `tools/live_trader_alpaca.py` | OU mean-reversion detector | **PRIMITIVE** |
 | `ATRTracker` | `tools/live_trader_alpaca.py` | ATR position sizing | **PRIMITIVE** |

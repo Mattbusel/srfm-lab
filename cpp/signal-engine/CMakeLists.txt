@@ -42,6 +42,7 @@ set(LIB_SOURCES
     src/bh_physics/bh_state.cpp
     src/bh_physics/garch.cpp
     src/bh_physics/ou_detector.cpp
+    src/quaternion/quat_nav.cpp
     src/portfolio/risk_parity.cpp
     src/portfolio/pid_controller.cpp
     src/streaming/bar_aggregator.cpp
@@ -65,8 +66,9 @@ add_executable(test_indicators    tests/test_indicators.cpp)
 add_executable(test_garch         tests/test_garch.cpp)
 add_executable(test_ring_buffer   tests/test_ring_buffer.cpp)
 add_executable(test_performance   tests/test_performance.cpp)
+add_executable(test_quat_nav      tests/test_quat_nav.cpp)
 
-foreach(t test_bh_physics test_indicators test_garch test_ring_buffer test_performance)
+foreach(t test_bh_physics test_indicators test_garch test_ring_buffer test_performance test_quat_nav)
     target_link_libraries(${t} PRIVATE signal_engine_lib)
 endforeach()
 
@@ -77,7 +79,8 @@ add_custom_target(signal_engine_tests
     COMMAND test_garch
     COMMAND test_ring_buffer
     COMMAND test_performance
-    DEPENDS test_bh_physics test_indicators test_garch test_ring_buffer test_performance
+    COMMAND test_quat_nav
+    DEPENDS test_bh_physics test_indicators test_garch test_ring_buffer test_performance test_quat_nav
     COMMENT "Running all SRFM signal engine tests"
 )
 

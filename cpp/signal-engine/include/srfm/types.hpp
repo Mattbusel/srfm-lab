@@ -109,10 +109,24 @@ struct alignas(SRFM_CACHE_LINE) SignalOutput {
     double   vol_budget;
     double   corr_factor;
 
-    // Padding to next 64-byte boundary
-    // Current size: 8+4+4 + 8+8+8+1+7 + 8*4 + 8*5 + 8*3 + 8 + 8*4 + 8*3 + 8+8+1+1+6 + 8+8+8
-    // = 16 + 32 + 32 + 40 + 24 + 8 + 32 + 24 + 24 + 24 = let compiler handle it; assert size below
-    uint8_t  _fill[8];  // bring to clean multiple
+    // Quaternion navigation signals (read-only observability; not wired into
+    // entry/exit logic yet).
+    // Q_current: running orientation quaternion in SRFM 4-space.
+    double   nav_qw;
+    double   nav_qx;
+    double   nav_qy;
+    double   nav_qz;
+    // angular_vel: d(Q_current)/dt in radians/bar.
+    //   High => regime rotation in progress; low => stable heading.
+    double   nav_angular_vel;
+    // geodesic_dev: SLERP-extrapolation deviation angle (radians),
+    //   curvature-corrected by BH mass.  Measures how far the market
+    //   deviated from its inertial path this bar.
+    double   nav_geodesic_dev;
+
+    // Padding: previous _fill[8] absorbed by nav fields; add 24 bytes to
+    // keep the struct on a clean 64-byte multiple (248 + 48 + 24 = 320 = 5*64).
+    uint8_t  _fill[24];
 
     SignalOutput() { std::memset(this, 0, sizeof(*this)); }
 };
