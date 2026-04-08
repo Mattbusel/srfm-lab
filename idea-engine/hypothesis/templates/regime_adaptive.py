@@ -1,0 +1,111 @@
+"""
+Regime-adaptive hypothesis templates — strategies that auto-adjust to regime.
+"""
+
+TEMPLATES = [
+    {
+        "id": "chameleon_momentum",
+        "name": "Chameleon Momentum",
+        "description": "Momentum strategy that switches direction and lookback based on detected regime",
+        "hypothesis": "Regime-aware momentum: trend-follow in trending regimes, fade in mean-reverting; adaptive lookback {min_lb}-{max_lb} periods",
+        "parameters": {
+            "min_lb": 5,
+            "max_lb": 60,
+            "regime_switch_lookback": 20,
+            "trending_threshold": 0.6,
+            "mr_threshold": 0.4,
+        },
+        "regime_overrides": {
+            "trending_bull": {"lookback": 20, "direction_multiplier": 1.0},
+            "trending_bear": {"lookback": 10, "direction_multiplier": 1.0},
+            "mean_reverting_low_vol": {"lookback": 5, "direction_multiplier": -1.0},
+            "mean_reverting_high_vol": {"lookback": 3, "direction_multiplier": -0.5},
+            "chaotic": {"lookback": 3, "direction_multiplier": 0.0},
+            "crisis": {"lookback": 1, "direction_multiplier": 0.0},
+            "recovery": {"lookback": 15, "direction_multiplier": 0.8},
+        },
+        "edge": "momentum",
+        "tags": ["adaptive", "regime", "momentum", "chameleon"],
+    },
+    {
+        "id": "regime_vol_sizing",
+        "name": "Regime Volatility Sizer",
+        "description": "Same signal, different position sizing based on regime risk",
+        "hypothesis": "Volatility target of {target_vol_pct}% daily; scale to 0.25x in crisis, 1.5x in low-vol mean-reverting",
+        "parameters": {
+            "target_vol_pct": 1.0,
+            "vol_lookback": 20,
+        },
+        "regime_size_scalars": {
+            "trending_bull": 1.0,
+            "trending_bear": 0.8,
+            "mean_reverting_low_vol": 1.5,
+            "mean_reverting_high_vol": 0.7,
+            "chaotic": 0.4,
+            "crisis": 0.15,
+            "recovery": 1.1,
+        },
+        "edge": "volatility_targeting",
+        "tags": ["vol_targeting", "regime", "position_sizing"],
+    },
+    {
+        "id": "regime_rotation",
+        "name": "Regime Rotation Strategy",
+        "description": "Explicitly rotate between strategies as regime changes: MR → momentum → defensive",
+        "hypothesis": "Regime classifier triggers strategy rotation: MR in quiet, momentum in trending, defensive in crisis",
+        "parameters": {
+            "regime_confidence_threshold": 0.6,
+            "lookback": 30,
+        },
+        "strategy_map": {
+            "trending_bull": ["tsmom_signal", "bh_composite_signal"],
+            "trending_bear": ["tsmom_signal", "vol_regime_signal"],
+            "mean_reverting_low_vol": ["kalman_spread_signal", "ou_zscore"],
+            "mean_reverting_high_vol": ["ou_zscore", "bollinger_signal"],
+            "chaotic": ["vpin", "vol_regime_signal"],
+            "crisis": ["defensive_only"],
+            "recovery": ["tsmom_signal", "mean_reversion_signal"],
+        },
+        "edge": "regime_rotation",
+        "tags": ["rotation", "regime", "adaptive", "meta_strategy"],
+    },
+    {
+        "id": "hidden_markov_overlay",
+        "name": "HMM Regime Overlay",
+        "description": "Use HMM-classified regime to gate all other signals",
+        "hypothesis": "HMM regime state gates signal confidence: state_prob * base_confidence; only trade when regime prob > {min_prob}",
+        "parameters": {
+            "min_regime_prob": 0.65,
+            "hmm_n_states": 3,
+            "feature_lookback": 252,
+        },
+        "edge": "regime_filter",
+        "tags": ["hmm", "regime", "filter", "overlay"],
+    },
+    {
+        "id": "structural_break_adapt",
+        "name": "Post-Break Adaptation",
+        "description": "After CUSUM structural break, immediately switch to new regime hypothesis set",
+        "hypothesis": "CUSUM break detected → signal parameters re-estimated on post-break data; old params deprecated for {recalibration_bars} bars",
+        "parameters": {
+            "cusum_window": 30,
+            "recalibration_bars": 20,
+            "break_confidence": 0.95,
+        },
+        "edge": "structural_break",
+        "tags": ["structural_break", "cusum", "adaptive", "recalibration"],
+    },
+    {
+        "id": "crisis_alpha",
+        "name": "Crisis Alpha Strategy",
+        "description": "Explicitly designed for crisis regimes: volatility selling on spike, mean reversion after extreme moves",
+        "hypothesis": "Crisis regime (vol_ratio > 2.5): sell vol spikes >3 sigma, fade capitulation extremes, capture vol mean reversion",
+        "parameters": {
+            "vol_spike_threshold": 3.0,
+            "vol_mean_reversion_window": 5,
+            "crisis_confirmation_bars": 2,
+        },
+        "edge": "crisis_alpha",
+        "tags": ["crisis", "vol_sell", "tail_risk", "contrarian"],
+    },
+]
