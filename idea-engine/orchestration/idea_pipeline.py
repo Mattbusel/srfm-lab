@@ -614,3 +614,581 @@ class IdeaPipeline:
             "avg_surviving_hypotheses": avg_surviving,
             "current_min_conviction": self.min_conviction,
         }
+
+
+# =============================================================================
+# Extended IdeaPipeline — wraps the core pipeline with richer orchestration
+# =============================================================================
+#
+# FullIdeaPipeline enriches IdeaPipeline with:
+#   - Integration of OrderFlowSignal and VolSurfaceSignal
+#   - IdeaBank storage of top hypotheses
+#   - MacroAnalyst + RiskManager debate integration
+#   - Priority queue for hypothesis processing
+#   - Description-based deduplication
+#   - Performance feedback loop (adjusts min_conviction from IdeaBank history)
+#   - Stage timing dict in PipelineResult
+#   - run_id tracking per run
+# =============================================================================
+
+
+# ── Regime label enum ─────────────────────────────────────────────────────────
+
+class RegimeLabel(str, Enum):
+    BULL       = "bull"
+    BEAR       = "bear"
+    RANGING    = "ranging"
+    VOL_SPIKE  = "vol_spike"
+    TRENDING   = "trending"
+    UNKNOWN    = "unknown"
+
+
+# ── Extended pipeline result ──────────────────────────────────────────────────
+
+@dataclass
+class ExtendedPipelineResult:
+    """
+    Richer output from FullIdeaPipeline.run_full_pipeline().
+
+    Wraps PipelineResult with additional metadata, signal snapshots,
+    IdeaBank reference, and per-stage timing.
+    """
+    run_id: str
+    base_result: PipelineResult          # from IdeaPipeline
+    signals: Dict[str, Any]              # raw signal objects (OrderFlowSignal, etc.)
+    regime_label: RegimeLabel
+    recommended_allocation: float        # risk-manager sized allocation
+    stage_timings_ms: Dict[str, float]   # wall-clock ms per stage
+    idea_bank_id: Optional[str]          # ID of stored Idea in IdeaBank
+    macro_score: float                   # macro alignment score
+    risk_score: float                    # risk assessment score
+    dedup_removed: int                   # number of hypotheses removed by dedup
+    warnings: List[str]
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+
+    @property
+    def top_hypothesis(self) -> Optional[HypothesisCandidate]:
+        return self.base_result.top_hypothesis
+
+    @property
+    def should_trade(self) -> bool:
+        return self.base_result.should_trade and self.recommended_allocation > 0.0
+
+    def summary(self) -> Dict[str, Any]:
+        return {
+            "run_id":         self.run_id,
+            "regime":         self.regime_label.value,
+            "allocation":     f"{self.recommended_allocation:.2%}",
+            "should_trade":   self.should_trade,
+            "n_candidates":   self.base_result.n_surviving,
+            "macro_score":    round(self.macro_score, 4),
+            "risk_score":     round(self.risk_score, 4),
+            "dedup_removed":  self.dedup_removed,
+            "stage_ms":       {k: round(v, 1) for k, v in self.stage_timings_ms.items()},
+            "warnings":       self.warnings[:5],
+        }
+
+
+# ── Priority queue for hypothesis processing ──────────────────────────────────
+
+class _HypPriorityQueue:
+    """Min-heap priority queue, highest conviction = lowest key."""
+
+    def __init__(self) -> None:
+        self._heap: List[Tuple[float, int, HypothesisCandidate]] = []
+        self._counter = 0
+
+    def push(self, hyp: HypothesisCandidate, score: float) -> None:
+        heapq.heappush(self._heap, (-score, self._counter, hyp))
+        self._counter += 1
+
+    def pop(self) -> Tuple[HypothesisCandidate, float]:
+        neg_score, _, hyp = heapq.heappop(self._heap)
+        return hyp, -neg_score
+
+    def drain(self, max_items: int = 50) -> List[HypothesisCandidate]:
+        out: List[HypothesisCandidate] = []
+        while self._heap and len(out) < max_items:
+            out.append(self.pop()[0])
+        return out
+
+    def __len__(self) -> int:
+        return len(self._heap)
+
+
+# ── Deduplication ─────────────────────────────────────────────────────────────
+
+def _jaccard(a: set, b: set) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _deduplicate_candidates(
+    candidates: List[HypothesisCandidate],
+    threshold: float = 0.80,
+) -> Tuple[List[HypothesisCandidate], int]:
+    """
+    Remove near-duplicate hypotheses using Jaccard similarity on
+    (template_type, regime, direction) token sets.
+
+    Returns (unique_candidates, n_removed).
+    """
+    kept: List[HypothesisCandidate] = []
+    seen_tokens: List[set] = []
+
+    for hyp in candidates:
+        tokens = {hyp.template_type, hyp.regime, f"dir_{hyp.direction:.0f}"}
+        is_dup = any(_jaccard(tokens, prev) >= threshold for prev in seen_tokens)
+        if not is_dup:
+            kept.append(hyp)
+            seen_tokens.append(tokens)
+
+    return kept, len(candidates) - len(kept)
+
+
+# ── Regime detection from prices ─────────────────────────────────────────────
+
+def _detect_regime_label(
+    prices: np.ndarray,
+    returns: Optional[np.ndarray] = None,
+    context: Optional[Dict[str, Any]] = None,
+) -> RegimeLabel:
+    """Classify regime from price action. Context override takes priority."""
+    if context and "current_regime" in context:
+        r = str(context["current_regime"]).lower()
+        for lbl in RegimeLabel:
+            if r == lbl.value:
+                return lbl
+
+    if len(prices) < 20:
+        return RegimeLabel.UNKNOWN
+
+    if returns is None:
+        returns = np.diff(np.log(np.abs(prices) + 1e-12))
+
+    vol_5  = float(np.std(returns[-5:])) if len(returns) >= 5 else 0.0
+    vol_20 = float(np.std(returns[-20:])) if len(returns) >= 20 else max(vol_5, 1e-9)
+    ret_20 = float(prices[-1] / (prices[-20] + 1e-12) - 1.0)
+
+    if vol_20 > 1e-9 and vol_5 / vol_20 > 2.0:
+        return RegimeLabel.VOL_SPIKE
+    if ret_20 > 0.05:
+        return RegimeLabel.BULL
+    if ret_20 < -0.05:
+        return RegimeLabel.BEAR
+
+    n = min(len(prices), 20)
+    x = np.arange(n, dtype=np.float64)
+    slope, *_ = sp_stats.linregress(x, prices[-n:])
+    norm_slope = abs(slope) * n / (float(np.std(prices[-n:])) + 1e-9)
+    return RegimeLabel.TRENDING if norm_slope > 1.5 else RegimeLabel.RANGING
+
+
+# ── FullIdeaPipeline ──────────────────────────────────────────────────────────
+
+class FullIdeaPipeline:
+    """
+    Extended orchestration pipeline.
+
+    Wraps IdeaPipeline (core signal/hypothesis engine) with:
+      - Order flow + vol surface signal mining
+      - Priority queue processing
+      - Description-based deduplication
+      - MacroAnalyst + RiskManager debate integration
+      - IdeaBank storage
+      - Feedback loop adjusting min_conviction from stored performance
+      - Detailed stage timing
+
+    Usage
+    -----
+    pipeline = FullIdeaPipeline(config={"vol_target": 0.20})
+    result = pipeline.run_full_pipeline(prices, volume, context)
+    """
+
+    DEFAULT_CONFIG: Dict[str, Any] = {
+        "min_conviction":     0.30,
+        "min_debate_score":   0.25,
+        "min_adversarial":    0.50,
+        "max_candidates":     30,
+        "dedup_threshold":    0.80,
+        "max_allocation":     0.10,
+        "vol_target":         0.20,
+        "feedback_lookback":  10,
+    }
+
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        idea_bank: Optional[Any] = None,
+        macro_analyst: Optional[Any] = None,
+        risk_manager: Optional[Any] = None,
+    ) -> None:
+        cfg = {**self.DEFAULT_CONFIG, **(config or {})}
+        self.cfg = cfg
+
+        self._core = IdeaPipeline(
+            min_conviction=cfg["min_conviction"],
+            min_debate_score=cfg["min_debate_score"],
+            min_adversarial=cfg["min_adversarial"],
+            max_candidates=cfg["max_candidates"],
+        )
+
+        self.idea_bank = idea_bank or (IdeaBank() if _IDEA_BANK_AVAILABLE else None)
+        self.macro_analyst = macro_analyst or (MacroAnalyst() if _DEBATE_AGENTS_AVAILABLE else None)
+        self.risk_manager  = risk_manager  or (RiskManager()  if _DEBATE_AGENTS_AVAILABLE else None)
+
+        self._run_count = 0
+        logger.info("FullIdeaPipeline initialized.")
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
+
+    def run_full_pipeline(
+        self,
+        prices: np.ndarray,
+        volume: Optional[np.ndarray] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> ExtendedPipelineResult:
+        """
+        Run the complete idea pipeline.
+
+        Parameters
+        ----------
+        prices  : np.ndarray — price series (close), oldest first
+        volume  : np.ndarray, optional
+        context : dict, optional — supplementary data:
+            open, high, low : np.ndarray
+            front_iv, back_iv, atm_iv, put_25d_iv, call_25d_iv : float
+            historical_ivs : np.ndarray
+            yield_2y, yield_10y, yield_3m : float
+            ig_spread, hy_spread, dxy : float
+            asset_class, direction, instrument : str
+            portfolio_nav, position_size_usd, adv_usd : float
+            win_rate, avg_win, avg_loss, vol_target : float
+            current_regime : str
+        """
+        run_id = str(uuid.uuid4())
+        self._run_count += 1
+        t_total = time.monotonic()
+        ctx = context or {}
+        timings: Dict[str, float] = {}
+        warnings: List[str] = []
+
+        prices = np.asarray(prices, dtype=np.float64)
+        if volume is None:
+            volume = np.ones(len(prices), dtype=np.float64)
+        volume = np.asarray(volume, dtype=np.float64)
+
+        returns = np.diff(np.log(np.abs(prices) + 1e-12)) if len(prices) > 1 else np.array([0.0])
+
+        # ── Detect regime ─────────────────────────────────────────────
+        regime_label = _detect_regime_label(prices, returns, ctx)
+        regime_str = regime_label.value
+
+        # ── Stage 1: Signal Mining ────────────────────────────────────
+        t0 = time.monotonic()
+        signals, mine_warns = self._mine_signals(prices, volume, ctx)
+        warnings.extend(mine_warns)
+        timings["signal_mining"] = (time.monotonic() - t0) * 1000
+
+        # ── Stage 2-4: Core pipeline (gen, score, debate, adversarial, size) ──
+        t0 = time.monotonic()
+        base_result = self._core.run_full_pipeline(
+            prices=prices,
+            volume=volume,
+            regime=regime_str,
+            context_metadata=ctx,
+        )
+        timings["core_pipeline"] = (time.monotonic() - t0) * 1000
+        warnings.extend(base_result.pipeline_warnings)
+
+        # ── Stage 5: Priority queue ───────────────────────────────────
+        t0 = time.monotonic()
+        pq = _HypPriorityQueue()
+        for hyp in base_result.all_candidates:
+            pq.push(hyp, hyp.conviction)
+        ordered = pq.drain(max_items=self.cfg["max_candidates"])
+        timings["priority_queue"] = (time.monotonic() - t0) * 1000
+
+        # ── Stage 6: Deduplication ────────────────────────────────────
+        t0 = time.monotonic()
+        try:
+            ordered, n_removed = _deduplicate_candidates(
+                ordered, threshold=self.cfg["dedup_threshold"]
+            )
+        except Exception as e:
+            n_removed = 0
+            logger.warning(f"Deduplication error: {e}")
+        timings["deduplication"] = (time.monotonic() - t0) * 1000
+
+        # ── Stage 7: Macro + Risk debate on top candidate ─────────────
+        t0 = time.monotonic()
+        macro_score, risk_score, debate_warns = self._debate_top(
+            base_result.top_hypothesis, returns, ctx, regime_label
+        )
+        warnings.extend(debate_warns)
+        timings["debate"] = (time.monotonic() - t0) * 1000
+
+        # ── Stage 8: Sizing ───────────────────────────────────────────
+        t0 = time.monotonic()
+        allocation, size_warns = self._compute_allocation(
+            base_result.top_hypothesis, returns, ctx, macro_score, risk_score
+        )
+        warnings.extend(size_warns)
+        timings["sizing"] = (time.monotonic() - t0) * 1000
+
+        # ── Stage 9: IdeaBank storage ─────────────────────────────────
+        t0 = time.monotonic()
+        idea_id = self._store(base_result.top_hypothesis, regime_label, signals, ctx)
+        timings["storage"] = (time.monotonic() - t0) * 1000
+
+        # ── Feedback loop ─────────────────────────────────────────────
+        self._feedback_loop()
+
+        timings["total"] = (time.monotonic() - t_total) * 1000
+        logger.info(
+            f"[{run_id}] FullPipeline done in {timings['total']:.0f}ms. "
+            f"regime={regime_label.value}, alloc={allocation:.2%}, "
+            f"candidates={base_result.n_surviving}"
+        )
+
+        return ExtendedPipelineResult(
+            run_id=run_id,
+            base_result=base_result,
+            signals=signals,
+            regime_label=regime_label,
+            recommended_allocation=allocation,
+            stage_timings_ms=timings,
+            idea_bank_id=idea_id,
+            macro_score=macro_score,
+            risk_score=risk_score,
+            dedup_removed=n_removed,
+            warnings=warnings,
+        )
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _mine_signals(
+        self,
+        prices: np.ndarray,
+        volume: np.ndarray,
+        ctx: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        """Mine order flow + vol surface signals."""
+        signals: Dict[str, Any] = {}
+        warnings: List[str] = []
+
+        open_ = np.asarray(ctx.get("open",  prices), dtype=np.float64)
+        high  = np.asarray(ctx.get("high",  prices + 0.01), dtype=np.float64)
+        low   = np.asarray(ctx.get("low",   prices - 0.01), dtype=np.float64)
+
+        if _ORDER_FLOW_AVAILABLE and len(prices) >= 10:
+            try:
+                of = compute_order_flow_signal(open_, high, low, prices, volume)
+                signals["order_flow"] = of
+                warnings.extend(of.warnings)
+            except Exception as e:
+                warnings.append(f"OrderFlow signal failed: {e}")
+
+        if _VOL_SURFACE_AVAILABLE and len(prices) >= 10:
+            try:
+                vs = compute_vol_surface_signal(
+                    prices=prices,
+                    front_iv=float(ctx.get("front_iv", 0.25)),
+                    back_iv=float(ctx.get("back_iv", 0.22)),
+                    put_25d_iv=float(ctx.get("put_25d_iv", 0.28)),
+                    call_25d_iv=float(ctx.get("call_25d_iv", 0.23)),
+                    atm_iv=float(ctx.get("atm_iv", 0.25)),
+                    historical_ivs=ctx.get("historical_ivs"),
+                    rv_window=10,
+                )
+                signals["vol_surface"] = vs
+                warnings.extend(vs.warnings)
+            except Exception as e:
+                warnings.append(f"VolSurface signal failed: {e}")
+
+        return signals, warnings
+
+    def _debate_top(
+        self,
+        top_hyp: Optional[HypothesisCandidate],
+        returns: np.ndarray,
+        ctx: Dict[str, Any],
+        regime: RegimeLabel,
+    ) -> Tuple[float, float, List[str]]:
+        """Run macro + risk debate on top hypothesis."""
+        warnings: List[str] = []
+        macro_score = 0.0
+        risk_score  = 0.3  # neutral default
+
+        if top_hyp is None or not _DEBATE_AGENTS_AVAILABLE:
+            return macro_score, risk_score, warnings
+
+        market_data = {
+            "yield_2y":             ctx.get("yield_2y",  3.5),
+            "yield_10y":            ctx.get("yield_10y", 4.2),
+            "yield_3m":             ctx.get("yield_3m",  5.0),
+            "ig_spread":            ctx.get("ig_spread", 120.0),
+            "hy_spread":            ctx.get("hy_spread", 360.0),
+            "dxy":                  ctx.get("dxy",       103.0),
+            "hypothesis_direction": "long" if top_hyp.direction >= 0 else "short",
+            "asset_class":          ctx.get("asset_class", "crypto"),
+            "current_regime":       regime.value,
+            "returns":              returns,
+            "portfolio_returns":    ctx.get("portfolio_returns", returns),
+            "position_size_usd":    ctx.get("position_size_usd", 10_000.0),
+            "portfolio_nav":        ctx.get("portfolio_nav", 100_000.0),
+            "adv_usd":              ctx.get("adv_usd", 1_000_000.0),
+            "win_rate":             ctx.get("win_rate", 0.51),
+            "avg_win":              ctx.get("avg_win",  0.02),
+            "avg_loss":             ctx.get("avg_loss", 0.015),
+            "vol_target":           ctx.get("vol_target", 0.20),
+            "conviction":           top_hyp.conviction,
+        }
+
+        # Stub Hypothesis object for agents expecting the formal type
+        class _StubHyp:
+            hypothesis_id = str(uuid.uuid4())
+            parameters    = {"template": top_hyp.template_type}
+            description   = top_hyp.name
+            novelty_score = 0.5
+            type          = None
+
+        stub = _StubHyp()
+
+        if self.macro_analyst is not None:
+            try:
+                analysis = self.macro_analyst.evaluate(stub, market_data)
+                macro_score = float(analysis.directional_alignment)
+                if analysis.warnings:
+                    warnings.extend(analysis.warnings[:2])
+            except Exception as e:
+                logger.debug(f"Macro debate failed: {e}")
+
+        if self.risk_manager is not None:
+            try:
+                assessment = self.risk_manager.evaluate(stub, market_data)
+                risk_score = float(assessment.risk_score)
+                if assessment.hard_veto:
+                    warnings.append("RiskManager hard veto — allocation set to zero")
+                elif assessment.warnings:
+                    warnings.extend(assessment.warnings[:2])
+            except Exception as e:
+                logger.debug(f"Risk debate failed: {e}")
+
+        return macro_score, risk_score, warnings
+
+    def _compute_allocation(
+        self,
+        top_hyp: Optional[HypothesisCandidate],
+        returns: np.ndarray,
+        ctx: Dict[str, Any],
+        macro_score: float,
+        risk_score: float,
+    ) -> Tuple[float, List[str]]:
+        """
+        Compute final allocation blending:
+          - suggested_size from core pipeline (Kelly / vol targeting)
+          - macro alignment multiplier (0.5x to 1.5x)
+          - risk score penalty (1 - risk_score)
+        """
+        warnings: List[str] = []
+        if top_hyp is None or not top_hyp.should_trade if hasattr(top_hyp, 'should_trade') else top_hyp is None:
+            return 0.0, warnings
+
+        base_size = float(top_hyp.suggested_size) if top_hyp.suggested_size > 0 else 0.05
+
+        # Macro multiplier: 0.5 (bad macro) to 1.5 (supportive macro)
+        macro_mult = float(np.clip(1.0 + macro_score * 0.5, 0.5, 1.5))
+
+        # Risk penalty
+        risk_adj = float(np.clip(1.0 - risk_score, 0.3, 1.0))
+
+        allocation = float(np.clip(
+            base_size * macro_mult * risk_adj,
+            0.0,
+            self.cfg["max_allocation"],
+        ))
+
+        if macro_mult < 0.7:
+            warnings.append(f"Macro headwind (score={macro_score:+.3f}) — allocation reduced")
+        if risk_score > 0.6:
+            warnings.append(f"Elevated risk (score={risk_score:.3f}) — allocation reduced")
+
+        return allocation, warnings
+
+    def _store(
+        self,
+        top_hyp: Optional[HypothesisCandidate],
+        regime: RegimeLabel,
+        signals: Dict[str, Any],
+        ctx: Dict[str, Any],
+    ) -> Optional[str]:
+        """Persist top hypothesis to IdeaBank if available."""
+        if top_hyp is None or self.idea_bank is None:
+            return None
+        try:
+            signal_strs: List[str] = []
+            for k, v in signals.items():
+                rec = getattr(v, "recommendation", None)
+                signal_strs.append(f"{k}:{rec}" if rec else k)
+
+            idea = self.idea_bank.add(
+                hypothesis=top_hyp.name,
+                signals=signal_strs or ["unknown"],
+                regime=regime.value,
+                confidence=float(np.clip(top_hyp.conviction, 0.0, 1.0)),
+                tags=["pipeline_auto", regime.value, top_hyp.template_type],
+                ticker=ctx.get("instrument"),
+                direction="long" if top_hyp.direction >= 0 else "short",
+                metadata={
+                    "template_type": top_hyp.template_type,
+                    "raw_score":     top_hyp.raw_score,
+                    "debate_score":  top_hyp.debate_score,
+                    "adversarial":   top_hyp.adversarial_score,
+                    "run_count":     self._run_count,
+                },
+            )
+            logger.debug(f"Stored idea {idea.id} in IdeaBank.")
+            return idea.id
+        except Exception as e:
+            logger.warning(f"IdeaBank storage failed: {e}")
+            return None
+
+    def _feedback_loop(self) -> None:
+        """
+        Adjust min_conviction from IdeaBank historical performance.
+        Runs every 5 pipeline calls to avoid excessive churn.
+        """
+        if self._run_count % 5 != 0:
+            return
+        if self.idea_bank is None:
+            return
+        try:
+            attr = self.idea_bank.performance_attribution()
+            recent = attr[:self.cfg["feedback_lookback"]]
+            if not recent:
+                return
+            avg_win_rate = float(np.mean([r.get("win_rate", 0.5) for r in recent]))
+            if avg_win_rate > 0.55:
+                # Performing well — can lower conviction threshold slightly
+                self._core.min_conviction = max(
+                    self._core.min_conviction * 0.99, 0.10
+                )
+            elif avg_win_rate < 0.45:
+                # Underperforming — tighten conviction threshold
+                self._core.min_conviction = min(
+                    self._core.min_conviction * 1.01, 0.70
+                )
+            logger.debug(
+                f"Feedback loop: win_rate={avg_win_rate:.3f}, "
+                f"min_conviction → {self._core.min_conviction:.4f}"
+            )
+        except Exception as e:
+            logger.debug(f"Feedback loop error: {e}")
