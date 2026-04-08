@@ -1199,3 +1199,535 @@ func CompareStrategies(results MultiBacktestResult) []map[string]interface{} {
 	}
 	return rows
 }
+
+// ---------------------------------------------------------------------------
+// EquityCurveAnalysis: detailed equity curve analysis
+// ---------------------------------------------------------------------------
+
+// EquityCurveStats holds detailed equity curve statistics.
+type EquityCurveStats struct {
+	CAGR               float64   `json:"cagr"`
+	TotalDays          int       `json:"total_days"`
+	PositiveDays       int       `json:"positive_days"`
+	NegativeDays       int       `json:"negative_days"`
+	BestDay            float64   `json:"best_day"`
+	WorstDay           float64   `json:"worst_day"`
+	BestMonth          float64   `json:"best_month"`
+	WorstMonth         float64   `json:"worst_month"`
+	AvgDailyReturn     float64   `json:"avg_daily_return"`
+	DailyVolatility    float64   `json:"daily_volatility"`
+	UlcerIndex         float64   `json:"ulcer_index"`
+	PainIndex          float64   `json:"pain_index"`
+	BurkeRatio         float64   `json:"burke_ratio"`
+	MartinRatio        float64   `json:"martin_ratio"`
+	TailRatio          float64   `json:"tail_ratio"`
+	CommonSenseRatio   float64   `json:"common_sense_ratio"`
+	ConsecutiveWins    int       `json:"consecutive_wins"`
+	ConsecutiveLosses  int       `json:"consecutive_losses"`
+	RecoveryFactor     float64   `json:"recovery_factor"`
+	PayoffRatio        float64   `json:"payoff_ratio"`
+	ExpectedReturn     float64   `json:"expected_return"`
+	KellyFraction      float64   `json:"kelly_fraction"`
+	DrawdownPeriods    []DrawdownInfo `json:"drawdown_periods"`
+}
+
+// DrawdownInfo describes a single drawdown episode.
+type DrawdownInfo struct {
+	Start    int     `json:"start"`
+	Trough   int     `json:"trough"`
+	End      int     `json:"end"`
+	Depth    float64 `json:"depth"`
+	Duration int     `json:"duration"`
+	Recovery int     `json:"recovery"`
+}
+
+// AnalyzeEquityCurve computes detailed statistics from an equity curve.
+func AnalyzeEquityCurve(equityCurve []float64, returns []float64, rf float64) EquityCurveStats {
+	stats := EquityCurveStats{}
+	n := len(returns)
+	if n == 0 {
+		return stats
+	}
+	stats.TotalDays = n
+	// Daily stats
+	bestDay := -math.MaxFloat64
+	worstDay := math.MaxFloat64
+	sumRet := 0.0
+	for _, r := range returns {
+		sumRet += r
+		if r > bestDay {
+			bestDay = r
+		}
+		if r < worstDay {
+			worstDay = r
+		}
+		if r > 0 {
+			stats.PositiveDays++
+		} else if r < 0 {
+			stats.NegativeDays++
+		}
+	}
+	stats.BestDay = bestDay
+	stats.WorstDay = worstDay
+	stats.AvgDailyReturn = sumRet / float64(n)
+	// Daily vol
+	ss := 0.0
+	for _, r := range returns {
+		d := r - stats.AvgDailyReturn
+		ss += d * d
+	}
+	if n > 1 {
+		stats.DailyVolatility = math.Sqrt(ss / float64(n-1))
+	}
+	// CAGR
+	years := float64(n) / 252
+	totalRet := math.Exp(sumRet) - 1
+	if years > 0 && totalRet > -1 {
+		stats.CAGR = math.Pow(1+totalRet, 1/years) - 1
+	}
+	// Monthly returns
+	monthLen := 21
+	bestMonth := -math.MaxFloat64
+	worstMonth := math.MaxFloat64
+	for i := 0; i < n; i += monthLen {
+		end := i + monthLen
+		if end > n {
+			end = n
+		}
+		mRet := 0.0
+		for j := i; j < end; j++ {
+			mRet += returns[j]
+		}
+		if mRet > bestMonth {
+			bestMonth = mRet
+		}
+		if mRet < worstMonth {
+			worstMonth = mRet
+		}
+	}
+	stats.BestMonth = bestMonth
+	stats.WorstMonth = worstMonth
+	// Drawdown analysis
+	cum := 0.0
+	peak := 0.0
+	maxDD := 0.0
+	ddSquaredSum := 0.0
+	ddSum := 0.0
+	ddCount := 0
+	inDD := false
+	ddStart := 0
+	ddTrough := 0
+	ddDepth := 0.0
+	var ddPeriods []DrawdownInfo
+	for i, r := range returns {
+		cum += r
+		if cum > peak {
+			if inDD {
+				ddPeriods = append(ddPeriods, DrawdownInfo{
+					Start:    ddStart,
+					Trough:   ddTrough,
+					End:      i,
+					Depth:    ddDepth,
+					Duration: i - ddStart,
+					Recovery: i - ddTrough,
+				})
+				inDD = false
+			}
+			peak = cum
+		}
+		dd := peak - cum
+		if dd > 0 {
+			if !inDD {
+				inDD = true
+				ddStart = i
+				ddTrough = i
+				ddDepth = dd
+			}
+			if dd > ddDepth {
+				ddDepth = dd
+				ddTrough = i
+			}
+			ddSquaredSum += dd * dd
+			ddSum += dd
+			ddCount++
+		}
+		if dd > maxDD {
+			maxDD = dd
+		}
+	}
+	if inDD {
+		ddPeriods = append(ddPeriods, DrawdownInfo{
+			Start:    ddStart,
+			Trough:   ddTrough,
+			End:      n - 1,
+			Depth:    ddDepth,
+			Duration: n - 1 - ddStart,
+		})
+	}
+	stats.DrawdownPeriods = ddPeriods
+	// Ulcer Index
+	if n > 0 {
+		stats.UlcerIndex = math.Sqrt(ddSquaredSum / float64(n))
+	}
+	// Pain Index
+	if n > 0 {
+		stats.PainIndex = ddSum / float64(n)
+	}
+	// Martin Ratio (return / ulcer index)
+	annRet := stats.CAGR
+	if stats.UlcerIndex > 0 {
+		stats.MartinRatio = (annRet - rf) / stats.UlcerIndex
+	}
+	// Burke Ratio
+	if len(ddPeriods) > 0 {
+		sqSum := 0.0
+		for _, d := range ddPeriods {
+			sqSum += d.Depth * d.Depth
+		}
+		burkeDD := math.Sqrt(sqSum / float64(len(ddPeriods)))
+		if burkeDD > 0 {
+			stats.BurkeRatio = (annRet - rf) / burkeDD
+		}
+	}
+	// Consecutive wins/losses
+	maxConsWin := 0
+	maxConsLoss := 0
+	curWin := 0
+	curLoss := 0
+	for _, r := range returns {
+		if r > 0 {
+			curWin++
+			curLoss = 0
+		} else if r < 0 {
+			curLoss++
+			curWin = 0
+		} else {
+			curWin = 0
+			curLoss = 0
+		}
+		if curWin > maxConsWin {
+			maxConsWin = curWin
+		}
+		if curLoss > maxConsLoss {
+			maxConsLoss = curLoss
+		}
+	}
+	stats.ConsecutiveWins = maxConsWin
+	stats.ConsecutiveLosses = maxConsLoss
+	// Recovery factor
+	if maxDD > 0 {
+		stats.RecoveryFactor = totalRet / maxDD
+	}
+	// Payoff ratio
+	avgWin := 0.0
+	avgLoss := 0.0
+	winCount := 0
+	lossCount := 0
+	for _, r := range returns {
+		if r > 0 {
+			avgWin += r
+			winCount++
+		} else if r < 0 {
+			avgLoss -= r
+			lossCount++
+		}
+	}
+	if winCount > 0 {
+		avgWin /= float64(winCount)
+	}
+	if lossCount > 0 {
+		avgLoss /= float64(lossCount)
+	}
+	if avgLoss > 0 {
+		stats.PayoffRatio = avgWin / avgLoss
+	}
+	// Tail ratio (95th / 5th percentile)
+	sorted := make([]float64, n)
+	copy(sorted, returns)
+	sort.Float64s(sorted)
+	p5 := sorted[int(0.05*float64(n))]
+	p95 := sorted[int(0.95*float64(n))]
+	if p5 != 0 {
+		stats.TailRatio = math.Abs(p95 / p5)
+	}
+	// Common sense ratio = profit factor * tail ratio
+	grossProfit := 0.0
+	grossLoss := 0.0
+	for _, r := range returns {
+		if r > 0 {
+			grossProfit += r
+		} else {
+			grossLoss -= r
+		}
+	}
+	pf := 0.0
+	if grossLoss > 0 {
+		pf = grossProfit / grossLoss
+	}
+	stats.CommonSenseRatio = pf * stats.TailRatio
+	// Expected return per trade
+	winRate := float64(winCount) / float64(n)
+	stats.ExpectedReturn = winRate*avgWin - (1-winRate)*avgLoss
+	// Kelly fraction
+	if avgLoss > 0 {
+		stats.KellyFraction = winRate - (1-winRate)/(avgWin/avgLoss)
+	}
+	return stats
+}
+
+// ---------------------------------------------------------------------------
+// RollingMetrics: computes rolling performance metrics
+// ---------------------------------------------------------------------------
+
+// RollingMetrics computes rolling statistics over the backtest.
+type RollingMetrics struct {
+	window int
+}
+
+// NewRollingMetrics creates a rolling metrics calculator.
+func NewRollingMetrics(window int) *RollingMetrics {
+	return &RollingMetrics{window: window}
+}
+
+// RollingSharpe computes rolling Sharpe ratio.
+func (rm *RollingMetrics) RollingSharpe(returns []float64, rf float64) []float64 {
+	n := len(returns)
+	if n < rm.window {
+		return nil
+	}
+	result := make([]float64, n-rm.window+1)
+	for i := 0; i <= n-rm.window; i++ {
+		window := returns[i : i+rm.window]
+		m := mean(window)
+		sd := 0.0
+		for _, v := range window {
+			d := v - m
+			sd += d * d
+		}
+		if rm.window > 1 {
+			sd = math.Sqrt(sd / float64(rm.window-1))
+		}
+		annRet := m * 252
+		annVol := sd * math.Sqrt(252)
+		if annVol > 0 {
+			result[i] = (annRet - rf) / annVol
+		}
+	}
+	return result
+}
+
+// RollingVol computes rolling volatility.
+func (rm *RollingMetrics) RollingVol(returns []float64) []float64 {
+	n := len(returns)
+	if n < rm.window {
+		return nil
+	}
+	result := make([]float64, n-rm.window+1)
+	for i := 0; i <= n-rm.window; i++ {
+		window := returns[i : i+rm.window]
+		m := mean(window)
+		sd := 0.0
+		for _, v := range window {
+			d := v - m
+			sd += d * d
+		}
+		if rm.window > 1 {
+			sd = math.Sqrt(sd / float64(rm.window-1))
+		}
+		result[i] = sd * math.Sqrt(252)
+	}
+	return result
+}
+
+// RollingDrawdown computes rolling maximum drawdown.
+func (rm *RollingMetrics) RollingDrawdown(returns []float64) []float64 {
+	n := len(returns)
+	if n < rm.window {
+		return nil
+	}
+	result := make([]float64, n-rm.window+1)
+	for i := 0; i <= n-rm.window; i++ {
+		window := returns[i : i+rm.window]
+		cum := 0.0
+		peak := 0.0
+		maxDD := 0.0
+		for _, r := range window {
+			cum += r
+			if cum > peak {
+				peak = cum
+			}
+			dd := peak - cum
+			if dd > maxDD {
+				maxDD = dd
+			}
+		}
+		result[i] = maxDD
+	}
+	return result
+}
+
+// RollingBeta computes rolling beta vs benchmark.
+func (rm *RollingMetrics) RollingBeta(returns, benchmark []float64) []float64 {
+	n := len(returns)
+	if n < rm.window || len(benchmark) < n {
+		return nil
+	}
+	result := make([]float64, n-rm.window+1)
+	for i := 0; i <= n-rm.window; i++ {
+		rWin := returns[i : i+rm.window]
+		bWin := benchmark[i : i+rm.window]
+		mR := mean(rWin)
+		mB := mean(bWin)
+		cov := 0.0
+		varB := 0.0
+		for j := 0; j < rm.window; j++ {
+			dr := rWin[j] - mR
+			db := bWin[j] - mB
+			cov += dr * db
+			varB += db * db
+		}
+		if varB > 0 {
+			result[i] = cov / varB
+		}
+	}
+	return result
+}
+
+// ---------------------------------------------------------------------------
+// TradeAnalyzer: detailed trade-level analysis
+// ---------------------------------------------------------------------------
+
+// TradeStats holds trade-level statistics.
+type TradeStats struct {
+	TotalTrades    int     `json:"total_trades"`
+	BuyTrades      int     `json:"buy_trades"`
+	SellTrades     int     `json:"sell_trades"`
+	AvgTradeSize   float64 `json:"avg_trade_size"`
+	MaxTradeSize   float64 `json:"max_trade_size"`
+	TotalVolume    float64 `json:"total_volume"`
+	TotalCosts     float64 `json:"total_costs"`
+	CostPerTrade   float64 `json:"cost_per_trade"`
+	CostBps        float64 `json:"cost_bps"`
+	AvgSlippage    float64 `json:"avg_slippage_bps"`
+	TradesPerDay   float64 `json:"trades_per_day"`
+	SymbolBreakdown map[string]int `json:"symbol_breakdown"`
+}
+
+// AnalyzeTrades computes trade-level statistics.
+func AnalyzeTrades(trades []Trade, totalDays int) TradeStats {
+	stats := TradeStats{
+		SymbolBreakdown: make(map[string]int),
+	}
+	if len(trades) == 0 {
+		return stats
+	}
+	stats.TotalTrades = len(trades)
+	totalNotional := 0.0
+	maxNotional := 0.0
+	totalSlip := 0.0
+	for _, t := range trades {
+		notional := t.Quantity * t.Price
+		totalNotional += notional
+		if notional > maxNotional {
+			maxNotional = notional
+		}
+		stats.TotalCosts += t.Cost
+		totalSlip += t.SlippageBps
+		stats.SymbolBreakdown[t.Symbol]++
+		if t.Side == "buy" {
+			stats.BuyTrades++
+		} else {
+			stats.SellTrades++
+		}
+	}
+	stats.TotalVolume = totalNotional
+	stats.AvgTradeSize = totalNotional / float64(len(trades))
+	stats.MaxTradeSize = maxNotional
+	stats.CostPerTrade = stats.TotalCosts / float64(len(trades))
+	if totalNotional > 0 {
+		stats.CostBps = stats.TotalCosts / totalNotional * 10000
+	}
+	stats.AvgSlippage = totalSlip / float64(len(trades))
+	if totalDays > 0 {
+		stats.TradesPerDay = float64(len(trades)) / float64(totalDays)
+	}
+	return stats
+}
+
+// ---------------------------------------------------------------------------
+// ParameterSensitivity: parameter grid sensitivity analysis
+// ---------------------------------------------------------------------------
+
+// ParameterGrid defines a parameter to sweep.
+type ParameterGrid struct {
+	Name   string
+	Values []float64
+}
+
+// SensitivityResult holds results from parameter sensitivity analysis.
+type SensitivityResult struct {
+	ParamName  string             `json:"param_name"`
+	ParamValue float64            `json:"param_value"`
+	Sharpe     float64            `json:"sharpe"`
+	Return     float64            `json:"return"`
+	MaxDD      float64            `json:"max_dd"`
+	Trades     int                `json:"trades"`
+}
+
+// RunSensitivity runs a strategy across parameter values.
+func RunSensitivity(config BacktestConfig, data map[string][]Bar, grid ParameterGrid, newStrategy func(paramVal float64) Strategy) []SensitivityResult {
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	results := make([]SensitivityResult, len(grid.Values))
+	for i, val := range grid.Values {
+		wg.Add(1)
+		go func(idx int, v float64) {
+			defer wg.Done()
+			strat := newStrategy(v)
+			engine := NewEngine(config, strat)
+			engine.LoadBars(data)
+			report := engine.Run()
+			mu.Lock()
+			results[idx] = SensitivityResult{
+				ParamName:  grid.Name,
+				ParamValue: v,
+				Sharpe:     report.Analytics.Sharpe,
+				Return:     report.Analytics.TotalReturn,
+				MaxDD:      report.Analytics.MaxDrawdown,
+				Trades:     report.Analytics.TotalTrades,
+			}
+			mu.Unlock()
+		}(i, val)
+	}
+	wg.Wait()
+	return results
+}
+
+// BestParameter returns the parameter value with the best Sharpe.
+func BestParameter(results []SensitivityResult) SensitivityResult {
+	best := SensitivityResult{Sharpe: -math.MaxFloat64}
+	for _, r := range results {
+		if r.Sharpe > best.Sharpe {
+			best = r
+		}
+	}
+	return best
+}
+
+// ParameterStability returns the standard deviation of Sharpes across parameter values.
+func ParameterStability(results []SensitivityResult) float64 {
+	if len(results) < 2 {
+		return 0
+	}
+	sharpes := make([]float64, len(results))
+	for i, r := range results {
+		sharpes[i] = r.Sharpe
+	}
+	m := mean(sharpes)
+	ss := 0.0
+	for _, s := range sharpes {
+		d := s - m
+		ss += d * d
+	}
+	return math.Sqrt(ss / float64(len(sharpes)-1))
+}

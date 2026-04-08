@@ -1554,3 +1554,336 @@ func (l *SignalLibrary) RegisterDefaults() {
 	// Cross-asset
 	l.Register(NewBetaAdjustedSignal(63))
 }
+
+// ---------------------------------------------------------------------------
+// Additional Momentum Signals
+// ---------------------------------------------------------------------------
+
+// Momentum1W computes 1-week (5-day) price momentum.
+type Momentum1W struct{}
+
+func (s *Momentum1W) Name() string     { return "momentum_1w" }
+func (s *Momentum1W) Lookback() int     { return 5 }
+func (s *Momentum1W) Compute(bars []Bar) float64 {
+	if len(bars) < 6 {
+		return 0
+	}
+	old := bars[len(bars)-6].Close
+	if old == 0 {
+		return 0
+	}
+	return bars[len(bars)-1].Close/old - 1
+}
+
+// Momentum2W computes 2-week (10-day) price momentum.
+type Momentum2W struct{}
+
+func (s *Momentum2W) Name() string     { return "momentum_2w" }
+func (s *Momentum2W) Lookback() int     { return 10 }
+func (s *Momentum2W) Compute(bars []Bar) float64 {
+	if len(bars) < 11 {
+		return 0
+	}
+	old := bars[len(bars)-11].Close
+	if old == 0 {
+		return 0
+	}
+	return bars[len(bars)-1].Close/old - 1
+}
+
+// ---------------------------------------------------------------------------
+// Additional Technical Signals
+// ---------------------------------------------------------------------------
+
+// DualMACross computes dual moving average crossover signal.
+type DualMACross struct {
+	fast int
+	slow int
+}
+
+func NewDualMACross(fast, slow int) *DualMACross {
+	return &DualMACross{fast: fast, slow: slow}
+}
+
+func (s *DualMACross) Name() string     { return fmt.Sprintf("dual_ma_%d_%d", s.fast, s.slow) }
+func (s *DualMACross) Lookback() int     { return s.slow + 1 }
+func (s *DualMACross) Compute(bars []Bar) float64 {
+	if len(bars) < s.slow+1 {
+		return 0
+	}
+	closes := closePrices(bars)
+	// Current crossover
+	fastNow := ema(closes, s.fast)
+	slowNow := ema(closes, s.slow)
+	// Previous
+	fastPrev := ema(closes[:len(closes)-1], s.fast)
+	slowPrev := ema(closes[:len(closes)-1], s.slow)
+	if slowNow == 0 {
+		return 0
+	}
+	// Crossover signal
+	crossUp := fastPrev <= slowPrev && fastNow > slowNow
+	crossDown := fastPrev >= slowPrev && fastNow < slowNow
+	if crossUp {
+		return 1.0
+	}
+	if crossDown {
+		return -1.0
+	}
+	return (fastNow - slowNow) / slowNow
+}
+
+// VolatilityBreakout detects volatility breakouts.
+type VolatilityBreakout struct {
+	period int
+	mult   float64
+}
+
+func NewVolatilityBreakout(period int, mult float64) *VolatilityBreakout {
+	return &VolatilityBreakout{period: period, mult: mult}
+}
+
+func (s *VolatilityBreakout) Name() string  { return fmt.Sprintf("vol_breakout_%d", s.period) }
+func (s *VolatilityBreakout) Lookback() int  { return s.period + 1 }
+func (s *VolatilityBreakout) Compute(bars []Bar) float64 {
+	if len(bars) < s.period+1 {
+		return 0
+	}
+	ret := returns(bars[len(bars)-s.period-1:])
+	if len(ret) < s.period {
+		return 0
+	}
+	m := mean(ret)
+	sd := stddev(ret)
+	current := ret[len(ret)-1]
+	if sd == 0 {
+		return 0
+	}
+	z := (current - m) / sd
+	if z > s.mult {
+		return z - s.mult // positive breakout
+	} else if z < -s.mult {
+		return z + s.mult // negative breakout
+	}
+	return 0
+}
+
+// MeanReversionBB computes mean reversion based on Bollinger Band position.
+type MeanReversionBB struct {
+	period int
+}
+
+func NewMeanReversionBB(period int) *MeanReversionBB {
+	return &MeanReversionBB{period: period}
+}
+
+func (s *MeanReversionBB) Name() string    { return fmt.Sprintf("mr_bb_%d", s.period) }
+func (s *MeanReversionBB) Lookback() int    { return s.period }
+func (s *MeanReversionBB) Compute(bars []Bar) float64 {
+	if len(bars) < s.period {
+		return 0
+	}
+	closes := closePrices(bars[len(bars)-s.period:])
+	m := sma(closes, s.period)
+	sd := stddev(closes)
+	if sd == 0 {
+		return 0
+	}
+	z := (bars[len(bars)-1].Close - m) / sd
+	return -z // buy when below mean, sell when above
+}
+
+// PriceRangePosition measures price position within N-day range.
+type PriceRangePosition struct {
+	period int
+}
+
+func NewPriceRangePosition(period int) *PriceRangePosition {
+	return &PriceRangePosition{period: period}
+}
+
+func (s *PriceRangePosition) Name() string  { return fmt.Sprintf("range_pos_%d", s.period) }
+func (s *PriceRangePosition) Lookback() int  { return s.period }
+func (s *PriceRangePosition) Compute(bars []Bar) float64 {
+	if len(bars) < s.period {
+		return 0
+	}
+	hi := -math.MaxFloat64
+	lo := math.MaxFloat64
+	for i := len(bars) - s.period; i < len(bars); i++ {
+		if bars[i].High > hi {
+			hi = bars[i].High
+		}
+		if bars[i].Low < lo {
+			lo = bars[i].Low
+		}
+	}
+	if hi == lo {
+		return 0
+	}
+	return (bars[len(bars)-1].Close-lo)/(hi-lo)*2 - 1 // -1 to 1
+}
+
+// VolumeRSI applies RSI to volume series.
+type VolumeRSI struct {
+	period int
+}
+
+func NewVolumeRSI(period int) *VolumeRSI {
+	return &VolumeRSI{period: period}
+}
+
+func (s *VolumeRSI) Name() string          { return fmt.Sprintf("vol_rsi_%d", s.period) }
+func (s *VolumeRSI) Lookback() int          { return s.period + 1 }
+func (s *VolumeRSI) Compute(bars []Bar) float64 {
+	if len(bars) < s.period+1 {
+		return 0
+	}
+	vols := make([]float64, len(bars))
+	for i, b := range bars {
+		vols[i] = b.Volume
+	}
+	r := rsi(vols, s.period)
+	return (50 - r) / 50
+}
+
+// EfficiencyRatio measures price efficiency (Kaufman ER).
+type EfficiencyRatio struct {
+	period int
+}
+
+func NewEfficiencyRatio(period int) *EfficiencyRatio {
+	return &EfficiencyRatio{period: period}
+}
+
+func (s *EfficiencyRatio) Name() string    { return fmt.Sprintf("efficiency_%d", s.period) }
+func (s *EfficiencyRatio) Lookback() int    { return s.period }
+func (s *EfficiencyRatio) Compute(bars []Bar) float64 {
+	if len(bars) < s.period+1 {
+		return 0
+	}
+	direction := math.Abs(bars[len(bars)-1].Close - bars[len(bars)-s.period-1].Close)
+	volatility := 0.0
+	for i := len(bars) - s.period; i < len(bars); i++ {
+		volatility += math.Abs(bars[i].Close - bars[i-1].Close)
+	}
+	if volatility == 0 {
+		return 0
+	}
+	er := direction / volatility
+	// Signed by direction
+	if bars[len(bars)-1].Close > bars[len(bars)-s.period-1].Close {
+		return er
+	}
+	return -er
+}
+
+// ---------------------------------------------------------------------------
+// SignalPortfolio: manage signal allocations
+// ---------------------------------------------------------------------------
+
+// SignalAllocation represents a signal's allocation in the portfolio.
+type SignalAllocation struct {
+	Name   string  `json:"name"`
+	Weight float64 `json:"weight"`
+	Active bool    `json:"active"`
+}
+
+// SignalPortfolio manages a portfolio of signals with allocation weights.
+type SignalPortfolio struct {
+	mu          sync.RWMutex
+	allocations map[string]SignalAllocation
+	maxSignals  int
+}
+
+// NewSignalPortfolio creates a new signal portfolio.
+func NewSignalPortfolio(maxSignals int) *SignalPortfolio {
+	return &SignalPortfolio{
+		allocations: make(map[string]SignalAllocation),
+		maxSignals:  maxSignals,
+	}
+}
+
+// SetAllocation sets the allocation for a signal.
+func (sp *SignalPortfolio) SetAllocation(name string, weight float64, active bool) {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	sp.allocations[name] = SignalAllocation{Name: name, Weight: weight, Active: active}
+}
+
+// GetActive returns all active signal allocations.
+func (sp *SignalPortfolio) GetActive() []SignalAllocation {
+	sp.mu.RLock()
+	defer sp.mu.RUnlock()
+	var active []SignalAllocation
+	for _, a := range sp.allocations {
+		if a.Active {
+			active = append(active, a)
+		}
+	}
+	return active
+}
+
+// CompositeSignal computes the weighted composite from individual signals.
+func (sp *SignalPortfolio) CompositeSignal(values map[string]float64) float64 {
+	sp.mu.RLock()
+	defer sp.mu.RUnlock()
+	totalWeight := 0.0
+	weighted := 0.0
+	for name, alloc := range sp.allocations {
+		if !alloc.Active {
+			continue
+		}
+		val, ok := values[name]
+		if !ok {
+			continue
+		}
+		weighted += val * alloc.Weight
+		totalWeight += math.Abs(alloc.Weight)
+	}
+	if totalWeight == 0 {
+		return 0
+	}
+	return weighted / totalWeight
+}
+
+// Count returns total signals in the portfolio.
+func (sp *SignalPortfolio) Count() int {
+	sp.mu.RLock()
+	defer sp.mu.RUnlock()
+	return len(sp.allocations)
+}
+
+// ActiveCount returns number of active signals.
+func (sp *SignalPortfolio) ActiveCount() int {
+	sp.mu.RLock()
+	defer sp.mu.RUnlock()
+	count := 0
+	for _, a := range sp.allocations {
+		if a.Active {
+			count++
+		}
+	}
+	return count
+}
+
+// NormalizeWeights normalizes active weights to sum to 1.
+func (sp *SignalPortfolio) NormalizeWeights() {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	totalWeight := 0.0
+	for _, a := range sp.allocations {
+		if a.Active {
+			totalWeight += math.Abs(a.Weight)
+		}
+	}
+	if totalWeight == 0 {
+		return
+	}
+	for name, a := range sp.allocations {
+		if a.Active {
+			a.Weight = a.Weight / totalWeight
+			sp.allocations[name] = a
+		}
+	}
+}
