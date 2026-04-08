@@ -124,7 +124,7 @@ class LARSAv18Config:
         "ETH":  {"asset_class": "crypto", "cf_4h": 0.012, "cf_15m": 0.007, "cf_1h": 0.020},
         "XRP":  {"asset_class": "crypto", "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030},
         "AVAX": {"asset_class": "crypto", "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018},
-        "LINK": {"asset_class": "crypto", "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018},
+        "LINK": {"asset_class": "crypto", "cf_4h": 0.008, "cf_15m": 0.004, "cf_1h": 0.014},
         "AAVE": {"asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045},
         "LTC":  {"asset_class": "crypto", "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030},
         "BCH":  {"asset_class": "crypto", "cf_4h": 0.020, "cf_15m": 0.012, "cf_1h": 0.035},

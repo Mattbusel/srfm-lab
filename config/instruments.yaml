@@ -315,8 +315,9 @@ instruments:
     alpaca_ticker: "LINK/USD"
     type: crypto
     tick_size: 0.001
-    cf_15m: 0.01200
-    cf_1h:  0.03500
+    cf_15m: 0.004
+    cf_4h:  0.008
+    cf_1h:  0.014
     cf_1d:  0.12000
     bh_form: 2.0
     bh_collapse: 0.992
