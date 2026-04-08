@@ -58,10 +58,16 @@ class LARSAv18Config:
     CORR_NORMAL: float = 0.25
     CORR_STRESS: float = 0.60
     CORR_STRESS_THRESHOLD: float = 0.60
-    CRYPTO_CAP_FRAC: float = 0.40
+    CRYPTO_CAP_FRAC: float = 0.20     # max per-instrument
     EQUITY_CAP_FRAC: float = 0.20
     MIN_TRADE_FRAC: float = 0.003
-    DELTA_MAX_FRAC: float = 0.40
+    DELTA_MAX_FRAC: float = 0.20      # absolute per-trade cap
+    MAX_PORTFOLIO_FRAC: float = 0.60  # max total long exposure across all positions
+    MAX_CONCURRENT_POSITIONS: int = 5  # max simultaneous open positions
+    # Per-symbol overrides for small/illiquid tokens
+    SMALL_CAP_SYMBOLS: frozenset = field(default_factory=lambda: frozenset({"YFI", "MKR", "SUSHI", "CRV", "BAT", "GRT", "SHIB", "DOGE", "DOT", "UNI"}))
+    SMALL_CAP_MAX_FRAC: float = 0.08  # max 8% portfolio per small-cap token
+    REENTRY_COOLDOWN_BARS: int = 32   # bars (~8h) before re-entering after a losing trade
     OU_FRAC: float = 0.08
 
     # GARCH
@@ -95,8 +101,9 @@ class LARSAv18Config:
     EVENT_CAL_ACTIVE: bool = True
 
     # Position management
-    MIN_HOLD_MINUTES: int = 240
+    MIN_HOLD_MINUTES: int = 240   # 4h minimum hold — 1 BH period
     DD_HALT_PCT: float = 0.10
+    DD_HALT_RESET_BARS: int = 2880  # reset peak after ~30 days in halt (allow re-entry)
     DD_RESUME_PCT: float = 0.05
     STALE_15M_MOVE: float = 0.002
     WINNER_PROTECTION_PCT: float = 0.005
@@ -106,9 +113,17 @@ class LARSAv18Config:
     BOOST_ENTRY_HOURS_UTC: tuple = (3, 9, 16, 19)
     HOUR_BOOST_MULTIPLIER: float = 1.25
 
-    # TF caps
+    # TF caps — require 4h BH (bit 2, value 4) active before any entry
+    # tf bitmask: bit2=4h, bit1=1h, bit0=15m
     TF_CAP: dict = field(default_factory=lambda: {
-        7: 1.0, 6: 1.0, 4: 0.60, 3: 0.50, 2: 0.40, 1: 0.20, 0: 0.0
+        7: 1.0,   # all three TFs
+        6: 0.80,  # 4h + 1h
+        5: 0.50,  # 4h + 15m
+        4: 0.30,  # 4h only
+        3: 0.0,   # 1h + 15m, no 4h → blocked
+        2: 0.0,   # 1h only → blocked
+        1: 0.0,   # 15m only → blocked
+        0: 0.0,
     })
 
     # Transaction costs
@@ -118,18 +133,26 @@ class LARSAv18Config:
     # Warmup
     WARMUP_BARS: int = 30
 
-    # Instruments: cf thresholds
+    # Instruments: cf thresholds set to p97 of |dp/p| per timeframe so that
+    # ~97% of bars are timelike, enabling the BH mass formula to reach BH_FORM=1.92.
     INSTRUMENTS: dict = field(default_factory=lambda: {
-        "BTC":  {"asset_class": "crypto", "cf_4h": 0.016, "cf_15m": 0.010, "cf_1h": 0.030},
-        "ETH":  {"asset_class": "crypto", "cf_4h": 0.012, "cf_15m": 0.007, "cf_1h": 0.020},
-        "XRP":  {"asset_class": "crypto", "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030},
-        "AVAX": {"asset_class": "crypto", "cf_4h": 0.010, "cf_15m": 0.006, "cf_1h": 0.018},
-        "LINK": {"asset_class": "crypto", "cf_4h": 0.008, "cf_15m": 0.004, "cf_1h": 0.014},
-        "AAVE": {"asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045},
-        "LTC":  {"asset_class": "crypto", "cf_4h": 0.018, "cf_15m": 0.010, "cf_1h": 0.030},
-        "BCH":  {"asset_class": "crypto", "cf_4h": 0.020, "cf_15m": 0.012, "cf_1h": 0.035},
-        "MKR":  {"asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045},
-        "YFI":  {"asset_class": "crypto", "cf_4h": 0.022, "cf_15m": 0.015, "cf_1h": 0.045},
+        "BTC":  {"asset_class": "crypto", "cf_4h": 0.0328, "cf_15m": 0.0081, "cf_1h": 0.0165},
+        "ETH":  {"asset_class": "crypto", "cf_4h": 0.0433, "cf_15m": 0.0103, "cf_1h": 0.0213},
+        "XRP":  {"asset_class": "crypto", "cf_4h": 0.0448, "cf_15m": 0.0112, "cf_1h": 0.0220},
+        "AVAX": {"asset_class": "crypto", "cf_4h": 0.0520, "cf_15m": 0.0131, "cf_1h": 0.0270},
+        "LINK": {"asset_class": "crypto", "cf_4h": 0.0543, "cf_15m": 0.0137, "cf_1h": 0.0270},
+        "AAVE": {"asset_class": "crypto", "cf_4h": 0.0551, "cf_15m": 0.0136, "cf_1h": 0.0270},
+        "LTC":  {"asset_class": "crypto", "cf_4h": 0.0471, "cf_15m": 0.0122, "cf_1h": 0.0240},
+        "BCH":  {"asset_class": "crypto", "cf_4h": 0.0487, "cf_15m": 0.0125, "cf_1h": 0.0244},
+        "MKR":  {"asset_class": "crypto", "cf_4h": 0.0571, "cf_15m": 0.0146, "cf_1h": 0.0282},
+        "YFI":  {"asset_class": "crypto", "cf_4h": 0.0470, "cf_15m": 0.0126, "cf_1h": 0.0243},
+        "DOGE": {"asset_class": "crypto", "cf_4h": 0.0604, "cf_15m": 0.0163, "cf_1h": 0.0315},
+        "SHIB": {"asset_class": "crypto", "cf_4h": 0.0443, "cf_15m": 0.0115, "cf_1h": 0.0230},
+        "BAT":  {"asset_class": "crypto", "cf_4h": 0.0556, "cf_15m": 0.0152, "cf_1h": 0.0289},
+        "CRV":  {"asset_class": "crypto", "cf_4h": 0.0563, "cf_15m": 0.0142, "cf_1h": 0.0286},
+        "SUSHI":{"asset_class": "crypto", "cf_4h": 0.0601, "cf_15m": 0.0147, "cf_1h": 0.0293},
+        "DOT":  {"asset_class": "crypto", "cf_4h": 0.0431, "cf_15m": 0.0109, "cf_1h": 0.0218},
+        "UNI":  {"asset_class": "crypto", "cf_4h": 0.0583, "cf_15m": 0.0147, "cf_1h": 0.0289},
         "SPY":  {"asset_class": "equity", "cf_4h": 0.003, "cf_15m": 0.0003, "cf_1h": 0.001},
         "QQQ":  {"asset_class": "equity", "cf_4h": 0.004, "cf_15m": 0.0004, "cf_1h": 0.0012},
         "GLD":  {"asset_class": "equity", "cf_4h": 0.004, "cf_15m": 0.0004, "cf_1h": 0.0012},
@@ -716,7 +739,7 @@ class RLExitPolicy:
         f0 = self._discretize(pnl_pct * 2.0)
         f1 = self._discretize(bars_held / 50.0 - 1.0)
         f2 = self._discretize(bh_mass * 2.0 - 1.0)
-        f3 = 1 if bh_active else 0
+        f3 = 4 if bh_active else 0   # match Q-table encoding: 0=inactive, 4=active
         f4 = self._discretize(atr_ratio - 1.0)
         return f"{f0},{f1},{f2},{f3},{f4}"
 
@@ -787,6 +810,7 @@ class SymbolState:
     # Daily tracking
     prev_daily_close: float | None = None
     daily_returns: deque = field(default_factory=lambda: deque(maxlen=30))
+    daily_closes: deque = field(default_factory=lambda: deque(maxlen=210))  # 200d SMA window
 
     def __post_init__(self) -> None:
         pass  # fields already set by caller
@@ -820,6 +844,48 @@ class LARSAv18Strategy:
         self._rl_policy = (RLExitPolicy()
                            if (self.cfg.USE_RL and self.cfg.RL_EXIT_ACTIVE) else None)
 
+        # New improvement modules (T1-5, T2-8, T3-3, T3-7)
+        try:
+            import sys
+            sys.path.insert(0, str(_REPO_ROOT))
+            from lib.regime.hmm_regime import HMMRegimeDetector
+            self._hmm: dict[str, HMMRegimeDetector] = {sym: HMMRegimeDetector() for sym in syms}
+            log.info("HMM regime detector: enabled")
+        except Exception as _e:
+            self._hmm = {}
+            log.debug("HMM not available: %s", _e)
+
+        try:
+            from lib.signals.gravitational_wave import GravitationalWaveDetector
+            self._grav_wave = GravitationalWaveDetector()
+        except Exception as _e:
+            self._grav_wave = None
+            log.debug("GravWave not available: %s", _e)
+
+        try:
+            from lib.signals.multi_tf_coherence import MTFCoherenceEngine
+            self._mtf: dict[str, MTFCoherenceEngine] = {
+                sym: MTFCoherenceEngine(
+                    cf_thresholds={
+                        "15m": cfg.INSTRUMENTS[sym]["cf_15m"] if cfg else 0.010,
+                        "1h":  cfg.INSTRUMENTS[sym]["cf_1h"]  if cfg else 0.030,
+                        "4h":  cfg.INSTRUMENTS[sym]["cf_4h"]  if cfg else 0.016,
+                    }
+                )
+                for sym in syms
+            }
+            log.info("Multi-TF coherence engine: enabled")
+        except Exception as _e:
+            self._mtf = {}
+            log.debug("MTF not available: %s", _e)
+
+        # GARCH variance history for hard gate (T1-5)
+        self._garch_var_history: dict[str, list[float]] = {sym: [] for sym in syms}
+        self._garch_var_median_cache: dict[str, float] = {}   # cached median, recomputed every 100 bars
+        self._garch_var_bar_count: dict[str, int] = {sym: 0 for sym in syms}
+        # Price return history for HMM updates
+        self._price_ret_history: dict[str, list[float]] = {sym: [] for sym in syms}
+
         self._init_states()
 
     def _init_states(self) -> None:
@@ -847,8 +913,54 @@ class LARSAv18Strategy:
                 min_bars=self.cfg.HURST_MIN_BARS,
             )
             st.nav = QuatNavState(ema_alpha=self.cfg.NAV_EMA_ALPHA)
+            # Bootstrap daily_closes from pre-period history if available
+            pre_closes = getattr(self.cfg, "_pre_closes", {}).get(sym, [])
+            for _pc in pre_closes:
+                st.daily_closes.append(_pc)
             self._states[sym] = st
             self._daily_returns[sym] = deque(maxlen=30)
+
+    def pre_warmup_bh(self, pre_data: dict[str, pd.DataFrame]) -> None:
+        """
+        Run BH engines on pre-period 15m data so that BH state on the
+        first bar of the backtest reflects real market conditions rather
+        than all starting from mass=0.
+        """
+        if not pre_data:
+            return
+        all_ts = sorted(set().union(*[df.index.tolist() for df in pre_data.values()]))
+        log.info("Pre-warming BH engines on %d bars (%d symbols)", len(all_ts), len(pre_data))
+        for ts in all_ts:
+            for sym, df in pre_data.items():
+                if ts not in df.index:
+                    continue
+                row = df.loc[ts]
+                c = float(row["close"])
+                v = float(row.get("volume", 1.0)) if "volume" in row else 1.0
+                st = self._states.get(sym)
+                if st is None:
+                    continue
+                st.bh_15m.update(c, v)
+                st.cf_15m.update(c)
+                # 1h aggregation
+                h1_bucket = ts.replace(minute=0, second=0, microsecond=0)
+                st.h1_buf.append({"o": c, "h": c, "l": c, "c": c, "ts": ts})
+                if st.last_h1_bucket != h1_bucket:
+                    if st.last_h1_bucket is not None and len(st.h1_buf) >= 2:
+                        self._flush_1h(sym)
+                    st.last_h1_bucket = h1_bucket
+                    st.h1_buf = [{"o": c, "h": c, "l": c, "c": c, "ts": ts}]
+                # 4h aggregation
+                h4_bucket = ts.replace(
+                    hour=(ts.hour // 4) * 4, minute=0, second=0, microsecond=0
+                )
+                st.h4_buf.append({"o": c, "h": c, "l": c, "c": c, "ts": ts})
+                if st.last_h4_bucket != h4_bucket:
+                    if st.last_h4_bucket is not None and len(st.h4_buf) >= 8:
+                        self._flush_4h(sym)
+                    st.last_h4_bucket = h4_bucket
+                    st.h4_buf = [{"o": c, "h": c, "l": c, "c": c, "ts": ts}]
+                st.prev_close = c
 
     def reset(self) -> None:
         """Reset all state -- used between backtest runs."""
@@ -898,8 +1010,28 @@ class LARSAv18Strategy:
 
             # GARCH
             if st.prev_close and st.prev_close > 0:
-                st.garch.update(math.log(c / st.prev_close))
+                ret = math.log(c / st.prev_close)
+                st.garch.update(ret)
+                # T1-5: GARCH hard gate variance history
+                garch_var = st.garch._var if hasattr(st.garch, "_var") else (st.garch.vol or 0.02) ** 2
+                var_hist = self._garch_var_history.setdefault(sym, [])
+                var_hist.append(garch_var)
+                if len(var_hist) > 8640:
+                    var_hist.pop(0)
+                # T2-8: HMM update with GARCH-filtered return
+                if sym in self._hmm:
+                    self._hmm[sym].update(ret)
+                # Price return for correlation tracking
+                ret_hist = self._price_ret_history.setdefault(sym, [])
+                ret_hist.append(ret)
+                if len(ret_hist) > 2880:
+                    ret_hist.pop(0)
             st.prev_close = c
+
+
+            # T3-3: Gravitational wave tick
+            if self._grav_wave is not None:
+                self._grav_wave.tick()
 
             # OU
             st.ou.update(c)
@@ -961,6 +1093,7 @@ class LARSAv18Strategy:
 
     def _on_daily_close(self, sym: str, close: float) -> None:
         st = self._states[sym]
+        st.daily_closes.append(close)   # track for 200d SMA
         if st.prev_daily_close and st.prev_daily_close > 0:
             daily_ret = math.log(close / st.prev_daily_close)
             self._daily_returns[sym].append(daily_ret)
@@ -1024,12 +1157,25 @@ class LARSAv18Strategy:
 
             if st.asset_class == "equity":
                 ceiling = min(self.cfg.TF_CAP.get(tf, 0.0), self.cfg.EQUITY_CAP_FRAC)
+            elif sym in self.cfg.SMALL_CAP_SYMBOLS:
+                ceiling = min(self.cfg.TF_CAP.get(tf, 0.0), self.cfg.SMALL_CAP_MAX_FRAC)
             else:
                 ceiling = min(self.cfg.TF_CAP.get(tf, 0.0), self.cfg.CRYPTO_CAP_FRAC)
 
             if ceiling == 0.0:
                 raw[sym] = 0.0
                 continue
+
+            # 200-day SMA macro trend filter — only enter new longs above 200d SMA
+            if (math.isclose(st.last_frac, 0.0)   # new entry only
+                    and st.asset_class == "crypto"
+                    and len(st.daily_closes) >= 50):  # need enough history
+                sma_window = min(200, len(st.daily_closes))
+                sma_200 = sum(list(st.daily_closes)[-sma_window:]) / sma_window
+                current_price = st.prev_close or 0.0
+                if current_price < sma_200 * 0.98:   # 2% buffer below SMA = bearish
+                    raw[sym] = 0.0
+                    continue
 
             # Direction
             direction = 0
@@ -1051,7 +1197,10 @@ class LARSAv18Strategy:
             vol = (atr / cp * math.sqrt(6.5)) if (atr and cp > 0) else 0.01
             base = min(per_inst_risk / (vol + 1e-9),
                        min(ceiling, self.cfg.DELTA_MAX_FRAC))
-            raw[sym] = base * st.garch.vol_scale * direction
+            sized = base * st.garch.vol_scale
+            # Cap final size by DELTA_MAX_FRAC (vol_scale can amplify beyond cap)
+            sized = math.copysign(min(abs(sized), self.cfg.DELTA_MAX_FRAC), sized)
+            raw[sym] = sized * direction
 
             # QuatNav angular velocity sizing
             if self.cfg.USE_QUATNAV and st.nav.omega_ema and st.nav.omega_ema > 1e-9:
@@ -1069,11 +1218,62 @@ class LARSAv18Strategy:
                     raw[sym] = 0.0
                     continue
 
-            # Hurst regime modifier
-            if (self.cfg.USE_HURST
-                    and st.hurst.is_mean_reverting
-                    and st.asset_class == "crypto"):
-                raw[sym] *= 0.6
+            # T1-7: Hurst-conditional signal weighting (replaces simple 0.6 dampener)
+            if self.cfg.USE_HURST:
+                h_val = st.hurst._h if hasattr(st.hurst, "_h") else 0.5
+                if h_val is None:
+                    h_val = 0.5
+                if h_val >= 0.58:
+                    t = min(1.0, (h_val - 0.58) / 0.22)
+                    hurst_weight = 1.0 + t * 0.40  # up to 1.40 for trending
+                elif h_val <= 0.42:
+                    t = min(1.0, (0.42 - h_val) / 0.22)
+                    hurst_weight = 1.0 - t * 0.40  # down to 0.60 for mean-reverting
+                else:
+                    hurst_weight = 1.0
+                raw[sym] *= hurst_weight
+
+            # T1-5: GARCH hard gate — skip if variance > 3x 90-day median
+            var_hist = self._garch_var_history.get(sym, [])
+            if len(var_hist) >= 100:
+                self._garch_var_bar_count[sym] = self._garch_var_bar_count.get(sym, 0) + 1
+                if self._garch_var_bar_count[sym] % 100 == 1 or sym not in self._garch_var_median_cache:
+                    clean = [v for v in var_hist if v is not None]
+                    if clean:
+                        self._garch_var_median_cache[sym] = sorted(clean)[len(clean) // 2]
+                var_median = self._garch_var_median_cache.get(sym, 0.0)
+                garch_var_now = var_hist[-1]
+                if garch_var_now and var_median and garch_var_now > 3.0 * var_median:
+                    raw[sym] = 0.0
+                    continue
+
+            # T2-8: HMM size scale (only after 500 bars of training)
+            if sym in self._hmm and st.bar_count > 500:
+                hmm_out = self._hmm[sym]._current_output()
+                raw[sym] *= hmm_out["size_scale"]
+
+            # T3-7: Multi-TF coherence — use existing BH states, not separate MTF engine
+            # Coherence = fraction of [15m, 1h, 4h] BH engines that are active
+            if math.isclose(st.last_frac, 0.0):
+                active_tfs = sum([st.bh_15m.active, st.bh_1h.active, st.bh_4h.active])
+                if active_tfs == 0:
+                    # No TF coherence at all (should already be zero from ceiling check)
+                    raw[sym] = 0.0
+                    continue
+                elif active_tfs == 3:
+                    # Full coherence across all TFs: boost sizing 20%
+                    raw[sym] *= 1.20
+                # active_tfs == 1 or 2: allow entry at normal/reduced size (no extra filter)
+
+            # T3-3: Gravitational wave sizing boost — only on confirmed new entries
+            if self._grav_wave is not None and raw.get(sym, 0.0) != 0.0 and math.isclose(st.last_frac, 0.0):
+                bh_active_now = st.bh_15m.active or st.bh_1h.active or st.bh_4h.active
+                if bh_active_now and st.bar_count > 200:  # only after warmup
+                    bh_mass = max(st.bh_15m.mass, st.bh_1h.mass, st.bh_4h.mass)
+                    self._grav_wave.record_bh_formation(sym, bh_mass, min(1.0, bh_mass / 3.84))
+                    gw_mult = self._grav_wave.get_sizing_multiplier(sym)
+                    # Cap at 1.4x to avoid over-amplification
+                    raw[sym] *= min(gw_mult, 1.40)
 
         # Mayer Multiple dampener -- crypto only
         mayer_damp = 1.0
@@ -1088,6 +1288,26 @@ class LARSAv18Strategy:
         for sym in raw:
             if self.cfg.INSTRUMENTS[sym].get("asset_class", "crypto") == "crypto":
                 raw[sym] = raw.get(sym, 0.0) * mayer_damp
+
+        # T3-3: Update gravitational wave detector correlation matrix (every 5000 bars via counter)
+        if self._grav_wave is not None:
+            if not hasattr(self, "_grav_corr_counter"):
+                self._grav_corr_counter = 0
+            self._grav_corr_counter += 1
+            if self._grav_corr_counter % 5000 == 1:
+                all_syms = [s for s, r in self._price_ret_history.items() if len(r) >= 60]
+                if len(all_syms) >= 2:
+                    try:
+                        rets_arr = np.array([self._price_ret_history[s][-2880:] for s in all_syms])
+                        corr_arr = np.corrcoef(rets_arr)
+                        corr_map = {}
+                        for i, s1 in enumerate(all_syms):
+                            for j, s2 in enumerate(all_syms):
+                                if i != j:
+                                    corr_map[(s1, s2)] = float(corr_arr[i, j])
+                        self._grav_wave.set_correlation_matrix(corr_map)
+                    except Exception:
+                        pass
 
         # BTC cross-asset lead: 1.4x boost on other crypto
         for sym in raw:
@@ -1180,9 +1400,10 @@ class LARSAv18Strategy:
             if not d_active and not h_active:
                 st.pos_floor = 0.0
 
-        # Normalize if sum > 1
+        # Normalize so total long exposure <= MAX_PORTFOLIO_FRAC
         total = sum(abs(v) for v in raw.values())
-        scale = 1.0 / total if total > 1.0 else 1.0
+        max_total = self.cfg.MAX_PORTFOLIO_FRAC
+        scale = max_total / total if total > max_total else 1.0
         for sym in raw:
             raw[sym] *= scale
 
@@ -1472,9 +1693,15 @@ class LARSAv18Backtest:
             set().union(*[df.index.tolist() for df in data.values()])
         )
 
+        # Pre-warm BH engines on pre-period data so Jan 1 state is realistic
+        pre_15m = getattr(cfg, "_pre_15m", {})
+        if pre_15m:
+            strategy.pre_warmup_bh(pre_15m)
+
         equity = initial_equity
         equity_peak = equity
         dd_halted = False
+        dd_halt_bars = 0  # bars spent in DD halt
 
         equity_curve: list[tuple[pd.Timestamp, float]] = []
         trade_list: list[Trade] = []
@@ -1482,6 +1709,8 @@ class LARSAv18Backtest:
 
         # Position state: sym -> (frac, entry_price, entry_time, bars_held)
         positions: dict[str, tuple[float, float, pd.Timestamp, int]] = {}
+        # Re-entry cooldown: sym -> bars remaining before new entry allowed
+        reentry_cooldown: dict[str, int] = {}
 
         last_bar_ts: pd.Timestamp | None = None
 
@@ -1501,10 +1730,19 @@ class LARSAv18Backtest:
 
             # Check drawdown circuit breaker
             dd = (equity - equity_peak) / equity_peak
-            if dd < -cfg.DD_HALT_PCT:
+            if not dd_halted and dd < -cfg.DD_HALT_PCT:
                 dd_halted = True
-            if dd_halted and equity >= equity_peak * (1.0 - cfg.DD_RESUME_PCT):
-                dd_halted = False
+                dd_halt_bars = 0
+            if dd_halted:
+                dd_halt_bars += 1
+                if equity >= equity_peak * (1.0 - cfg.DD_RESUME_PCT):
+                    dd_halted = False
+                    dd_halt_bars = 0
+                elif dd_halt_bars >= cfg.DD_HALT_RESET_BARS:
+                    # Reset peak to current equity after extended halt — allow re-entry
+                    equity_peak = equity + mtm
+                    dd_halted = False
+                    dd_halt_bars = 0
 
             # Get target fractions from strategy
             targets = strategy.on_bar(bar, data)
@@ -1519,23 +1757,55 @@ class LARSAv18Backtest:
                 current_pos = positions.get(sym)
 
                 # Min-hold enforcement
+                rl_exit = False
                 if current_pos is not None:
                     frac, entry_px, entry_t, bars_h = current_pos
                     hold_mins = (ts - entry_t).total_seconds() / 60.0
-                    pnl_pct = (close_px - entry_px) / (entry_px + 1e-12) * frac
+                    pnl_instrument = (close_px - entry_px) / (entry_px + 1e-12)
+                    pnl_pct = pnl_instrument * abs(frac)   # portfolio-scaled for RL
 
-                    # RL exit check
-                    rl_exit = strategy.rl_exit_check(sym, pnl_pct, bars_h)
+                    # Hard price stop — ride normal corrections, but cap extreme losses
+                    hard_stop = pnl_instrument < -0.12
 
-                    if (hold_mins < cfg.MIN_HOLD_MINUTES
-                            and not rl_exit
-                            and abs(target_frac) >= abs(frac) * 0.5):
-                        # Enforce minimum hold -- don't reduce position
+                    # Trend-protection exit rules:
+                    # 1. After min_hold + profitable → allow RL exit (ride winners)
+                    # 2. After 24h + at loss + BH inactive → cut loss (prevent runaway losses)
+                    # 3. Hard stop (-12%) → always exit
+                    in_profit = pnl_instrument > 0.005   # >0.5% price gain
+                    bh_still_active = (strategy._states[sym].bh_4h.active
+                                       or strategy._states[sym].bh_1h.active
+                                       if sym in strategy._states else False)
+                    sustained_loss = (pnl_instrument < -0.03   # >3% price loss
+                                      and hold_mins > 720       # > 12h
+                                      and not bh_still_active)
+                    max_hold_exceeded = hold_mins > 2880  # > 48h hard cap
+
+                    if hold_mins >= cfg.MIN_HOLD_MINUTES and not hard_stop:
+                        if in_profit or sustained_loss or max_hold_exceeded:
+                            rl_exit = strategy.rl_exit_check(sym, pnl_pct, bars_h)
+
+                    # Hard stop always exits (overrides min-hold)
+                    # Otherwise hold if: within min-hold AND not in exit condition
+                    if not hard_stop and (hold_mins < cfg.MIN_HOLD_MINUTES
+                            or (not in_profit and not sustained_loss
+                                and not max_hold_exceeded)):
                         target_frac = frac
 
                 # Drawdown halt -- no new entries
                 if dd_halted and (current_pos is None or current_pos[0] == 0.0):
                     target_frac = 0.0
+
+                # Max concurrent positions -- don't open new if at limit
+                if (current_pos is None or math.isclose(current_pos[0], 0.0)) and target_frac != 0.0:
+                    if len(positions) >= cfg.MAX_CONCURRENT_POSITIONS:
+                        target_frac = 0.0
+
+                # Re-entry cooldown -- no new entries if still in cooldown
+                if (current_pos is None or math.isclose(current_pos[0], 0.0)):
+                    cd = reentry_cooldown.get(sym, 0)
+                    if cd > 0:
+                        reentry_cooldown[sym] = cd - 1
+                        target_frac = 0.0
 
                 current_frac = current_pos[0] if current_pos else 0.0
                 delta = target_frac - current_frac
@@ -1576,6 +1846,9 @@ class LARSAv18Backtest:
 
                     if math.isclose(target_frac, 0.0):
                         del positions[sym]
+                        # Apply cooldown after a losing trade
+                        if pnl < 0:
+                            reentry_cooldown[sym] = cfg.REENTRY_COOLDOWN_BARS
                     else:
                         # Partial close / direction change
                         positions[sym] = (target_frac, close_px, ts, 0)
@@ -1669,28 +1942,114 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="LARSA v18 Backtest")
     parser.add_argument("--start", default="2024-01-01")
-    parser.add_argument("--end", default="2024-12-31")
-    parser.add_argument("--symbols", nargs="+",
-                        default=["BTC", "ETH", "XRP", "SPY", "QQQ"])
+    parser.add_argument("--end", default="2025-12-31")
+    parser.add_argument("--symbols", nargs="+", default=None)
     parser.add_argument("--source", default="auto",
-                        choices=["auto", "sqlite", "csv", "synthetic"])
+                        choices=["auto", "sqlite", "csv", "synthetic", "pkl"])
     parser.add_argument("--equity", type=float, default=100_000.0)
     parser.add_argument("--data-dir", default=None)
+    parser.add_argument("--cache", default=None,
+                        help="Path to crypto_data_cache.pkl")
     args = parser.parse_args()
 
     start = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc)
     end = datetime.fromisoformat(args.end).replace(tzinfo=timezone.utc)
 
     bt = LARSAv18Backtest()
-    data = bt.load_data(
-        args.symbols, start, end,
-        source=args.source,
-        data_dir=Path(args.data_dir) if args.data_dir else None,
-    )
+
+    if args.cache or args.source == "pkl":
+        import pickle
+        cache_path = args.cache or "tools/backtest_output/crypto_data_cache.pkl"
+        log.info("Loading cached data from %s ...", cache_path)
+        with open(cache_path, "rb") as fh:
+            raw_cache = pickle.load(fh)
+        # raw_cache: {symbol -> {timeframe -> DataFrame}} or {symbol -> DataFrame}
+        data: dict[str, pd.DataFrame] = {}
+        _inst_filter = set(LARSAv18Config().INSTRUMENTS.keys())
+        for sym, tfs in raw_cache.items():
+            if args.symbols and sym not in args.symbols:
+                continue
+            if sym not in _inst_filter:
+                continue
+            df = tfs.get("15m") if isinstance(tfs, dict) else tfs
+            if df is None or len(df) == 0:
+                continue
+            df = df.copy()
+            df.columns = [c.lower() for c in df.columns]
+            if "volume" not in df.columns:
+                df["volume"] = 0.0
+            if df.index.tz is None:
+                df.index = df.index.tz_localize("UTC")
+            else:
+                df.index = df.index.tz_convert("UTC")
+            df = df.loc[(df.index >= start) & (df.index < end)]
+            if len(df) > 0:
+                data[sym] = df
+        log.info("Loaded from pkl: %s", {s: len(d) for s, d in data.items()})
+    else:
+        data = bt.load_data(
+            args.symbols, start, end,
+            source=args.source,
+            data_dir=Path(args.data_dir) if args.data_dir else None,
+        )
 
     log.info("Loaded data: %s", {s: len(df) for s, df in data.items()})
 
     cfg = LARSAv18Config()
+
+    # Bootstrap 200d SMA history from 1d cache if available
+    if args.cache:
+        import pickle as _pkl
+        with open(args.cache, "rb") as _fh:
+            _raw_cache = _pkl.load(_fh)
+        _pre_start = start - pd.Timedelta(days=210)
+        _pre_closes: dict[str, list[float]] = {}
+        for _sym, _tfs in _raw_cache.items():
+            _df1d = _tfs.get("1d") if isinstance(_tfs, dict) else None
+            if _df1d is None or len(_df1d) == 0:
+                continue
+            _df1d = _df1d.copy()
+            _df1d.columns = [c.lower() for c in _df1d.columns]
+            _pre_start_ts = pd.Timestamp(_pre_start).tz_localize(None)
+            _start_ts = pd.Timestamp(start).tz_localize(None)
+            _df1d_idx = _df1d.index
+            if _df1d_idx.tz is not None:
+                _df1d_idx = _df1d_idx.tz_localize(None)
+                _df1d = _df1d.copy(); _df1d.index = _df1d_idx
+            _hist = _df1d.loc[(_df1d.index >= _pre_start_ts) & (_df1d.index < _start_ts)]
+            if len(_hist) > 0:
+                _pre_closes[_sym] = _hist["close"].tolist()[-200:]
+        cfg._pre_closes = _pre_closes
+        log.info("Pre-loaded 200d SMA history for %d symbols", len(_pre_closes))
+
+        # Pre-warm BH engines on last 60 days of pre-period 15m data
+        _inst_filter = set(LARSAv18Config().INSTRUMENTS.keys())
+        _bh_pre_start = start - pd.Timedelta(days=60)
+        _pre_15m: dict[str, pd.DataFrame] = {}
+        for _sym, _tfs in _raw_cache.items():
+            if _sym not in _inst_filter:
+                continue
+            if args.symbols and _sym not in args.symbols:
+                continue
+            _df15 = _tfs.get("15m") if isinstance(_tfs, dict) else None
+            if _df15 is None or len(_df15) == 0:
+                continue
+            _df15 = _df15.copy()
+            _df15.columns = [c.lower() for c in _df15.columns]
+            if _df15.index.tz is None:
+                _df15.index = _df15.index.tz_localize("UTC")
+            else:
+                _df15.index = _df15.index.tz_convert("UTC")
+            _filt = _df15.loc[(_df15.index >= _bh_pre_start) & (_df15.index < start)]
+            if len(_filt) > 0:
+                _pre_15m[_sym] = _filt
+        cfg._pre_15m = _pre_15m
+        log.info("Pre-warm BH: loaded %d symbols × %d bars",
+                 len(_pre_15m), max((len(d) for d in _pre_15m.values()), default=0))
+    else:
+        cfg._pre_closes = {}
+        cfg._pre_15m = {}
+
     result = bt.run(data, cfg, initial_equity=args.equity)
 
     print("\n=== LARSA v18 Backtest Results ===")

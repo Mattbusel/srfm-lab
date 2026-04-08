@@ -97,7 +97,7 @@ class GravitationalWaveDetector:
             multiplier = self.cfg.size_multipliers[0]
 
         if coherent_count > 1:
-            log.info("GravWave: %d-instrument coherent wave detected for %s → %.1fx sizing",
+            log.debug("GravWave: %d-instrument coherent wave detected for %s → %.1fx sizing",
                      coherent_count, sym, multiplier)
 
         return min(multiplier, self.cfg.max_multiplier)
