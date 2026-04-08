@@ -1651,6 +1651,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "signal-processing"
+version = "0.1.0"
+
+[[package]]
 name = "simba"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1849,6 +1853,10 @@ dependencies = [
  "serde_json",
  "thiserror",
 ]
+
+[[package]]
+name = "time-series-engine"
+version = "0.1.0"
 
 [[package]]
 name = "tokio"

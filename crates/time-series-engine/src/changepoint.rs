@@ -737,9 +737,9 @@ fn regularized_beta(x: f64, a: f64, b: f64) -> f64 {
 }
 
 fn beta_cf(x: f64, a: f64, b: f64, max_iter: usize, eps: f64) -> f64 {
-    let mut c = 1.0;
-    let mut d = 1.0 / (1.0 - (a + b) * x / (a + 1.0)).max(1e-30);
-    let mut h = d;
+    let mut c: f64 = 1.0;
+    let mut d: f64 = 1.0 / (1.0 - (a + b) * x / (a + 1.0)).max(1e-30);
+    let mut h: f64 = d;
 
     for m in 1..=max_iter {
         let m = m as f64;

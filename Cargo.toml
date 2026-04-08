@@ -33,6 +33,8 @@ members = [
     "crates/portfolio-rebalancer",
     "crates/quant-math",
     "crates/risk-analytics",
+    "crates/signal-processing",
+    "crates/time-series-engine",
 ]
 resolver = "2"
 

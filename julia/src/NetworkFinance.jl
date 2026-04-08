@@ -1949,4 +1949,541 @@ function shortest_path_distribution(net::FinancialNetwork)
             num_paths=length(all_paths))
 end
 
+# ============================================================================
+# SECTION 12: Additional Network Utilities
+# ============================================================================
+
+"""
+    k_core_decomposition(net::FinancialNetwork)
+
+K-core decomposition: maximal subgraph where every node has degree >= k.
+Returns core number for each node.
+"""
+function k_core_decomposition(net::FinancialNetwork)::Vector{Int}
+    N = net.num_nodes
+    A = Float64.(net.adjacency .!= 0)
+    degrees = [sum(A[i, :]) for i in 1:N]
+    core = zeros(Int, N)
+    remaining = trues(N)
+
+    k = 0
+    while any(remaining)
+        k += 1
+        changed = true
+        while changed
+            changed = false
+            for i in 1:N
+                if remaining[i]
+                    deg = sum(A[i, j] > 0 && remaining[j] for j in 1:N)
+                    if deg < k
+                        remaining[i] = false
+                        core[i] = k - 1
+                        changed = true
+                    end
+                end
+            end
+        end
+    end
+
+    # Remaining nodes get highest core
+    for i in 1:N
+        if core[i] == 0
+            core[i] = k
+        end
+    end
+
+    return core
+end
+
+"""
+    rich_club_coefficient(net::FinancialNetwork, k_threshold)
+
+Rich-club coefficient: fraction of edges among high-degree nodes.
+phi(k) = 2*E_{>k} / (N_{>k} * (N_{>k} - 1))
+"""
+function rich_club_coefficient(net::FinancialNetwork, k_threshold::Int)::Float64
+    N = net.num_nodes
+    A = Float64.(net.adjacency .!= 0)
+    degrees = [Int(sum(A[i, :])) for i in 1:N]
+
+    rich_nodes = findall(degrees .>= k_threshold)
+    n_rich = length(rich_nodes)
+    if n_rich < 2
+        return 0.0
+    end
+
+    edges_among_rich = 0
+    for i in rich_nodes
+        for j in rich_nodes
+            if i < j && A[i, j] > 0
+                edges_among_rich += 1
+            end
+        end
+    end
+
+    return 2.0 * edges_among_rich / (n_rich * (n_rich - 1))
+end
+
+"""
+    network_entropy(net::FinancialNetwork)
+
+Shannon entropy of degree distribution.
+"""
+function network_entropy(net::FinancialNetwork)::Float64
+    N = net.num_nodes
+    A = Float64.(net.adjacency .!= 0)
+    degrees = [Int(sum(A[i, :])) for i in 1:N]
+
+    max_deg = maximum(degrees)
+    if max_deg == 0
+        return 0.0
+    end
+
+    # Degree distribution
+    counts = zeros(max_deg + 1)
+    for d in degrees
+        counts[d + 1] += 1.0
+    end
+    probs = counts / N
+
+    H = 0.0
+    for p in probs
+        if p > 0
+            H -= p * log(p)
+        end
+    end
+
+    return H
+end
+
+"""
+    small_world_coefficient(net::FinancialNetwork; num_random=10, seed=42)
+
+Small-world coefficient: sigma = (C/C_rand) / (L/L_rand).
+sigma > 1 indicates small-world network.
+"""
+function small_world_coefficient(net::FinancialNetwork;
+                                  num_random::Int=10, seed::Int=42)::Float64
+    rng = Random.MersenneTwister(seed)
+    N = net.num_nodes
+    A = Float64.(net.adjacency .!= 0)
+
+    # Clustering coefficient of real network
+    cc_real = mean(_clustering_coefficient(net))
+
+    # Average path length of real network
+    sp = shortest_path_distribution(net)
+    L_real = sp.mean_path
+
+    # Generate random networks with same degree sequence
+    num_edges = Int(sum(A) / 2)
+    cc_rand_sum = 0.0
+    L_rand_sum = 0.0
+
+    for trial in 1:num_random
+        # Erdos-Renyi random graph with same density
+        rand_adj = zeros(N, N)
+        p_edge = 2.0 * num_edges / (N * (N - 1))
+        for i in 1:N
+            for j in (i+1):N
+                if rand(rng) < p_edge
+                    rand_adj[i, j] = 1.0
+                    rand_adj[j, i] = 1.0
+                end
+            end
+        end
+
+        rand_net = FinancialNetwork(N, rand_adj, net.node_names, false)
+        cc_rand_sum += mean(_clustering_coefficient(rand_net))
+        sp_rand = shortest_path_distribution(rand_net)
+        L_rand_sum += sp_rand.mean_path
+    end
+
+    cc_rand = cc_rand_sum / num_random
+    L_rand = L_rand_sum / num_random
+
+    if cc_rand < 1e-10 || L_real < 1e-10
+        return 0.0
+    end
+
+    sigma = (cc_real / cc_rand) / (L_real / max(L_rand, 1e-10))
+    return sigma
+end
+
+"""
+    network_robustness(net::FinancialNetwork; attack_type=:targeted, fraction=0.1)
+
+Measure network robustness to node removal.
+attack_type: :random or :targeted (remove highest degree first).
+Returns fraction of nodes in largest connected component after removal.
+"""
+function network_robustness(net::FinancialNetwork;
+                             attack_type::Symbol=:targeted,
+                             fraction::Float64=0.1)::Float64
+    N = net.num_nodes
+    A = copy(Float64.(net.adjacency .!= 0))
+    num_remove = max(1, round(Int, fraction * N))
+
+    if attack_type == :targeted
+        degrees = [sum(A[i, :]) for i in 1:N]
+        remove_order = sortperm(degrees, rev=true)
+    else
+        remove_order = randperm(N)
+    end
+
+    removed = falses(N)
+    for i in 1:num_remove
+        node = remove_order[i]
+        removed[node] = true
+        A[node, :] .= 0.0
+        A[:, node] .= 0.0
+    end
+
+    # Find largest connected component via BFS
+    visited = falses(N)
+    max_component = 0
+
+    for start in 1:N
+        if visited[start] || removed[start]
+            continue
+        end
+
+        # BFS
+        queue = [start]
+        visited[start] = true
+        component_size = 0
+
+        while !isempty(queue)
+            v = popfirst!(queue)
+            component_size += 1
+
+            for w in 1:N
+                if !visited[w] && !removed[w] && A[v, w] > 0
+                    visited[w] = true
+                    push!(queue, w)
+                end
+            end
+        end
+
+        max_component = max(max_component, component_size)
+    end
+
+    return max_component / (N - num_remove)
+end
+
+"""
+    effective_resistance(net::FinancialNetwork, i, j)
+
+Effective resistance between nodes i and j.
+R_ij = (e_i - e_j)' * L^+ * (e_i - e_j)
+where L^+ is pseudoinverse of Laplacian.
+"""
+function effective_resistance(net::FinancialNetwork, i::Int, j::Int)::Float64
+    N = net.num_nodes
+    A = abs.(net.adjacency)
+    D = Diagonal(vec(sum(A, dims=2)))
+    L = D - A
+
+    # Pseudoinverse via eigendecomposition
+    eig = eigen(Symmetric(Matrix(L)))
+    L_pinv = zeros(N, N)
+    for k in 1:N
+        if eig.values[k] > 1e-10
+            L_pinv += (1.0 / eig.values[k]) * eig.vectors[:, k] * eig.vectors[:, k]'
+        end
+    end
+
+    e_ij = zeros(N)
+    e_ij[i] = 1.0
+    e_ij[j] = -1.0
+
+    return dot(e_ij, L_pinv * e_ij)
+end
+
+"""
+    total_effective_resistance(net::FinancialNetwork)
+
+Kirchhoff index: sum of all pairwise effective resistances.
+"""
+function total_effective_resistance(net::FinancialNetwork)::Float64
+    N = net.num_nodes
+    A = abs.(net.adjacency)
+    D = Diagonal(vec(sum(A, dims=2)))
+    L = D - A
+
+    eig = eigen(Symmetric(Matrix(L)))
+    # Kirchhoff index = N * sum(1/lambda_i for nonzero eigenvalues)
+    kirchhoff = 0.0
+    for k in 1:N
+        if eig.values[k] > 1e-10
+            kirchhoff += N / eig.values[k]
+        end
+    end
+
+    return kirchhoff
+end
+
+"""
+    spectral_gap(net::FinancialNetwork)
+
+Spectral gap: difference between two largest eigenvalues of adjacency.
+"""
+function spectral_gap(net::FinancialNetwork)::Float64
+    A = abs.(net.adjacency)
+    eig_vals = eigvals(Symmetric(A))
+    sorted = sort(eig_vals, rev=true)
+    if length(sorted) >= 2
+        return sorted[1] - sorted[2]
+    end
+    return 0.0
+end
+
+"""
+    algebraic_connectivity(net::FinancialNetwork)
+
+Fiedler value: second-smallest eigenvalue of Laplacian.
+Measures how well-connected the network is.
+"""
+function algebraic_connectivity(net::FinancialNetwork)::Float64
+    N = net.num_nodes
+    A = abs.(net.adjacency)
+    D = Diagonal(vec(sum(A, dims=2)))
+    L = D - A
+
+    eig_vals = eigvals(Symmetric(Matrix(L)))
+    sorted = sort(eig_vals)
+
+    # Second smallest (first is ~0)
+    for v in sorted
+        if v > 1e-8
+            return v
+        end
+    end
+
+    return 0.0
+end
+
+"""
+    network_flow_betweenness(net::FinancialNetwork)
+
+Flow betweenness: based on maximum flow through each node.
+Approximation using current-flow betweenness.
+"""
+function network_flow_betweenness(net::FinancialNetwork)::Vector{Float64}
+    N = net.num_nodes
+    A = abs.(net.adjacency)
+    D = Diagonal(vec(sum(A, dims=2)))
+    L = D - A
+
+    # Pseudoinverse of Laplacian
+    eig = eigen(Symmetric(Matrix(L)))
+    L_pinv = zeros(N, N)
+    for k in 1:N
+        if eig.values[k] > 1e-10
+            L_pinv += (1.0 / eig.values[k]) * eig.vectors[:, k] * eig.vectors[:, k]'
+        end
+    end
+
+    fb = zeros(N)
+
+    for s in 1:N
+        for t in (s+1):N
+            if s == t
+                continue
+            end
+
+            # Current flow from s to t
+            e_st = zeros(N)
+            e_st[s] = 1.0
+            e_st[t] = -1.0
+            potentials = L_pinv * e_st
+
+            # Current through each node
+            for v in 1:N
+                if v != s && v != t
+                    throughput = 0.0
+                    for w in 1:N
+                        if A[v, w] > 0
+                            current = A[v, w] * abs(potentials[v] - potentials[w])
+                            throughput += current
+                        end
+                    end
+                    fb[v] += throughput / 2.0
+                end
+            end
+        end
+    end
+
+    # Normalize
+    pairs = N * (N - 1) / 2.0
+    if pairs > 0
+        fb ./= pairs
+    end
+
+    return fb
+end
+
+"""
+    link_prediction_scores(net::FinancialNetwork)
+
+Link prediction: common neighbors, Jaccard, Adamic-Adar scores.
+Returns matrix of scores for non-existing edges.
+"""
+function link_prediction_scores(net::FinancialNetwork)
+    N = net.num_nodes
+    A = Float64.(net.adjacency .!= 0)
+
+    cn_scores = zeros(N, N)      # Common neighbors
+    jaccard_scores = zeros(N, N)  # Jaccard
+    aa_scores = zeros(N, N)       # Adamic-Adar
+
+    degrees = [sum(A[i, :]) for i in 1:N]
+
+    for i in 1:N
+        neighbors_i = Set(findall(A[i, :] .> 0))
+        for j in (i+1):N
+            if A[i, j] == 0  # Only predict missing edges
+                neighbors_j = Set(findall(A[j, :] .> 0))
+
+                # Common neighbors
+                common = intersect(neighbors_i, neighbors_j)
+                cn_scores[i, j] = length(common)
+                cn_scores[j, i] = cn_scores[i, j]
+
+                # Jaccard
+                union_size = length(union(neighbors_i, neighbors_j))
+                if union_size > 0
+                    jaccard_scores[i, j] = length(common) / union_size
+                    jaccard_scores[j, i] = jaccard_scores[i, j]
+                end
+
+                # Adamic-Adar
+                aa = 0.0
+                for z in common
+                    if degrees[z] > 1
+                        aa += 1.0 / log(degrees[z])
+                    end
+                end
+                aa_scores[i, j] = aa
+                aa_scores[j, i] = aa
+            end
+        end
+    end
+
+    return (common_neighbors=cn_scores, jaccard=jaccard_scores, adamic_adar=aa_scores)
+end
+
+"""
+    network_motif_census(net::FinancialNetwork)
+
+Count 3-node motifs (triads) in directed network.
+"""
+function network_motif_census(net::FinancialNetwork)
+    N = net.num_nodes
+    A = Float64.(net.adjacency .!= 0)
+
+    # Triad types for undirected: triangle, path, empty
+    triangles = 0
+    paths = 0
+    empty_triads = 0
+
+    for i in 1:N
+        for j in (i+1):N
+            for k in (j+1):N
+                e_ij = A[i, j] > 0 || A[j, i] > 0
+                e_jk = A[j, k] > 0 || A[k, j] > 0
+                e_ik = A[i, k] > 0 || A[k, i] > 0
+
+                num_edges = Int(e_ij) + Int(e_jk) + Int(e_ik)
+
+                if num_edges == 3
+                    triangles += 1
+                elseif num_edges == 2
+                    paths += 1
+                elseif num_edges == 1
+                    # Open triad with one edge
+                elseif num_edges == 0
+                    empty_triads += 1
+                end
+            end
+        end
+    end
+
+    # Global clustering coefficient
+    gcc = triangles > 0 || paths > 0 ?
+          3.0 * triangles / (3.0 * triangles + paths) : 0.0
+
+    return (triangles=triangles, paths=paths, empty_triads=empty_triads,
+            global_clustering=gcc)
+end
+
+"""
+    temporal_network_metrics(networks::Vector{FinancialNetwork})
+
+Compute temporal metrics across network snapshots.
+"""
+function temporal_network_metrics(networks::Vector{FinancialNetwork})
+    T_net = length(networks)
+    if T_net < 2
+        return (jaccard_similarity=Float64[], density_change=Float64[])
+    end
+
+    jaccard_sim = Vector{Float64}(undef, T_net - 1)
+    density_change = Vector{Float64}(undef, T_net - 1)
+    centrality_stability = Vector{Float64}(undef, T_net - 1)
+
+    for t in 1:(T_net - 1)
+        A1 = Float64.(networks[t].adjacency .!= 0)
+        A2 = Float64.(networks[t+1].adjacency .!= 0)
+
+        # Jaccard similarity of edge sets
+        intersection = sum(A1 .> 0 .&& A2 .> 0)
+        union_count = sum(A1 .> 0 .|| A2 .> 0)
+        jaccard_sim[t] = union_count > 0 ? intersection / union_count : 1.0
+
+        # Density change
+        N = networks[t].num_nodes
+        max_edges = N * (N - 1)
+        d1 = sum(A1) / max_edges
+        d2 = sum(A2) / max_edges
+        density_change[t] = d2 - d1
+
+        # Centrality stability (rank correlation of degree centrality)
+        deg1 = degree_centrality(networks[t])
+        deg2 = degree_centrality(networks[t+1])
+        centrality_stability[t] = cor(deg1, deg2)
+    end
+
+    return (jaccard_similarity=jaccard_sim, density_change=density_change,
+            centrality_stability=centrality_stability)
+end
+
+"""
+    network_resilience_score(net::FinancialNetwork)
+
+Composite resilience score based on multiple network properties.
+"""
+function network_resilience_score(net::FinancialNetwork)::Float64
+    N = net.num_nodes
+
+    # 1. Algebraic connectivity (higher = more resilient)
+    ac = algebraic_connectivity(net)
+    ac_score = min(ac / 1.0, 1.0)
+
+    # 2. Inverse HHI of degree distribution (more equal = more resilient)
+    degrees = degree_centrality(net)
+    degree_hhi = sum(d^2 for d in degrees) / max(sum(degrees)^2, 1e-15) * N
+    hhi_score = 1.0 - min(degree_hhi, 1.0)
+
+    # 3. Clustering (moderate clustering is good)
+    cc = mean(_clustering_coefficient(net))
+    cc_score = 4.0 * cc * (1.0 - cc)  # Peaks at 0.5
+
+    # 4. Robustness to targeted attack
+    rob = network_robustness(net; attack_type=:targeted, fraction=0.1)
+    rob_score = rob
+
+    return 0.3 * ac_score + 0.2 * hhi_score + 0.2 * cc_score + 0.3 * rob_score
+end
+
 end # module NetworkFinance
