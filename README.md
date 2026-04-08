@@ -1,6 +1,6 @@
 # SRFM Trading Lab
 
-A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** -- from raw tick data to live paper trading and autonomous idea discovery, across 9 languages and **1,039,342 lines of code**.
+A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** -- from raw tick data to live paper trading and autonomous idea discovery, across 9 languages and **1,136,068 lines of code**.
 
 > Mad scientist workshop. Everything automated, everything measurable, rapid iteration at scale.
 
@@ -55,6 +55,94 @@ Pick a subsystem to deep dive into. Every doc covers architecture, key primitive
 | [Order Management](docs/order_management.md) | TWAP/VWAP/Iceberg engines, algo scheduler, order state machine, TCA benchmarks |
 | [Broker Adapters](docs/broker_adapters.md) | Alpaca/Binance/Paper adapters, circuit breaker integration, failover chain, adding new brokers |
 | [Coordination Layer](docs/coordination_layer.md) | Elixir/OTP supervision, circuit breakers, parameter validation, rollback, event bus |
+
+### Quantitative Math Library (lib/math/)
+
+| Doc | What it covers |
+|---|---|
+| [Kalman Filters](lib/math/kalman_filter.py) | LinearKF, EKF, UKF, SIR particle filter, RTS smoother, KalmanPairsSpread, DynamicBeta |
+| [Extreme Value Theory](lib/math/extreme_value_theory.py) | GPD/POT, GEV block maxima, Hill estimator, EVT VaR/CVaR |
+| [Portfolio Math](lib/math/portfolio_math.py) | Markowitz MVO, Black-Litterman, HRP, ERC risk parity, CVaR LP, Kelly, max entropy |
+| [Time Series Models](lib/math/time_series_models.py) | ARMA, GARCH/GJR-GARCH, HAR-RV, Engle-Granger cointegration, VAR, Granger causality, CUSUM |
+| [Market Making Math](lib/math/market_making_math.py) | Avellaneda-Stoikov, Almgren-Chriss, sqrt impact, Glosten-Milgrom, TWAP/VWAP |
+| [Levy Processes](lib/math/levy_processes.py) | CGMY, alpha-stable, Carr-Madan FFT pricing, NIG, VG simulation |
+| [Causal Inference](lib/math/causal_inference.py) | PC algorithm, backdoor adjustment, 2SLS IV, RDD, DiD, synthetic control, transfer entropy |
+| [Stochastic Control](lib/math/stochastic_control.py) | HJB, Merton, LQR Riccati, optimal stopping OU, risk-sensitive control |
+| [Derivatives Pricing](lib/math/derivatives_pricing.py) | Full BS Greeks (delta/gamma/vega/theta/rho/vanna/volga/charm), barrier/lookback/Asian/exchange options, variance swaps |
+| [Econometrics](lib/math/econometrics.py) | OLS/WLS, Newey-West HAC, ADF/KPSS unit root, VAR+IRF+FEVD, Johansen cointegration |
+| [Credit Models](lib/math/credit_models.py) | Merton structural, KMV, Jarrow-Turnbull, CDS pricing, CDO Gaussian copula, Credit VaR |
+| [Order Book Models](lib/math/order_book_models.py) | OBI, micro-price, queue-reactive CST, Hawkes order flow, spread decomposition, resilience |
+| [Mean Field Games](lib/math/mean_field_games.py) | MFG Nash execution, herding equilibrium, systemic risk MFG, Vicsek flocking model |
+| [FX Models](lib/math/fx_models.py) | Garman-Kohlhagen, vanna-volga FX vol surface, SABR FX, carry scoring, FX momentum |
+| [Crypto Microstructure](lib/math/crypto_microstructure.py) | Funding rate models, liquidation cascade, NVT/MVRV, hash ribbon, OIWAP |
+| [Commodity Models](lib/math/commodity_models.py) | Gibson-Schwartz, Schwartz-Smith two-factor, Fourier seasonal decomposition, calendar spread arb |
+| [Fixed Income Advanced](lib/math/fixed_income_advanced.py) | Key rate durations, OAS binomial tree, MBS PSA prepayment, Z-spread, swap pricing, TIPS carry |
+| [Auction Theory](lib/math/auction_theory.py) | FPSBA, Vickrey, common value/winner's curse, treasury auction, dark pool crossing, IPO book-building |
+| [Optimal Stopping](lib/math/optimal_stopping.py) | Longstaff-Schwartz LSM, Bayesian stopping, Snell envelope, Shiryaev-Roberts change detection |
+| [Tensor Decomposition](lib/math/tensor_decomposition.py) | CP/Tucker/NTF, tensor completion, multi-linear PCA, tensor regression, online CP |
+| [Point Processes](lib/math/point_processes.py) | Hawkes (univariate + multivariate), Cox process, marked point process, Ogata thinning, MLE |
+| [Manifold Learning](lib/math/manifold_learning.py) | Isomap, LLE, Laplacian eigenmaps, diffusion maps, t-SNE, persistent homology |
+| [Convex Optimization](lib/math/convex_optimization.py) | ADMM, proximal operators, QP active set, CVaR LP, log-barrier, simplex projection |
+| [Wavelets Advanced](lib/math/wavelets_advanced.py) | DWT Haar/Db4/Symlet, MODWT, wavelet packets, wavelet denoising, multifractal leaders |
+| [Ergodic Theory](lib/math/ergodic_theory.py) | Time-average vs ensemble, Kelly from ergodicity, leverage optimization, volatility drag |
+| [Additional Modules](lib/math/) | Copulas, functional analysis, HMM, information theory, jump diffusion, robust statistics, factor models, optimal transport, risk measures, simulation, spectral analysis, network contagion, graph theory, microstructure, matrix factorization, numerical methods, interest rate models, regime switching, volatility models, portfolio construction, reinforcement learning, Bayesian update, random matrix, rough volatility, stochastic calculus |
+
+### Machine Learning Library (lib/ml/)
+
+| Doc | What it covers |
+|---|---|
+| [Deep Signal Network](lib/ml/deep_signal_network.py) | Dense/BN/Dropout/Residual/LSTM/TCN layers, full backprop, Adam optimizer |
+| [Graph Neural Network](lib/ml/graph_neural_network.py) | GCN, GAT, GraphSAGE, temporal GNN, portfolio GNN, link prediction |
+| [Market Transformer](lib/ml/market_transformer.py) | Multi-head attention, causal mask, GRN (TFT), walk-forward inference |
+| [Gaussian Process](lib/ml/gaussian_process.py) | GP regression, 7 kernels (RBF/Matern/Periodic/RQ/Spectral), sparse GP FITC, LOOCV |
+| [Online Learning](lib/ml/online_learning.py) | FTRL, ONS, EG, Hedge, Cover's Universal Portfolio, ADWIN drift detection |
+| [Variational Autoencoder](lib/ml/variational_autoencoder.py) | VAE + Beta-VAE + Conditional VAE, ELBO loss, anomaly detection via reconstruction error |
+| [Normalizing Flows](lib/ml/normalizing_flows.py) | Planar/radial/RealNVP flows, density estimation, fat-tail return modeling |
+| [Temporal Conv Network](lib/ml/temporal_conv_network.py) | Causal dilated conv, TCN blocks, WaveNet gated units, multi-horizon forecasting |
+| [State Space Model](lib/ml/state_space_model.py) | Linear Gaussian SSM, deep SSM, S4-inspired architecture, HiPPO, parallel scan |
+| [Diffusion Model](lib/ml/diffusion_model.py) | Denoising diffusion for synthetic returns, DDIM sampler, conditional generation |
+| [Mixture Density Network](lib/ml/mixture_density_network.py) | GMM output layer, conditional density p(r given x), mode extraction, tail probability |
+| [Contrastive Learning](lib/ml/contrastive_learning.py) | SimCLR for regime representation, NT-Xent loss, augmentations, similarity search |
+| [Bayesian Neural Network](lib/ml/bayesian_neural_network.py) | Variational inference, MC Dropout, epistemic vs aleatoric uncertainty, calibration |
+| [Additional Modules](lib/ml/) | Ensemble forecaster, attention patterns, causal discovery, feature engineering, anomaly detector, SNN event processor |
+
+### Idea Engine Subsystems
+
+| Doc | What it covers |
+|---|---|
+| [Autonomous Trader](idea-engine/autonomous-loop/autonomous_trader.py) | Full 10-stage autonomous trading loop: scan, signal, synthesize, debate, validate, risk, execute, monitor, learn, report |
+| [Risk Engine](idea-engine/risk-engine/portfolio_risk.py) | VaR/CVaR (historical/parametric/MC), 8 stress scenarios, reverse stress test, drawdown monitor, risk budgets, tail hedge |
+| [Liquidity Oracle](idea-engine/liquidity-oracle/liquidity_engine.py) | Multi-dim scoring, intraday patterns, cross-asset contagion, dark pool analytics, MM inventory |
+| [Regime Oracle](idea-engine/regime-oracle/regime_ensemble.py) | Vol/trend/correlation/macro detectors, Markov transition model, strategy recommendations |
+| [Knowledge Graph](idea-engine/knowledge-graph/market_knowledge_graph.py) | Entity-relationship graph, causal chain reasoning, transitive impact propagation, node2vec embeddings |
+| [Counterfactual Engine](idea-engine/counterfactual/counterfactual_engine.py) | Timing/parameter/allocation/regime counterfactuals, synthetic control, regret analysis |
+| [Debate Tournament](idea-engine/debate-system/debate_tournament.py) | Round-robin debate, Dempster-Shafer consensus, calibrated agent weighting, risk veto |
+| [Genetic Evolution](idea-engine/genetic-hypothesis/) | NSGA-II fitness, adaptive mutation, island model population, speciation, Pareto archive |
+| [Scenario Generator](idea-engine/scenario-generator/) | Macro scenarios (8 built-in), regime scenarios, Monte Carlo over regime paths |
+| [Walk-Forward Engine](idea-engine/walk-forward/walk_forward_engine.py) | Rolling/expanding CV, purging + embargo, parameter stability, regime-aware folds |
+| [Experiment Tracker](idea-engine/experiment-tracker/experiment_manager.py) | Experiment versioning, comparison, hyperparameter search, early stopping, leaderboard |
+| [Causal Hypothesis](idea-engine/causal/causal_hypothesis_engine.py) | Granger causality, transfer entropy, causal DAG (PC algorithm), mediation analysis |
+| [Live Feedback](idea-engine/live-feedback/feedback_loop.py) | Real-time model adaptation, signal quality tracking, drift detection, alert generation |
+| [Shadow Runner](idea-engine/shadow-runner/shadow_portfolio.py) | Paper portfolio tracking, A/B testing, promotion criteria, multi-shadow parallel |
+| [Event Calendar](idea-engine/event-calendar/event_impact_model.py) | FOMC/CPI/NFP impact models, seasonal patterns, event clustering, earnings straddle |
+| [Data Quality](idea-engine/data-quality/data_validator.py) | Missing data, outlier detection (z-score/IQR/Grubbs), staleness, splits, cross-source validation |
+| [Alternative Data](idea-engine/alternative-data/alt_data_signals.py) | Satellite, web traffic, app downloads, credit card spending, job postings, weather impact |
+
+### Idea Engine Signals and Meta
+
+| Doc | What it covers |
+|---|---|
+| [Options Flow Signal](idea-engine/signals/options_flow_signal.py) | GEX/DEX by strike, charm, 0DTE flow, put-call ratio, vol skew, block sweep detection |
+| [Macro Momentum Signal](idea-engine/signals/macro_momentum_signal.py) | Nowcasting, economic surprise index, yield curve, credit spreads, cross-asset momentum |
+| [Sentiment Composite](idea-engine/signals/sentiment_composite_signal.py) | News, social, analyst revisions, short interest, insider transactions, fund flows |
+| [Alpha Decay Signal](idea-engine/signals/alpha_decay_signal.py) | Rolling IC tracking, half-life estimation, MultiSignalDecayPortfolio with decay-weighted blending |
+| [Idea Synthesizer](idea-engine/meta/idea_synthesizer.py) | Multi-domain signal fusion, conflict detection/resolution, narrative generation |
+| [Strategy Library](idea-engine/meta/strategy_library.py) | Persistent strategy registry, versioning, genealogy, decay detection, JSON persistence |
+| [Portfolio Allocator](idea-engine/meta/portfolio_allocator.py) | Multi-strategy Kelly, regime-aware allocation, drawdown deleveraging, vol targeting |
+| [Idea Scorer](idea-engine/meta/idea_scorer.py) | Novelty, feasibility, risk-adjusted return, timing, cross-domain, regime fit, capacity |
+| [Hypothesis Validator](idea-engine/hypothesis/hypothesis_validator.py) | PSR, OOS degradation, regime robustness, transaction cost break-even, BH FDR correction |
+| [Statistical Arbitrage](idea-engine/hypothesis/templates/statistical_arbitrage.py) | Pairs, ETF-NAV, index arb, triangular, vol arb, merger arb, convertible bond arb |
+| [Market Analogy Database](idea-engine/serendipity/market_analogy_database.py) | 12 cross-domain analogies (biology/physics/game theory), Lotka-Volterra, SIR cascade |
 
 ### Research and Validation
 
@@ -378,6 +466,88 @@ IAE ingestion -> GenomeEngine (Rust NSGA-II)
 | `EventCalendarManager` | `config/event_calendar_manager.py` | FOMC/CPI/NFP/OpEx blackout dates | **CONFIG** |
 | `RiskConfig` | `config/risk_config.py` | Risk limits, position compliance, BH-aware sizing | **RISK** |
 
+### Python -- Quantitative Math Library (lib/math/)
+
+> 59 modules covering stochastic calculus, portfolio optimization, derivatives, credit, microstructure, and more. All pure numpy/scipy.
+
+| Tool / Primitive | Path | Role | Flag |
+|---|---|---|---|
+| `LinearKalmanFilter` | `lib/math/kalman_filter.py` | 1D/2D Kalman, EKF, UKF, SIR particle, RTS smoother | **PRIMITIVE** |
+| `fit_gpd` / `gpd_var` | `lib/math/extreme_value_theory.py` | GPD tail fitting, EVT VaR/CVaR, Hill estimator | **PRIMITIVE** |
+| `mvo_portfolio` / `black_litterman` | `lib/math/portfolio_math.py` | MVO, BL, HRP, ERC, CVaR LP, Kelly, max entropy | **PRIMITIVE** |
+| `AlmgrenChrissParams` | `lib/math/market_impact.py` | Almgren-Chriss optimal execution + efficient frontier | **PRIMITIVE** |
+| `sqrt_market_impact` | `lib/math/market_impact.py` | Square-root impact model, VWAP cost, info leakage | **PRIMITIVE** |
+| `OrderBookPressureSignal` | `lib/math/order_book_models.py` | OBI, micro-price, queue-reactive, Hawkes, spread decomposition | **PRIMITIVE** |
+| `MFGExecutionParams` | `lib/math/mean_field_games.py` | MFG Nash execution, herding equilibrium, systemic risk | **PRIMITIVE** |
+| `garman_kohlhagen` / `sabr_vol` | `lib/math/fx_models.py` | GK pricing, vanna-volga, SABR FX calibration | **PRIMITIVE** |
+| `funding_rate_model` | `lib/math/crypto_microstructure.py` | Funding rate, liquidation cascade, NVT/MVRV, hash ribbon | **PRIMITIVE** |
+| `GibsonSchwartzModel` | `lib/math/commodity_models.py` | Gibson-Schwartz, Schwartz-Smith, Fourier seasonal | **PRIMITIVE** |
+| `bond_price_from_ytm` / `key_rate_duration` | `lib/math/fixed_income_advanced.py` | Full bond math, OAS, MBS PSA, swap pricing, TIPS | **PRIMITIVE** |
+| `batch_auction_price_discovery` | `lib/math/auction_theory.py` | FPSBA, Vickrey, treasury auction, dark pool crossing | **PRIMITIVE** |
+| `almgren_chriss_optimal_schedule` | `lib/math/optimal_stopping.py` | LSM American options, Bayesian stopping, Snell envelope | **PRIMITIVE** |
+| `cp_decomposition` | `lib/math/tensor_decomposition.py` | CP/Tucker/NTF tensor decomposition, tensor regression | **PRIMITIVE** |
+| `HawkesProcess` | `lib/math/point_processes.py` | Hawkes (uni+multivariate), Cox process, Ogata thinning | **PRIMITIVE** |
+| `Isomap` / `DiffusionMap` | `lib/math/manifold_learning.py` | Isomap, LLE, Laplacian eigenmaps, t-SNE, persistent homology | **PRIMITIVE** |
+| `admm_solver` | `lib/math/convex_optimization.py` | ADMM, proximal operators, QP, CVaR LP, log-barrier | **PRIMITIVE** |
+| `wavelet_transform` | `lib/math/wavelets_advanced.py` | DWT, MODWT, wavelet packets, denoising, multifractal | **PRIMITIVE** |
+| `ergodic_kelly` | `lib/math/ergodic_theory.py` | Time-average returns, Kelly from ergodicity, vol drag | **PRIMITIVE** |
+| `bs_greeks` | `lib/math/derivatives_pricing.py` | Full BS Greeks, barrier/lookback/Asian options, variance swaps | **PRIMITIVE** |
+| `HypothesisValidator` | `lib/math/combinatorics_finance.py` | PSR, Deflated SR, CPCV, walk-forward CV, BH FDR | **PRIMITIVE** |
+| `merton_structural_model` | `lib/math/credit_models.py` | Merton, KMV, Jarrow-Turnbull, CDS, CDO, Credit VaR | **PRIMITIVE** |
+| `hamilton_filter` | `lib/math/regime_switching_econometrics.py` | Hamilton MS-AR, TAR, STAR, MS-GARCH, BOCPD, Bai-Perron | **PRIMITIVE** |
+| Additional (36 more modules) | `lib/math/` | Copulas, HMM, factor models, graph theory, robust stats, simulation, spectral, network contagion, information theory, jump diffusion, numerical methods, interest rate models, volatility models, portfolio construction, RL, Bayesian update | **PRIMITIVES** |
+
+### Python -- Machine Learning Library (lib/ml/)
+
+> 22 modules. All pure numpy, no external DL frameworks.
+
+| Tool / Primitive | Path | Role | Flag |
+|---|---|---|---|
+| `SignalNetwork` | `lib/ml/deep_signal_network.py` | Dense/BN/Dropout/Residual/LSTM/TCN, backprop, Adam | **ML MODEL** |
+| `FinancialGNNPipeline` | `lib/ml/graph_neural_network.py` | GCN, GAT, GraphSAGE, temporal GNN, portfolio GNN | **ML MODEL** |
+| `TransformerEncoder` | `lib/ml/market_transformer.py` | Multi-head attention, causal mask, GRN, walk-forward | **ML MODEL** |
+| `GPRegressor` | `lib/ml/gaussian_process.py` | 7 kernels, sparse GP FITC, marginal likelihood opt | **ML MODEL** |
+| `CompositeOnlineLearner` | `lib/ml/online_learning.py` | FTRL, ONS, EG, Hedge, Universal Portfolio, ADWIN | **ML MODEL** |
+| `VAE` | `lib/ml/variational_autoencoder.py` | VAE + Beta-VAE + Conditional VAE, ELBO, anomaly detection | **ML MODEL** |
+| `NormalizingFlow` | `lib/ml/normalizing_flows.py` | Planar/radial/RealNVP, density estimation, fat tails | **ML MODEL** |
+| `TCNBlock` | `lib/ml/temporal_conv_network.py` | Causal dilated conv, WaveNet gated units, multi-horizon | **ML MODEL** |
+| `DeepSSM` | `lib/ml/state_space_model.py` | Linear Gaussian SSM, S4-inspired, HiPPO initialization | **ML MODEL** |
+| `DiffusionModel` | `lib/ml/diffusion_model.py` | Denoising diffusion, DDIM sampler, conditional generation | **ML MODEL** |
+| `MixtureDensityNetwork` | `lib/ml/mixture_density_network.py` | GMM output, conditional density, tail probability | **ML MODEL** |
+| `ContrastiveEncoder` | `lib/ml/contrastive_learning.py` | SimCLR regime representation, NT-Xent, similarity search | **ML MODEL** |
+| `BayesianNeuralNetwork` | `lib/ml/bayesian_neural_network.py` | Variational inference, MC Dropout, calibrated uncertainty | **ML MODEL** |
+| `EnsembleForecast` | `lib/ml/ensemble_forecaster.py` | Linear/Kernel/Tree/SVM ensemble, online weight update | **ML MODEL** |
+| `FeatureMatrix` | `lib/ml/feature_engineering.py` | 50+ features: momentum, vol, technicals, microstructure | **FEATURE ENGINE** |
+
+### Python -- Idea Engine Subsystems
+
+> 22 major subsystems covering the full autonomous trading pipeline.
+
+| Tool / Primitive | Path | Role | Flag |
+|---|---|---|---|
+| `AutonomousTrader` | `idea-engine/autonomous-loop/autonomous_trader.py` | 10-stage autonomous trading loop orchestrator | **ORCHESTRATOR** |
+| `PortfolioRiskEngine` | `idea-engine/risk-engine/portfolio_risk.py` | VaR/CVaR, 8 stress scenarios, drawdown monitor, risk budgets | **RISK ENGINE** |
+| `LiquidityOracle` | `idea-engine/liquidity-oracle/liquidity_engine.py` | Multi-dim scoring, intraday patterns, cross-asset contagion | **ORACLE** |
+| `RegimeOracle` | `idea-engine/regime-oracle/regime_ensemble.py` | Vol/trend/correlation/macro ensemble, Markov transitions | **ORACLE** |
+| `MarketKnowledgeGraph` | `idea-engine/knowledge-graph/market_knowledge_graph.py` | Causal chain reasoning, impact propagation, node2vec | **KNOWLEDGE** |
+| `CounterfactualEngine` | `idea-engine/counterfactual/counterfactual_engine.py` | Timing/parameter/regime counterfactuals, regret analysis | **ANALYSIS** |
+| `DebateTournament` | `idea-engine/debate-system/debate_tournament.py` | Round-robin multi-agent debate with consensus building | **DEBATE** |
+| `IdeaSynthesizer` | `idea-engine/meta/idea_synthesizer.py` | Multi-domain signal fusion, conflict resolution, narrative | **SYNTHESIZER** |
+| `StrategyLibrary` | `idea-engine/meta/strategy_library.py` | Strategy registry, versioning, genealogy, decay detection | **REGISTRY** |
+| `PortfolioAllocator` | `idea-engine/meta/portfolio_allocator.py` | Multi-strategy Kelly, regime-aware, drawdown deleverage | **ALLOCATOR** |
+| `IdeaScorer` | `idea-engine/meta/idea_scorer.py` | 7-dimension scoring: novelty, feasibility, timing, capacity | **SCORER** |
+| `CausalHypothesisEngine` | `idea-engine/causal/causal_hypothesis_engine.py` | Granger causality, transfer entropy, causal DAG discovery | **CAUSAL** |
+| `FeedbackLoop` | `idea-engine/live-feedback/feedback_loop.py` | Real-time model adaptation, drift detection, alerts | **FEEDBACK** |
+| `ShadowPortfolio` | `idea-engine/shadow-runner/shadow_portfolio.py` | Paper portfolio tracking, A/B testing, promotion criteria | **SHADOW** |
+| `EventImpactModel` | `idea-engine/event-calendar/event_impact_model.py` | FOMC/CPI/NFP impact, seasonal patterns, event clustering | **EVENT** |
+| `DataValidator` | `idea-engine/data-quality/data_validator.py` | Missing data, outliers, staleness, splits, cross-source | **VALIDATOR** |
+| `AltDataSignalEngine` | `idea-engine/alternative-data/alt_data_signals.py` | Satellite, web traffic, app downloads, credit card, jobs | **ALT DATA** |
+| `WalkForwardEngine` | `idea-engine/walk-forward/walk_forward_engine.py` | Rolling/expanding CV, purging, parameter stability | **VALIDATION** |
+| `ExperimentManager` | `idea-engine/experiment-tracker/experiment_manager.py` | Versioning, comparison, hyperparameter search, leaderboard | **TRACKER** |
+| `MarketAnalogyEngine` | `idea-engine/serendipity/market_analogy_database.py` | 12 cross-domain analogies, Lotka-Volterra, SIR cascade | **SERENDIPITY** |
+| `SelfImprovingEngine` | `idea-engine/meta/self_improving_engine.py` | Parameter evolution, template pruning/promotion, fitness landscape | **EVOLUTION** |
+| `PPOAgent` | `idea-engine/rl/ppo_trader.py` | PPO with GAE, entropy bonus, LR schedule, actor-critic | **RL AGENT** |
+
 ### Python -- Research and Validation
 
 | Tool / Primitive | Path | Role | Flag |
@@ -595,7 +765,7 @@ Key Go primitives:
 
 | Language | LOC | Key Systems | Docs |
 |---|---|---|---|
-| Python | ~528K | Live trader (LARSA v18), backtesting, IAE pipeline, ML pipeline, options analytics, risk API, regime ensemble, execution algos, broker adapters, config management, research validation, optimization | [Execution Stack](docs/execution_stack.md) |
+| Python | ~632K | Live trader (LARSA v18), backtesting, IAE pipeline, 59-module quant math library, 22-module ML library, 22 idea-engine subsystems, execution algos, broker adapters, risk API, regime ensemble, config management, research validation, optimization | [Execution Stack](docs/execution_stack.md) |
 | Julia | ~123K | Advanced options (Heston/SABR/Merton/Dupire), live risk (VaR/CVaR/stress), ML signals (GP/Kalman/HMM), vectorized backtesting (CPCV/DSR), numerical methods (PDE/Sobol/quadrature) | [Statistical Tooling](docs/statistical_tooling.md) |
 | Rust | ~141K | 27 crates: genome engine, Monte Carlo, portfolio, risk, online-learning (FTRL/Hedge/bandits), RL exit optimizer, regime-analytics, smart-order-router, microstructure, FIX engine, WASM analytics | [Rust Crates Reference](docs/rust_crates.md) |
 | R | ~60K | HMM, regime models, WFA, factor analysis, options risk, microstructure, stress testing, copulas, spectral | [Statistical Tooling](docs/statistical_tooling.md) |
@@ -605,7 +775,7 @@ Key Go primitives:
 | Zig | ~10K | ITCH 5.0 decoder, lock-free L2 book, bar compression, tick processor, SIMD indicators, order flow | [Native Layer](docs/native_layer.md) |
 | Elixir/OTP | ~12K | Coordination: OTP supervision, circuit breakers, param validation, rollback, genome bridge, alert manager | [Coordination Layer](docs/coordination_layer.md) |
 | SQL | ~7K | SQLite (16 migrations, WAL), DuckDB analytics, BH UDFs, warehouse views, TCA queries | [Stack Overview](docs/stack_overview.md) |
-| **Total** | **~1,039,342** | **2,384 source files** | |
+| **Total** | **~1,136,068** | **2,600+ source files** | |
 
 ---
 
@@ -631,11 +801,40 @@ srfm-lab/
 |   +-- autonomous-loop/                 # LoopController, PerformanceEvaluator, CycleReporter (Go)
 |   +-- strategy-lab/                    # ChampionManager, ExperimentTracker, Versioner (Go)
 |   +-- genome/                          # Rust NSGA-II genome evolution
-|   +-- hypothesis/                      # Bayesian hypothesis generator
+|   +-- hypothesis/                      # Bayesian hypothesis generator + 22 templates
+|   |   +-- templates/                  # stat arb, macro-micro fusion, physics-inspired, etc.
+|   |   +-- hypothesis_validator.py     # PSR, OOS degradation, regime robustness, FDR
+|   |   +-- adversarial_tester.py       # Data snooping, overfitting, stress tests
+|   |   +-- genealogy.py                # DAG lineage, crossover spawn
 |   +-- causal/                          # Granger + PC algorithm causal discovery
-|   +-- walk_forward/                    # CPCV walk-forward engine
-|   +-- regime/                          # 6-regime oracle
-|   +-- signals/                         # 105+ signal library with IC tracking
+|   |   +-- causal_hypothesis_engine.py # Transfer entropy, causal DAG, mediation
+|   +-- walk-forward/                    # Walk-forward analysis
+|   |   +-- walk_forward_engine.py      # Rolling/expanding CV, purging, stability
+|   +-- regime-oracle/                   # Regime detection ensemble
+|   |   +-- regime_ensemble.py          # Vol/trend/corr/macro, Markov transitions
+|   +-- risk-engine/                     # Portfolio risk
+|   |   +-- portfolio_risk.py           # VaR/CVaR, stress testing, drawdown monitor
+|   +-- liquidity-oracle/               # Liquidity assessment
+|   |   +-- liquidity_engine.py         # Scoring, intraday patterns, contagion
+|   +-- knowledge-graph/                # Market knowledge
+|   |   +-- market_knowledge_graph.py   # Causal chains, impact propagation, embeddings
+|   +-- counterfactual/                  # What-if analysis
+|   |   +-- counterfactual_engine.py    # Timing/allocation/regime counterfactuals
+|   +-- autonomous-loop/                # Master orchestrator
+|   |   +-- autonomous_trader.py        # 10-stage autonomous trading loop
+|   +-- data-quality/                   # Data validation
+|   |   +-- data_validator.py           # Outliers, staleness, splits, cross-source
+|   +-- live-feedback/                  # Real-time adaptation
+|   |   +-- feedback_loop.py            # Model update, drift detection, alerts
+|   +-- shadow-runner/                  # Paper trading
+|   |   +-- shadow_portfolio.py         # A/B testing, promotion criteria
+|   +-- event-calendar/                 # Event impact
+|   |   +-- event_impact_model.py       # FOMC/CPI/NFP models, seasonal patterns
+|   +-- experiment-tracker/             # Experiment management
+|   |   +-- experiment_manager.py       # Versioning, comparison, leaderboard
+|   +-- alternative-data/               # Alt data signals
+|   |   +-- alt_data_signals.py         # Satellite, web traffic, credit card, jobs
+|   +-- signals/                         # 12 signal modules with IC tracking
 |   +-- cmd/                             # Go: API :8767, bus :8768, scheduler :8769, webhook :8770
 |   +-- cmd/genome-inspector/            # ANSI CLI: list/best/compare/history/stats
 |   +-- cmd/metrics-server/              # Ring buffers, Prometheus /metrics
@@ -728,6 +927,41 @@ srfm-lab/
 +-- bridge/                              # On-chain bridge (MVRV, VPIN, Kyle's Lambda)
 +-- spacetime/                           # Spacetime Arena (BH backtester + web UI)
 +-- lib/                                 # Core Python primitives
+|   +-- math/                           # 59 quantitative modules (numpy/scipy)
+|   |   +-- kalman_filter.py           # KF, EKF, UKF, particle, RTS smoother
+|   |   +-- extreme_value_theory.py    # GPD/POT, GEV, Hill estimator
+|   |   +-- portfolio_math.py          # MVO, BL, HRP, ERC, CVaR LP
+|   |   +-- derivatives_pricing.py     # Full BS Greeks, exotic options
+|   |   +-- credit_models.py           # Merton, KMV, CDS, CDO, Credit VaR
+|   |   +-- order_book_models.py       # OBI, micro-price, Hawkes, spread decomp
+|   |   +-- mean_field_games.py        # MFG Nash execution, herding, systemic risk
+|   |   +-- fx_models.py              # GK, vanna-volga, SABR FX, carry, momentum
+|   |   +-- crypto_microstructure.py   # Funding rate, liquidation cascade, NVT/MVRV
+|   |   +-- commodity_models.py        # Gibson-Schwartz, seasonal, calendar spread
+|   |   +-- fixed_income_advanced.py   # KRD, OAS, MBS, swaps, TIPS, repo
+|   |   +-- auction_theory.py          # FPSBA, Vickrey, treasury, dark pool crossing
+|   |   +-- optimal_stopping.py        # LSM, Bayesian stopping, Snell envelope
+|   |   +-- tensor_decomposition.py    # CP/Tucker/NTF, tensor regression
+|   |   +-- point_processes.py         # Hawkes, Cox, marked, Ogata thinning
+|   |   +-- manifold_learning.py       # Isomap, LLE, diffusion maps, t-SNE
+|   |   +-- convex_optimization.py     # ADMM, QP, CVaR LP, log-barrier
+|   |   +-- wavelets_advanced.py       # DWT, MODWT, denoising, multifractal
+|   |   +-- ergodic_theory.py          # Kelly from ergodicity, vol drag
+|   |   +-- [40 more modules]         # Copulas, HMM, factors, graph theory, etc.
+|   +-- ml/                            # 22 ML modules (pure numpy, no frameworks)
+|   |   +-- deep_signal_network.py     # Dense/LSTM/TCN layers, backprop, Adam
+|   |   +-- graph_neural_network.py    # GCN, GAT, GraphSAGE, temporal GNN
+|   |   +-- market_transformer.py      # Multi-head attention, GRN
+|   |   +-- gaussian_process.py        # 7 kernels, sparse GP FITC
+|   |   +-- variational_autoencoder.py # VAE, Beta-VAE, Conditional VAE
+|   |   +-- normalizing_flows.py       # Planar/radial/RealNVP
+|   |   +-- temporal_conv_network.py   # Causal dilated conv, WaveNet
+|   |   +-- state_space_model.py       # SSM, S4-inspired, HiPPO
+|   |   +-- diffusion_model.py         # Denoising diffusion, DDIM sampler
+|   |   +-- mixture_density_network.py # GMM output, conditional density
+|   |   +-- contrastive_learning.py    # SimCLR regime representation
+|   |   +-- bayesian_neural_network.py # BNN, MC Dropout, uncertainty
+|   |   +-- [10 more modules]         # Ensemble, features, attention, online, etc.
 +-- infra/                               # Observability, gRPC, event bus
 +-- db/                                  # SQLite schema (16 migrations)
 +-- terminal/                            # Terminal UI TypeScript components
