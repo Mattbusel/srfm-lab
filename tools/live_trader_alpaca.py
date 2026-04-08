@@ -1194,7 +1194,19 @@ class LiveTrader:
             log.warning("execution.position_reconciler not available: %s — skipping reconciliation", _e)
             self._reconciler = None
 
-        # TODO: wire LiveMonitor once OrderManager is integrated
+        # LiveMonitor → OrderManager wiring (T1-2)
+        try:
+            from execution.monitoring.live_monitor import LiveMonitor
+            self._live_monitor = LiveMonitor()
+            # Register drawdown callback to circuit breaker
+            def _on_drawdown_breach(dd_pct: float):
+                if self._alpaca_cb is not None:
+                    log.warning("LiveMonitor drawdown breach %.2f%% — opening circuit breaker", dd_pct*100)
+                    self._alpaca_cb.force_open()
+            self._live_monitor.register_drawdown_callback(_on_drawdown_breach)
+        except Exception as _e:
+            log.warning("LiveMonitor not available: %s", _e)
+            self._live_monitor = None
 
         # Wave 4 enhancements
         self._event_cal   = EventCalendarFilter()
@@ -1430,6 +1442,49 @@ class LiveTrader:
                     st.bh_15m.active,
                 )
                 st.last_nav_15m = nav_out
+                # T2-1: Spin rate + geodesic deviation tracking
+                _cur_quat = [nav_out.qw, nav_out.qx, nav_out.qy, nav_out.qz]
+                if hasattr(st, '_prev_quat') and st._prev_quat is not None:
+                    dq = [_cur_quat[i] - st._prev_quat[i] for i in range(4)]
+                    spin_rate = math.sqrt(sum(x*x for x in dq))
+                    st.spin_rate_ema = _ema(getattr(st, 'spin_rate_ema', None), spin_rate, 0.3)
+                else:
+                    st.spin_rate_ema = 0.0
+                st._prev_quat = _cur_quat
+                # ds2 proxy: use geodesic_deviation as the Minkowski interval approximation
+                _cur_ds2 = nav_out.geodesic_deviation
+                _prev_ds2 = getattr(st, '_prev_ds2', None)
+                if _prev_ds2 is not None:
+                    _prev_prev_ds2 = getattr(st, '_prev_prev_ds2', _prev_ds2)
+                    geodesic_dev = abs(_cur_ds2 - 2*_prev_ds2 + _prev_prev_ds2)
+                    st.geodesic_dev_ema = _ema(getattr(st, 'geodesic_dev_ema', None), geodesic_dev, 0.3)
+                else:
+                    st.geodesic_dev_ema = 0.0
+                st._prev_prev_ds2 = _prev_ds2
+                st._prev_ds2 = _cur_ds2
+                # Store ds2 on st for T2-5
+                st.ds2 = _cur_ds2
+                # QuatNav boost to BH activation score
+                quatnav_boost = 0.0
+                if getattr(st, 'spin_rate_ema', 0) > 0.02:  # high spin = BH precursor
+                    quatnav_boost += 0.15 * min(st.spin_rate_ema / 0.05, 1.0)
+                if getattr(st, 'geodesic_dev_ema', 0) < 0.001:  # low deviation = stable trajectory
+                    quatnav_boost += 0.10
+                st.quatnav_boost = quatnav_boost
+
+                # T2-5: Minkowski spacetime curvature
+                if not hasattr(st, '_ds2_history'):
+                    st._ds2_history = []
+                st._ds2_history.append(st.ds2)
+                if len(st._ds2_history) > 20:
+                    st._ds2_history.pop(0)
+                if len(st._ds2_history) >= 5:
+                    _diffs = [st._ds2_history[i] - st._ds2_history[i-1] for i in range(1, len(st._ds2_history))]
+                    _curvature = sum(d*d for d in _diffs) / len(_diffs)
+                    st.spacetime_curvature = _ema(getattr(st, 'spacetime_curvature', None), _curvature, 0.2)
+                else:
+                    st.spacetime_curvature = 0.0
+
                 # Update EMA baselines for relative signal comparison
                 _alpha_nav = NAV_EMA_ALPHA
                 if st._nav_omega_ema is None:
@@ -1457,6 +1512,22 @@ class LiveTrader:
         if st._prev_close and st._prev_close > 0:
             st.garch.update(math.log(c / st._prev_close))
         st._prev_close = c
+
+        # T1-5: GARCH hard gate — skip signal processing if variance > 3x 90-day median
+        garch_var = st.garch._var if st.garch._var is not None else None
+        if garch_var is not None:
+            if not hasattr(self, '_garch_var_history'):
+                self._garch_var_history = {}
+            sym_var_hist = self._garch_var_history.setdefault(sym, [])
+            sym_var_hist.append(garch_var)
+            if len(sym_var_hist) > 8640:  # ~90 days of 15m bars
+                sym_var_hist.pop(0)
+            if len(sym_var_hist) >= 100:
+                import statistics as _st_stats
+                var_median = _st_stats.median(sym_var_hist)
+                if garch_var > 3.0 * var_median:
+                    log.warning("%s GARCH hard gate: var=%.6f > 3x median=%.6f — skipping", sym, garch_var, var_median)
+                    return  # skip this bar's signal processing
 
         # OU update
         st.ou.update(c)
@@ -1498,6 +1569,12 @@ class LiveTrader:
                     _OBS_METRICS.bh_mass.labels(symbol=sym, timeframe=_tf).set(_bh.mass)
                     _OBS_METRICS.bh_active_count.labels(symbol=sym, timeframe=_tf).set(int(_bh.active))
             except Exception: pass
+
+        # T2-4: update cross-asset correlation tracker
+        try:
+            self._update_correlation_matrix(ts)
+        except Exception:
+            pass
 
         # Compute and act on targets
         self._act_on_targets(ts)
@@ -1643,7 +1720,32 @@ class LiveTrader:
                     raw[sym] = 0.0
                     continue
 
-            # Hurst regime modifier
+            # T2-5: Minkowski spacetime curvature gate — skip BH entry if spacetime is unstable
+            CURVATURE_GATE_THRESHOLD = 1e-4  # calibrated empirically
+            if is_new_entry_here and getattr(st, 'spacetime_curvature', 0) > CURVATURE_GATE_THRESHOLD:
+                raw[sym] = 0.0
+                continue
+
+            # T1-7: Hurst-conditional signal weighting
+            # Two preset weight vectors: [bh_weight, ou_weight, garch_weight]
+            WEIGHTS_TRENDING  = [1.40, 0.60, 1.20]  # amplify momentum, reduce mean-reversion
+            WEIGHTS_REVERTING = [0.60, 1.40, 0.80]  # amplify OU, reduce BH momentum
+            WEIGHTS_NEUTRAL   = [1.00, 1.00, 1.00]  # baseline
+
+            hurst = st.hurst.hurst if st.hurst.hurst is not None else 0.5
+            if hurst >= 0.58:
+                _t = (hurst - 0.58) / 0.22  # 0 at H=0.58, 1 at H=0.80
+                _w = [WEIGHTS_NEUTRAL[i] + _t * (WEIGHTS_TRENDING[i] - WEIGHTS_NEUTRAL[i]) for i in range(3)]
+            elif hurst <= 0.42:
+                _t = (0.42 - hurst) / 0.22
+                _w = [WEIGHTS_NEUTRAL[i] + _t * (WEIGHTS_REVERTING[i] - WEIGHTS_NEUTRAL[i]) for i in range(3)]
+            else:
+                _w = WEIGHTS_NEUTRAL
+            bh_weight, ou_weight, garch_weight = _w[0], _w[1], _w[2]
+            # Apply BH weight to raw signal
+            raw[sym] *= bh_weight
+
+            # Hurst regime modifier (legacy: keep garch_weight applied via vol_scale adjustment)
             # Anti-persistent market: reduce trend exposure, let OU handle it
             if st.hurst.is_mean_reverting and asset_class == "crypto":
                 raw[sym] *= 0.6   # dampen trend signal when Hurst says mean-reverting
@@ -1670,6 +1772,19 @@ class LiveTrader:
             if btc_lead and raw.get(sym, 0.0) > 0:
                 raw[sym] *= 1.4
 
+        # T2-4: BTC sympathetic mass boost via correlation
+        for sym in raw:
+            if sym == "BTC" or raw.get(sym, 0.0) == 0.0:
+                continue
+            if INSTRUMENTS[sym].get("asset_class", "crypto") != "crypto":
+                continue
+            try:
+                _sym_boost = self._get_btc_sympathetic_boost(sym)
+                if _sym_boost > 0:
+                    raw[sym] *= (1.0 + _sym_boost)
+            except Exception:
+                pass
+
         # Granger network boost (Wave 4)
         if GRANGER_BOOST_ACTIVE:
             btc_bh = self._states["BTC"].bh_1h.active or self._states["BTC"].bh_4h.active
@@ -1679,7 +1794,7 @@ class LiveTrader:
                 if raw.get(sym, 0.0) != 0.0:
                     raw[sym] *= self._granger.boost_multiplier(sym, btc_bh)
 
-        # ML signal modifier (Wave 4)
+        # ML signal modifier (Wave 4) + T1-6: dynamic threshold calibration
         for sym, st in self._states.items():
             if raw.get(sym, 0.0) == 0.0:
                 continue
@@ -1687,9 +1802,23 @@ class LiveTrader:
                 recent_rets = list(st._daily_rets) if hasattr(st, '_daily_rets') else []
                 garch_vol   = st.garch.vol or 0.5
                 ml_sig      = self._ml_module.predict(sym, list(self._daily_returns.get(sym, [])), garch_vol)
-                if ml_sig > ML_SIGNAL_BOOST_THRESH:
+                # T1-6: per-instrument rolling ML score buffer for dynamic threshold
+                if not hasattr(self, '_ml_score_history'):
+                    self._ml_score_history: dict[str, list] = {}
+                score_hist = self._ml_score_history.setdefault(sym, [])
+                score_hist.append(abs(ml_sig))
+                if len(score_hist) > 2880:  # 20 days of 15m bars
+                    score_hist.pop(0)
+                if len(score_hist) >= 50:
+                    sorted_scores = sorted(score_hist)
+                    dynamic_threshold = sorted_scores[int(len(sorted_scores) * 0.70)]
+                    dynamic_threshold = max(0.10, min(0.50, dynamic_threshold))  # clamp
+                else:
+                    dynamic_threshold = 0.30  # fallback to fixed
+                # Use dynamic_threshold instead of hardcoded ML_SIGNAL_BOOST_THRESH
+                if ml_sig > dynamic_threshold:
                     raw[sym] *= ML_SIGNAL_BOOST
-                elif ml_sig < ML_SIGNAL_SUPPRESS_THRESH and math.isclose(st.last_frac, 0.0):
+                elif ml_sig < -dynamic_threshold and math.isclose(st.last_frac, 0.0):
                     raw[sym] = 0.0  # suppress new entry when ML is strongly bearish
             except Exception:
                 pass
@@ -2213,6 +2342,12 @@ class LiveTrader:
                     self._db.commit()
                     log.info("P&L: %s  entry=%.4f exit=%.4f qty=%.6f pnl=$%.2f",
                              sym, entry_price, price, matched, pnl)
+                    # T1-4: log trade P&L for Sharpe attribution
+                    _trade_pnl_pct = (price - entry_price) / (entry_price + 1e-9)
+                    try:
+                        self._log_trade_attribution(sym, _trade_pnl_pct)
+                    except Exception:
+                        pass
                     if matched >= entry_qty:
                         st._fifo.pop(0)
                     else:
@@ -2222,6 +2357,117 @@ class LiveTrader:
 
         except Exception as exc:
             log.error("_on_fill error: %s", exc, exc_info=True)
+
+    # ── T2-4: Cross-asset correlation propagation ─────────────────────────────
+
+    def _update_correlation_matrix(self, ts: datetime) -> None:
+        """Maintain rolling price-return buffers and recompute correlation matrix every 1440 bars."""
+        if not hasattr(self, '_price_returns'):
+            self._price_returns: dict[str, deque] = {s: deque(maxlen=2880) for s in INSTRUMENTS}
+            self._corr_matrix: np.ndarray | None = None
+            self._corr_bar_count: int = 0
+            self._btc_bh_recent: list[tuple] = []  # list of (ts, bh_intensity)
+            self._short_corr_rets: dict[str, deque] = {s: deque(maxlen=480) for s in INSTRUMENTS}  # ~5 days
+        # Append current returns
+        for sym, st in self._states.items():
+            if st._prev_close and st._prev_close > 0 and st.last_15m_px:
+                _ret = math.log(st.last_15m_px / (st._prev_close + 1e-9) + 1e-9)
+                self._price_returns[sym].append(_ret)
+                self._short_corr_rets[sym].append(_ret)
+        self._corr_bar_count += 1
+
+        # Track BTC BH intensity
+        btc_st = self._states.get("BTC")
+        if btc_st and btc_st.bh_1h.active:
+            self._btc_bh_recent.append((ts, btc_st.bh_1h.mass))
+        # Keep only last 16 bars
+        if len(self._btc_bh_recent) > 16:
+            self._btc_bh_recent.pop(0)
+
+        # Recompute full correlation every 1440 bars (~10 days of 15m bars)
+        if self._corr_bar_count % 1440 == 0:
+            syms = list(INSTRUMENTS.keys())
+            try:
+                mat = np.array([list(self._price_returns[s]) for s in syms])
+                valid = [i for i, row in enumerate(mat) if len(row) >= 100 and np.std(row) > 1e-9]
+                if len(valid) >= 2:
+                    sub = mat[valid]
+                    self._corr_matrix = np.corrcoef(sub)
+                    self._corr_sym_idx = {syms[i]: j for j, i in enumerate(valid)}
+                    log.info("T2-4: Correlation matrix updated (%dx%d)", len(valid), len(valid))
+            except Exception as _ce:
+                log.debug("T2-4: corr matrix recompute failed: %s", _ce)
+
+            # Check structural decoupling: 5-day vs 30-day corr drop > 0.4
+            try:
+                for sym in syms:
+                    if sym == "BTC":
+                        continue
+                    btc_long = list(self._price_returns["BTC"])[-2880:]
+                    btc_short = list(self._short_corr_rets["BTC"])
+                    sym_long = list(self._price_returns[sym])[-2880:]
+                    sym_short = list(self._short_corr_rets[sym])
+                    n_long  = min(len(btc_long), len(sym_long), 2880)
+                    n_short = min(len(btc_short), len(sym_short), 480)
+                    if n_long >= 50 and n_short >= 20:
+                        corr_long  = float(np.corrcoef(btc_long[-n_long:], sym_long[-n_long:])[0,1])
+                        corr_short = float(np.corrcoef(btc_short[-n_short:], sym_short[-n_short:])[0,1])
+                        if corr_long - corr_short > 0.4:
+                            log.warning("T2-4: Structural decoupling %s: 30d_corr=%.2f vs 5d_corr=%.2f", sym, corr_long, corr_short)
+            except Exception:
+                pass
+
+    def _get_btc_sympathetic_boost(self, sym: str) -> float:
+        """Return correlation-weighted sympathetic mass boost if BTC formed a BH in last 16 bars."""
+        if not hasattr(self, '_btc_bh_recent') or not self._btc_bh_recent:
+            return 0.0
+        if sym == "BTC":
+            return 0.0
+        btc_intensity = max((mass for _, mass in self._btc_bh_recent), default=0.0)
+        if btc_intensity <= 0:
+            return 0.0
+        try:
+            idx_map = getattr(self, '_corr_sym_idx', {})
+            if sym not in idx_map or "BTC" not in idx_map:
+                return 0.0
+            i_btc = idx_map["BTC"]
+            i_sym = idx_map[sym]
+            corr_with_btc = float(self._corr_matrix[i_btc, i_sym])
+            mass_boost = corr_with_btc * 0.3 * btc_intensity
+            return max(0.0, mass_boost)
+        except Exception:
+            return 0.0
+
+    # ── T1-4: Per-instrument Sharpe attribution ────────────────────────────────
+
+    def _log_trade_attribution(self, sym: str, pnl_pct: float) -> None:
+        """Append trade return to rolling log; every 50 trades report instrument Sharpe."""
+        if not hasattr(self, "_trade_pnl_log"):
+            self._trade_pnl_log: dict[str, deque] = {}
+            self._trade_attribution_count: int = 0
+        log_deq = self._trade_pnl_log.setdefault(sym, deque(maxlen=200))
+        log_deq.append(pnl_pct)
+        self._trade_attribution_count += 1
+        if self._trade_attribution_count % 50 == 0:
+            self._report_instrument_sharpe()
+
+    def _report_instrument_sharpe(self) -> None:
+        """Compute rolling Sharpe per instrument and log, flagging Sharpe < -0.5."""
+        if not hasattr(self, "_trade_pnl_log"):
+            return
+        import statistics as _stats
+        for sym, log_deq in self._trade_pnl_log.items():
+            rets = list(log_deq)
+            if len(rets) < 5:
+                continue
+            try:
+                mean_r = _stats.mean(rets)
+                std_r  = _stats.stdev(rets)
+                sharpe = mean_r / (std_r + 1e-9) * math.sqrt(len(rets))
+                flag = " *** POOR SHARPE ***" if sharpe < -0.5 else ""
+                log.info("Attribution Sharpe  %s: %.3f  (n=%d)%s", sym, sharpe, len(rets), flag)
+            except Exception:
+                pass
 
     def _persist_fifo(self, sym: str) -> None:
         """Persist FIFO queue for sym to SQLite for crash recovery."""
