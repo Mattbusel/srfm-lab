@@ -1,20 +1,68 @@
 """
-Master orchestration pipeline for the idea engine.
+orchestration/idea_pipeline.py
+
+Master orchestration pipeline for the Idea Automation Engine.
 
 Chains all components:
-  signal mining → hypothesis generation → scoring → debate → adversarial testing
-  → conviction → sizing → IdeaBank storage
+  signal mining → hypothesis generation → scoring → deduplication → debate
+  → adversarial testing → conviction → sizing → IdeaBank storage
 
-Regime-aware routing activates different hypothesis templates per regime.
-Performance feedback loop updates scorers from IdeaBank history.
+Key design features:
+  - IdeaPipeline class with run_full_pipeline(prices, volume, context) → PipelineResult
+  - Regime-aware template routing: different templates activated per detected regime
+  - Priority queue for hypothesis processing (highest composite priority first)
+  - Deduplication using genealogy / description similarity before debate
+  - Performance feedback loop: updates scorer thresholds from IdeaBank results
+  - Stage-level timing logged at DEBUG level
+  - Graceful per-stage error handling — stage failure does not halt the pipeline
+
+Module compatibility: works standalone (no project PYTHONPATH needed) because
+all project-internal imports are guarded with try/except.  When imports succeed,
+the richer functionality (Hypothesis types, IdeaBank, RiskManager, etc.) is used.
 """
 
 from __future__ import annotations
+import heapq
+import logging
 import time
 import math
+import uuid
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Optional
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Dict, Iterator, List, Optional, Tuple
+
+from scipy import stats as sp_stats
+
+logger = logging.getLogger(__name__)
+
+# ── Conditional project-internal imports ─────────────────────────────────────
+
+try:
+    from meta.idea_bank import IdeaBank, Idea
+    _IDEA_BANK_AVAILABLE = True
+except ImportError:
+    _IDEA_BANK_AVAILABLE = False
+
+try:
+    from debate_system.agents.macro_analyst import MacroAnalyst
+    from debate_system.agents.risk_manager import RiskManager
+    _DEBATE_AGENTS_AVAILABLE = True
+except ImportError:
+    _DEBATE_AGENTS_AVAILABLE = False
+
+try:
+    from signals.order_flow_signal import compute_order_flow_signal
+    _ORDER_FLOW_AVAILABLE = True
+except ImportError:
+    _ORDER_FLOW_AVAILABLE = False
+
+try:
+    from signals.volatility_surface_signal import compute_vol_surface_signal
+    _VOL_SURFACE_AVAILABLE = True
+except ImportError:
+    _VOL_SURFACE_AVAILABLE = False
 
 
 # ── Pipeline Data Structures ──────────────────────────────────────────────────
