@@ -121,6 +121,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "backtest-harness"
+version = "0.1.0"
+
+[[package]]
 name = "bitflags"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -803,6 +807,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "model-inference"
+version = "0.1.0"
+
+[[package]]
 name = "monte-carlo-engine"
 version = "0.1.0"
 dependencies = [
@@ -1059,6 +1067,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "options-pricing"
+version = "0.1.0"
+
+[[package]]
 name = "order-flow-engine"
 version = "0.1.0"
 dependencies = [
@@ -1187,6 +1199,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "portfolio-rebalancer"
+version = "0.1.0"
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1285,6 +1301,10 @@ dependencies = [
  "quote",
  "syn 2.0.117",
 ]
+
+[[package]]
+name = "quant-math"
+version = "0.1.0"
 
 [[package]]
 name = "quote"
@@ -1444,6 +1464,13 @@ dependencies = [
  "rand",
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "risk-analytics"
+version = "0.1.0"
+dependencies = [
+ "quant-math",
 ]
 
 [[package]]

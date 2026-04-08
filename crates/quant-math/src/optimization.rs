@@ -631,8 +631,8 @@ pub fn brent_minimize<F: Fn(f64) -> f64>(
     let mut fx = f(x);
     let mut fw = fx;
     let mut fv = fx;
-    let mut e = 0.0;
-    let mut d = 0.0;
+    let mut e = 0.0_f64;
+    let mut d = 0.0_f64;
 
     for _ in 0..max_iter {
         let xm = 0.5 * (a + b);

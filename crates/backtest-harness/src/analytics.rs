@@ -594,6 +594,286 @@ pub fn format_metrics(m: &PerformanceMetrics) -> String {
     s
 }
 
+/// Tail dependence (lower)
+pub fn lower_tail_dependence(returns_a: &[f64], returns_b: &[f64], quantile: f64) -> f64 {
+    let n = returns_a.len().min(returns_b.len());
+    if n < 20 { return 0.0; }
+    let mut sa = returns_a[..n].to_vec();
+    let mut sb = returns_b[..n].to_vec();
+    sa.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sb.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let idx = (quantile * n as f64) as usize;
+    let thresh_a = sa[idx];
+    let thresh_b = sb[idx];
+    let joint = (0..n).filter(|&i| returns_a[i] <= thresh_a && returns_b[i] <= thresh_b).count();
+    let marginal = (0..n).filter(|&i| returns_a[i] <= thresh_a).count();
+    if marginal == 0 { 0.0 } else { joint as f64 / marginal as f64 }
+}
+
+/// Cornish-Fisher VaR (accounts for skewness and kurtosis)
+pub fn cornish_fisher_var(returns: &[f64], confidence: f64) -> f64 {
+    let n = returns.len();
+    if n < 10 { return 0.0; }
+    let mean = returns.iter().sum::<f64>() / n as f64;
+    let std = (returns.iter().map(|&r| (r - mean).powi(2)).sum::<f64>() / (n - 1) as f64).sqrt();
+    let skew = if n > 2 && std > 1e-15 {
+        returns.iter().map(|&r| ((r - mean) / std).powi(3)).sum::<f64>() * n as f64 / ((n - 1) as f64 * (n - 2) as f64)
+    } else { 0.0 };
+    let kurt = if n > 3 && std > 1e-15 {
+        returns.iter().map(|&r| ((r - mean) / std).powi(4)).sum::<f64>() / n as f64 - 3.0
+    } else { 0.0 };
+    let z = standard_normal_cdf_inverse(1.0 - confidence);
+    let cf = z + (z * z - 1.0) / 6.0 * skew + (z.powi(3) - 3.0 * z) / 24.0 * kurt
+        - (2.0 * z.powi(3) - 5.0 * z) / 36.0 * skew * skew;
+    -(mean + cf * std)
+}
+
+/// Expected tail loss (same as CVaR but named differently)
+pub fn expected_tail_loss(returns: &[f64], confidence: f64) -> f64 {
+    let mut sorted = returns.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let cutoff = ((1.0 - confidence) * sorted.len() as f64) as usize;
+    if cutoff == 0 { return -sorted[0]; }
+    -sorted[..cutoff].iter().sum::<f64>() / cutoff as f64
+}
+
+/// Recovery factor: total return / max drawdown
+pub fn recovery_factor(returns: &[f64]) -> f64 {
+    let total = returns.iter().fold(1.0, |acc, &r| acc * (1.0 + r)) - 1.0;
+    let (mdd, _) = max_drawdown_with_duration(returns);
+    if mdd < 1e-15 { return f64::INFINITY; }
+    total / mdd
+}
+
+/// Payoff ratio
+pub fn payoff_ratio(returns: &[f64]) -> f64 {
+    let wins: Vec<f64> = returns.iter().filter(|&&r| r > 0.0).cloned().collect();
+    let losses: Vec<f64> = returns.iter().filter(|&&r| r < 0.0).cloned().collect();
+    if losses.is_empty() || wins.is_empty() { return 1.0; }
+    let avg_win = wins.iter().sum::<f64>() / wins.len() as f64;
+    let avg_loss = losses.iter().sum::<f64>().abs() / losses.len() as f64;
+    if avg_loss < 1e-15 { f64::INFINITY } else { avg_win / avg_loss }
+}
+
+/// Compound annual growth rate
+pub fn cagr(returns: &[f64], periods_per_year: f64) -> f64 {
+    let total = returns.iter().fold(1.0, |acc, &r| acc * (1.0 + r));
+    let years = returns.len() as f64 / periods_per_year;
+    if years <= 0.0 { return 0.0; }
+    total.powf(1.0 / years) - 1.0
+}
+
+/// Risk-adjusted return: return / max drawdown
+pub fn rar(returns: &[f64]) -> f64 {
+    recovery_factor(returns)
+}
+
+/// Consecutive wins/losses analysis
+pub fn consecutive_analysis(returns: &[f64]) -> (usize, usize, f64, f64) {
+    // Returns (max_consec_wins, max_consec_losses, max_consec_win_return, max_consec_loss_return)
+    let mut max_wins = 0usize;
+    let mut max_losses = 0usize;
+    let mut cur_wins = 0usize;
+    let mut cur_losses = 0usize;
+    let mut cur_win_ret = 1.0;
+    let mut cur_loss_ret = 1.0;
+    let mut max_win_ret = 0.0f64;
+    let mut max_loss_ret = 0.0f64;
+
+    for &r in returns {
+        if r > 0.0 {
+            cur_wins += 1;
+            cur_win_ret *= 1.0 + r;
+            if cur_losses > 0 {
+                max_losses = max_losses.max(cur_losses);
+                max_loss_ret = max_loss_ret.min(cur_loss_ret - 1.0);
+                cur_losses = 0;
+                cur_loss_ret = 1.0;
+            }
+        } else {
+            cur_losses += 1;
+            cur_loss_ret *= 1.0 + r;
+            if cur_wins > 0 {
+                max_wins = max_wins.max(cur_wins);
+                max_win_ret = max_win_ret.max(cur_win_ret - 1.0);
+                cur_wins = 0;
+                cur_win_ret = 1.0;
+            }
+        }
+    }
+    max_wins = max_wins.max(cur_wins);
+    max_losses = max_losses.max(cur_losses);
+    max_win_ret = max_win_ret.max(cur_win_ret - 1.0);
+    max_loss_ret = max_loss_ret.min(cur_loss_ret - 1.0);
+
+    (max_wins, max_losses, max_win_ret, max_loss_ret)
+}
+
+/// Time-weighted vs money-weighted return comparison
+pub fn time_weighted_return(returns: &[f64]) -> f64 {
+    returns.iter().fold(1.0, |acc, &r| acc * (1.0 + r)) - 1.0
+}
+
+/// Rolling correlation between two return series
+pub fn rolling_correlation(a: &[f64], b: &[f64], window: usize) -> Vec<f64> {
+    let n = a.len().min(b.len());
+    if n < window { return vec![]; }
+    (0..=n - window).map(|i| {
+        let wa = &a[i..i + window];
+        let wb = &b[i..i + window];
+        let ma = wa.iter().sum::<f64>() / window as f64;
+        let mb = wb.iter().sum::<f64>() / window as f64;
+        let cov: f64 = wa.iter().zip(wb.iter()).map(|(&ra, &rb)| (ra - ma) * (rb - mb)).sum::<f64>() / window as f64;
+        let sa = (wa.iter().map(|&r| (r - ma).powi(2)).sum::<f64>() / window as f64).sqrt();
+        let sb = (wb.iter().map(|&r| (r - mb).powi(2)).sum::<f64>() / window as f64).sqrt();
+        if sa > 1e-15 && sb > 1e-15 { cov / (sa * sb) } else { 0.0 }
+    }).collect()
+}
+
+/// Capture ratios: up-capture and down-capture vs benchmark
+pub fn capture_ratios(returns: &[f64], benchmark: &[f64]) -> (f64, f64) {
+    let n = returns.len().min(benchmark.len());
+    let up_ret: f64 = (0..n).filter(|&i| benchmark[i] > 0.0).map(|i| returns[i]).sum::<f64>();
+    let up_bench: f64 = (0..n).filter(|&i| benchmark[i] > 0.0).map(|i| benchmark[i]).sum::<f64>();
+    let down_ret: f64 = (0..n).filter(|&i| benchmark[i] < 0.0).map(|i| returns[i]).sum::<f64>();
+    let down_bench: f64 = (0..n).filter(|&i| benchmark[i] < 0.0).map(|i| benchmark[i]).sum::<f64>();
+    let up_capture = if up_bench.abs() > 1e-15 { up_ret / up_bench } else { 0.0 };
+    let down_capture = if down_bench.abs() > 1e-15 { down_ret / down_bench } else { 0.0 };
+    (up_capture, down_capture)
+}
+
+/// Risk contribution of each asset given weights and covariance matrix
+pub fn risk_contribution(weights: &[f64], cov_matrix: &[f64], n: usize) -> Vec<f64> {
+    // portfolio variance = w' * Sigma * w
+    let mut port_var = 0.0;
+    for i in 0..n {
+        for j in 0..n {
+            port_var += weights[i] * weights[j] * cov_matrix[i * n + j];
+        }
+    }
+    let port_vol = port_var.sqrt();
+    if port_vol < 1e-15 { return vec![0.0; n]; }
+
+    // marginal risk contribution: (Sigma * w) / port_vol
+    let mut mrc = vec![0.0; n];
+    for i in 0..n {
+        for j in 0..n {
+            mrc[i] += cov_matrix[i * n + j] * weights[j];
+        }
+        mrc[i] /= port_vol;
+    }
+
+    // risk contribution = w_i * MRC_i
+    let mut rc: Vec<f64> = (0..n).map(|i| weights[i] * mrc[i]).collect();
+    let total: f64 = rc.iter().sum();
+    if total.abs() > 1e-15 {
+        for v in rc.iter_mut() { *v /= total; }
+    }
+    rc
+}
+
+/// Tracking error
+pub fn tracking_error(returns: &[f64], benchmark: &[f64], periods_per_year: f64) -> f64 {
+    let n = returns.len().min(benchmark.len());
+    if n < 2 { return 0.0; }
+    let excess: Vec<f64> = (0..n).map(|i| returns[i] - benchmark[i]).collect();
+    let mean = excess.iter().sum::<f64>() / n as f64;
+    let var = excess.iter().map(|&e| (e - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+    var.sqrt() * periods_per_year.sqrt()
+}
+
+/// Annualized downside deviation
+pub fn downside_deviation(returns: &[f64], mar: f64, periods_per_year: f64) -> f64 {
+    let n = returns.len();
+    if n == 0 { return 0.0; }
+    let dd = returns.iter().map(|&r| {
+        let excess = r - mar;
+        if excess < 0.0 { excess * excess } else { 0.0 }
+    }).sum::<f64>() / n as f64;
+    dd.sqrt() * periods_per_year.sqrt()
+}
+
+/// Sterling ratio: CAGR / average drawdown
+pub fn sterling_ratio(returns: &[f64], periods_per_year: f64) -> f64 {
+    let c = cagr(returns, periods_per_year);
+    let dd = drawdown_series(returns);
+    let avg_dd = if dd.is_empty() { 0.0 } else { dd.iter().sum::<f64>() / dd.len() as f64 };
+    if avg_dd < 1e-15 { return f64::INFINITY; }
+    c / avg_dd
+}
+
+/// Burke ratio: CAGR / sqrt(sum of squared drawdowns)
+pub fn burke_ratio(returns: &[f64], periods_per_year: f64) -> f64 {
+    let c = cagr(returns, periods_per_year);
+    let dd = drawdown_series(returns);
+    let sq_dd: f64 = dd.iter().map(|d| d * d).sum();
+    let denom = sq_dd.sqrt();
+    if denom < 1e-15 { return f64::INFINITY; }
+    c / denom
+}
+
+/// Pain index: average drawdown
+pub fn pain_index(returns: &[f64]) -> f64 {
+    let dd = drawdown_series(returns);
+    if dd.is_empty() { return 0.0; }
+    dd.iter().sum::<f64>() / dd.len() as f64
+}
+
+/// Pain ratio: excess return / pain index
+pub fn pain_ratio(returns: &[f64], risk_free_rate: f64, periods_per_year: f64) -> f64 {
+    let c = cagr(returns, periods_per_year);
+    let pi = pain_index(returns);
+    if pi < 1e-15 { return f64::INFINITY; }
+    (c - risk_free_rate) / pi
+}
+
+/// Martin ratio (same as Ulcer Performance Index)
+pub fn martin_ratio(returns: &[f64], risk_free_rate: f64, periods_per_year: f64) -> f64 {
+    let c = cagr(returns, periods_per_year);
+    let ui = ulcer_index(returns);
+    if ui < 1e-15 { return f64::INFINITY; }
+    (c - risk_free_rate) / ui
+}
+
+/// Kappa ratio of order n
+pub fn kappa_ratio(returns: &[f64], threshold: f64, n: f64, periods_per_year: f64) -> f64 {
+    let mean_ret = returns.iter().sum::<f64>() / returns.len() as f64;
+    let lpm = returns.iter().map(|&r| {
+        if r < threshold { (threshold - r).powf(n) } else { 0.0 }
+    }).sum::<f64>() / returns.len() as f64;
+    let lpm_root = lpm.powf(1.0 / n);
+    if lpm_root < 1e-15 { return f64::INFINITY; }
+    (mean_ret * periods_per_year - threshold) / (lpm_root * periods_per_year.sqrt())
+}
+
+/// Average true range from returns (proxy using absolute returns)
+pub fn average_true_range(returns: &[f64], period: usize) -> Vec<f64> {
+    let abs_rets: Vec<f64> = returns.iter().map(|r| r.abs()).collect();
+    if abs_rets.len() < period { return vec![]; }
+    let mut atr = Vec::with_capacity(abs_rets.len() - period + 1);
+    let first: f64 = abs_rets[..period].iter().sum::<f64>() / period as f64;
+    atr.push(first);
+    for i in period..abs_rets.len() {
+        let prev = atr.last().unwrap();
+        let new_atr = (prev * (period - 1) as f64 + abs_rets[i]) / period as f64;
+        atr.push(new_atr);
+    }
+    atr
+}
+
+/// Hypothesis test for Sharpe ratio > 0 (t-test)
+pub fn sharpe_ratio_test(returns: &[f64], periods_per_year: f64) -> (f64, f64) {
+    let n = returns.len();
+    if n < 2 { return (0.0, 1.0); }
+    let mean = returns.iter().sum::<f64>() / n as f64;
+    let std = (returns.iter().map(|&r| (r - mean).powi(2)).sum::<f64>() / (n - 1) as f64).sqrt();
+    if std < 1e-15 { return (0.0, 1.0); }
+    let sr = mean / std * periods_per_year.sqrt();
+    let t_stat = mean / (std / (n as f64).sqrt());
+    let p_value = 1.0 - standard_normal_cdf(t_stat);
+    (sr, p_value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

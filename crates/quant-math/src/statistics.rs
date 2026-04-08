@@ -1054,7 +1054,7 @@ pub fn ks_statistic_normal(data: &[f64]) -> f64 {
     let m = mean(data);
     let s = std_dev(data);
 
-    let mut max_d = 0.0;
+    let mut max_d = 0.0_f64;
     for (i, &x) in sorted.iter().enumerate() {
         let z = if s > 1e-15 { (x - m) / s } else { 0.0 };
         let f_x = norm_cdf(z);
@@ -1076,7 +1076,7 @@ pub fn ks_statistic_two_sample(x: &[f64], y: &[f64]) -> f64 {
     let ny = sy.len() as f64;
     let mut i = 0;
     let mut j = 0;
-    let mut max_d = 0.0;
+    let mut max_d = 0.0_f64;
 
     while i < sx.len() && j < sy.len() {
         let d = ((i + 1) as f64 / nx - (j + 1) as f64 / ny).abs();

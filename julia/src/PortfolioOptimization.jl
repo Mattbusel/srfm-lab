@@ -2246,4 +2246,868 @@ turnover(w_old::AbstractVector, w_new::AbstractVector) = sum(abs.(w_new .- w_old
 """Active share relative to benchmark."""
 active_share(w::AbstractVector, w_bench::AbstractVector) = sum(abs.(w .- w_bench)) / 2
 
+# ─────────────────────────────────────────────────────────────────────────────
+# §27  Mean-Semivariance Optimization
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Downside semivariance matrix."""
+function semivariance_matrix(returns::AbstractMatrix{T};
+                             threshold::T=T(0.0)) where T<:Real
+    n, p = size(returns)
+    downside = min.(returns .- threshold, zero(T))
+    D = downside' * downside / (n - 1)
+    Symmetric(D)
+end
+
+"""Mean-semivariance optimization."""
+function mean_semivariance_optimize(mu::AbstractVector{T}, returns::AbstractMatrix{T};
+                                     risk_aversion::T=T(1.0),
+                                     threshold::T=T(0.0),
+                                     lb::T=T(0.0), ub::T=T(1.0)) where T<:Real
+    Sigma_down = semivariance_matrix(returns; threshold=threshold)
+    mean_variance_optimize(mu, Matrix(Sigma_down); risk_aversion=risk_aversion, lb=lb, ub=ub)
+end
+
+"""Lower partial moment of order n."""
+function lower_partial_moment(returns::AbstractVector{T}, order::Int;
+                              threshold::T=T(0.0)) where T<:Real
+    downside = max.(threshold .- returns, zero(T))
+    mean(downside .^ order)
+end
+
+"""Upper partial moment of order n."""
+function upper_partial_moment(returns::AbstractVector{T}, order::Int;
+                              threshold::T=T(0.0)) where T<:Real
+    upside = max.(returns .- threshold, zero(T))
+    mean(upside .^ order)
+end
+
+"""Kappa ratio: excess return / LPM^(1/n)."""
+function kappa_ratio(returns::AbstractVector{T}, order::Int;
+                     threshold::T=T(0.0)) where T<:Real
+    lpm = lower_partial_moment(returns, order; threshold=threshold)
+    excess = mean(returns) - threshold
+    excess / max(lpm^(one(T)/order), T(1e-16))
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §28  Conditional Value-at-Risk Allocation
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""CVaR contribution decomposition."""
+function cvar_contribution(w::AbstractVector{T}, returns::AbstractMatrix{T};
+                           alpha::T=T(0.05)) where T<:Real
+    n_obs, n_assets = size(returns)
+    port_rets = returns * w
+    sorted_idx = sortperm(port_rets)
+    cutoff = max(1, floor(Int, alpha * n_obs))
+    tail_idx = sorted_idx[1:cutoff]
+    tail_returns = returns[tail_idx, :]
+    contrib = zeros(T, n_assets)
+    for i in 1:n_assets
+        contrib[i] = -w[i] * mean(tail_returns[:, i])
+    end
+    total_cvar = -mean(port_rets[tail_idx])
+    return contrib, total_cvar
+end
+
+"""Equal CVaR contribution portfolio."""
+function equal_cvar_contribution(returns::AbstractMatrix{T};
+                                  alpha::T=T(0.05),
+                                  max_iter::Int=500,
+                                  tol::T=T(1e-8)) where T<:Real
+    n_obs, n_assets = size(returns)
+    w = fill(one(T)/n_assets, n_assets)
+    for iter in 1:max_iter
+        contrib, total = cvar_contribution(w, returns; alpha=alpha)
+        target = total / n_assets
+        if maximum(abs.(contrib .- target)) < tol
+            break
+        end
+        grad = contrib .- target
+        w .-= T(0.01) .* grad
+        for i in 1:n_assets
+            w[i] = max(w[i], T(1e-8))
+        end
+        normalize_weights!(w)
+    end
+    w
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §29  Omega Ratio Optimization
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Portfolio Omega ratio."""
+function portfolio_omega(w::AbstractVector{T}, returns::AbstractMatrix{T};
+                         threshold::T=T(0.0)) where T<:Real
+    port_rets = returns * w
+    gains = sum(max.(port_rets .- threshold, zero(T)))
+    losses = sum(max.(threshold .- port_rets, zero(T)))
+    gains / max(losses, T(1e-16))
+end
+
+"""Maximize Omega ratio via iterative optimization."""
+function max_omega_portfolio(returns::AbstractMatrix{T};
+                             threshold::T=T(0.0),
+                             max_iter::Int=2000,
+                             lr::T=T(0.005)) where T<:Real
+    n_obs, n_assets = size(returns)
+    w = fill(one(T)/n_assets, n_assets)
+    for iter in 1:max_iter
+        port_rets = returns * w
+        grad = zeros(T, n_assets)
+        gains = sum(max.(port_rets .- threshold, zero(T)))
+        losses = sum(max.(threshold .- port_rets, zero(T)))
+        for i in 1:n_assets
+            for t in 1:n_obs
+                if port_rets[t] > threshold
+                    grad[i] += returns[t, i] / max(losses, T(1e-16))
+                else
+                    grad[i] -= returns[t, i] * gains / max(losses^2, T(1e-16))
+                end
+            end
+        end
+        grad .-= mean(grad)
+        w .+= lr .* grad
+        for i in 1:n_assets
+            w[i] = max(w[i], T(1e-8))
+        end
+        normalize_weights!(w)
+    end
+    w
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §30  Factor-Mimicking Portfolios
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Construct factor-mimicking portfolio via cross-sectional regression."""
+function factor_mimicking_portfolio(returns::AbstractMatrix{T},
+                                     factor_exposures::AbstractVector{T};
+                                     Sigma::Union{Nothing, AbstractMatrix{T}}=nothing) where T<:Real
+    n_obs, n_assets = size(returns)
+    if Sigma === nothing
+        Sigma = cov(returns)
+    end
+    Sigma_inv = inv(Symmetric(Sigma))
+    w = Sigma_inv * factor_exposures
+    w ./= dot(factor_exposures, w)
+    normalize_weights!(w)
+    w
+end
+
+"""Pure factor portfolio: unit exposure to target factor, zero to others."""
+function pure_factor_portfolio(Sigma::AbstractMatrix{T},
+                                B::AbstractMatrix{T},
+                                target_factor::Int) where T<:Real
+    n_assets, n_factors = size(B)
+    Sigma_inv = inv(Symmetric(Sigma))
+    # w = Sigma_inv * B * (B' * Sigma_inv * B)^{-1} * e_k
+    M = B' * Sigma_inv * B
+    M_inv = inv(Symmetric(M))
+    e_k = zeros(T, n_factors)
+    e_k[target_factor] = one(T)
+    w = Sigma_inv * B * M_inv * e_k
+    w ./= sum(abs.(w))
+    w
+end
+
+"""Factor-neutral minimum variance portfolio."""
+function factor_neutral_min_var(Sigma::AbstractMatrix{T},
+                                 B::AbstractMatrix{T};
+                                 lb::T=T(0.0), ub::T=T(1.0)) where T<:Real
+    n_assets, n_factors = size(B)
+    H = Sigma
+    f = zeros(T, n_assets)
+    A_eq = vcat(ones(T, 1, n_assets), B')
+    b_eq = vcat([one(T)], zeros(T, n_factors))
+    lb_vec = fill(lb, n_assets)
+    ub_vec = fill(ub, n_assets)
+    w, _, _ = active_set_qp(H, f; A_eq=A_eq, b_eq=b_eq, lb=lb_vec, ub=ub_vec)
+    normalize_weights!(w)
+    w
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §31  Tail Risk Parity
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Tail risk contribution (CVaR-based)."""
+function tail_risk_contributions(w::AbstractVector{T}, returns::AbstractMatrix{T};
+                                  alpha::T=T(0.05)) where T<:Real
+    contrib, total = cvar_contribution(w, returns; alpha=alpha)
+    return contrib, total
+end
+
+"""Tail Risk Parity: equalize CVaR contributions."""
+function tail_risk_parity(returns::AbstractMatrix{T};
+                          alpha::T=T(0.05),
+                          max_iter::Int=1000,
+                          tol::T=T(1e-8)) where T<:Real
+    equal_cvar_contribution(returns; alpha=alpha, max_iter=max_iter, tol=tol)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §32  Robust Covariance Estimators
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Minimum Covariance Determinant (MCD) estimator (simplified)."""
+function mcd_estimator(returns::AbstractMatrix{T};
+                        h_fraction::T=T(0.75),
+                        n_subsets::Int=20,
+                        rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n, p = size(returns)
+    h = max(round(Int, h_fraction * n), p + 1)
+    best_det = T(Inf)
+    best_mu = zeros(T, p)
+    best_Sigma = Matrix{T}(I, p, p)
+    for _ in 1:n_subsets
+        subset = sort(randperm(rng, n)[1:h])
+        mu = vec(mean(returns[subset, :]; dims=1))
+        Sigma = cov(returns[subset, :])
+        d = det(Sigma)
+        if d > zero(T) && d < best_det
+            # C-step: find h closest points
+            dists = [dot(returns[i,:] .- mu, Sigma \ (returns[i,:] .- mu)) for i in 1:n]
+            closest = sortperm(dists)[1:h]
+            mu = vec(mean(returns[closest, :]; dims=1))
+            Sigma = cov(returns[closest, :])
+            d = det(Sigma)
+            if d > zero(T) && d < best_det
+                best_det = d
+                best_mu = mu
+                best_Sigma = Sigma
+            end
+        end
+    end
+    Symmetric(best_Sigma), best_mu
+end
+
+"""Tyler's M-estimator for robust scatter matrix."""
+function tyler_m_estimator(returns::AbstractMatrix{T};
+                           max_iter::Int=200, tol::T=T(1e-8)) where T<:Real
+    n, p = size(returns)
+    mu = vec(median(returns; dims=1))
+    X = returns .- mu'
+    Sigma = Matrix{T}(I, p, p)
+    for iter in 1:max_iter
+        Sigma_inv = inv(Symmetric(Sigma))
+        Sigma_new = zeros(T, p, p)
+        for i in 1:n
+            x = X[i, :]
+            d = dot(x, Sigma_inv * x)
+            Sigma_new .+= (x * x') ./ max(d, T(1e-16))
+        end
+        Sigma_new .*= T(p) / n
+        # Normalize to unit trace
+        Sigma_new .*= T(p) / tr(Sigma_new)
+        if norm(Sigma_new .- Sigma) / norm(Sigma) < tol
+            Sigma = Sigma_new
+            break
+        end
+        Sigma = Sigma_new
+    end
+    Symmetric(Sigma)
+end
+
+"""Winsorized covariance matrix."""
+function winsorized_cov(returns::AbstractMatrix{T}; pct::T=T(0.05)) where T<:Real
+    n, p = size(returns)
+    clipped = copy(returns)
+    for j in 1:p
+        sorted = sort(clipped[:, j])
+        lo = sorted[max(1, ceil(Int, pct * n))]
+        hi = sorted[min(n, floor(Int, (1 - pct) * n))]
+        clipped[:, j] = clamp.(clipped[:, j], lo, hi)
+    end
+    Symmetric(cov(clipped))
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §33  Drawdown-Based Optimization
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Maximum drawdown of a weight vector applied to return series."""
+function portfolio_max_drawdown(w::AbstractVector{T}, returns::AbstractMatrix{T}) where T<:Real
+    port_rets = returns * w
+    cum = cumprod(one(T) .+ port_rets)
+    peak = accumulate(max, cum)
+    dd = (peak .- cum) ./ peak
+    maximum(dd)
+end
+
+"""Minimize maximum drawdown via iterative optimization."""
+function min_drawdown_portfolio(returns::AbstractMatrix{T};
+                                 max_iter::Int=500, lr::T=T(0.005),
+                                 rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n_obs, n_assets = size(returns)
+    w = fill(one(T)/n_assets, n_assets)
+    best_dd = portfolio_max_drawdown(w, returns)
+    best_w = copy(w)
+    for iter in 1:max_iter
+        # Numerical gradient
+        grad = zeros(T, n_assets)
+        dd_base = portfolio_max_drawdown(w, returns)
+        delta = T(1e-4)
+        for i in 1:n_assets
+            w_perturb = copy(w)
+            w_perturb[i] += delta
+            w_perturb ./= sum(w_perturb)
+            dd_perturb = portfolio_max_drawdown(w_perturb, returns)
+            grad[i] = (dd_perturb - dd_base) / delta
+        end
+        grad .-= mean(grad)
+        w .-= lr .* grad
+        for i in 1:n_assets
+            w[i] = max(w[i], T(1e-8))
+        end
+        normalize_weights!(w)
+        dd_new = portfolio_max_drawdown(w, returns)
+        if dd_new < best_dd
+            best_dd = dd_new
+            best_w = copy(w)
+        end
+    end
+    best_w
+end
+
+"""Conditional Drawdown at Risk (CDaR) portfolio."""
+function cdar_portfolio(returns::AbstractMatrix{T};
+                         alpha::T=T(0.05),
+                         max_iter::Int=500) where T<:Real
+    n_obs, n_assets = size(returns)
+    w = fill(one(T)/n_assets, n_assets)
+    for iter in 1:max_iter
+        port_rets = returns * w
+        cum = cumprod(one(T) .+ port_rets)
+        peak = accumulate(max, cum)
+        dd = (peak .- cum) ./ max.(peak, T(1e-16))
+        sorted_dd = sort(dd; rev=true)
+        cutoff = max(1, ceil(Int, alpha * n_obs))
+        cdar_threshold = sorted_dd[cutoff]
+        # Gradient: reduce contribution to worst drawdowns
+        tail_mask = dd .>= cdar_threshold
+        grad = zeros(T, n_assets)
+        for t in findall(tail_mask)
+            grad .-= returns[t, :]
+        end
+        grad ./= max(count(tail_mask), 1)
+        grad .-= mean(grad)
+        w .+= T(0.005) .* grad
+        for i in 1:n_assets
+            w[i] = max(w[i], T(1e-8))
+        end
+        normalize_weights!(w)
+    end
+    w
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §34  Utility-Based Optimization
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""CRRA (Constant Relative Risk Aversion) utility."""
+function crra_utility(w::T; gamma::T=T(2.0)) where T<:Real
+    if gamma ≈ one(T)
+        return log(max(w, T(1e-16)))
+    end
+    max(w, T(1e-16))^(one(T) - gamma) / (one(T) - gamma)
+end
+
+"""Expected CRRA utility of portfolio."""
+function expected_crra_utility(w::AbstractVector{T}, returns::AbstractMatrix{T};
+                                gamma::T=T(2.0)) where T<:Real
+    port_rets = returns * w
+    wealth = one(T) .+ port_rets
+    mean(crra_utility.(wealth; gamma=gamma))
+end
+
+"""Maximize expected utility (CRRA) portfolio."""
+function max_utility_portfolio(returns::AbstractMatrix{T};
+                                gamma::T=T(2.0),
+                                max_iter::Int=1000,
+                                lr::T=T(0.005)) where T<:Real
+    n_obs, n_assets = size(returns)
+    w = fill(one(T)/n_assets, n_assets)
+    for iter in 1:max_iter
+        port_rets = returns * w
+        wealth = one(T) .+ port_rets
+        # Gradient of E[u(W)]
+        if gamma ≈ one(T)
+            marg_utility = one(T) ./ max.(wealth, T(1e-16))
+        else
+            marg_utility = max.(wealth, T(1e-16)) .^ (-gamma)
+        end
+        grad = returns' * marg_utility ./ n_obs
+        grad .-= mean(grad)
+        w .+= lr .* grad
+        for i in 1:n_assets
+            w[i] = max(w[i], T(1e-8))
+        end
+        normalize_weights!(w)
+    end
+    w
+end
+
+"""CARA (Constant Absolute Risk Aversion) utility."""
+function cara_utility(w::T; lambda::T=T(1.0)) where T<:Real
+    -exp(-lambda * w) / lambda
+end
+
+"""Maximize expected CARA utility."""
+function max_cara_portfolio(returns::AbstractMatrix{T};
+                            lambda::T=T(1.0),
+                            max_iter::Int=1000,
+                            lr::T=T(0.005)) where T<:Real
+    n_obs, n_assets = size(returns)
+    w = fill(one(T)/n_assets, n_assets)
+    for iter in 1:max_iter
+        port_rets = returns * w
+        marg_utility = exp.(-lambda .* port_rets)
+        grad = returns' * marg_utility ./ n_obs
+        grad .-= mean(grad)
+        w .+= lr .* grad
+        for i in 1:n_assets
+            w[i] = max(w[i], T(1e-8))
+        end
+        normalize_weights!(w)
+    end
+    w
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §35  Entropy-Based Portfolio
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Maximum entropy portfolio (subject to return constraint)."""
+function max_entropy_portfolio(mu::AbstractVector{T};
+                                target_return::Union{Nothing,T}=nothing,
+                                max_iter::Int=1000, tol::T=T(1e-10)) where T<:Real
+    n = length(mu)
+    w = fill(one(T)/n, n)
+    for iter in 1:max_iter
+        # Gradient of entropy: -1 - ln(w_i)
+        grad = -one(T) .- log.(max.(w, T(1e-16)))
+        if target_return !== nothing
+            # Lagrange multiplier for return constraint
+            lambda = (target_return - dot(w, mu)) / max(dot(mu, mu), T(1e-16))
+            grad .+= lambda .* mu
+        end
+        grad .-= mean(grad)
+        w .+= T(0.01) .* grad
+        for i in 1:n
+            w[i] = max(w[i], T(1e-8))
+        end
+        normalize_weights!(w)
+        if norm(grad) < tol
+            break
+        end
+    end
+    w
+end
+
+"""Minimum cross-entropy (relative entropy) to reference portfolio."""
+function min_cross_entropy_portfolio(mu::AbstractVector{T},
+                                      Sigma::AbstractMatrix{T},
+                                      w_ref::AbstractVector{T};
+                                      risk_aversion::T=T(1.0),
+                                      entropy_weight::T=T(0.1)) where T<:Real
+    n = length(mu)
+    w = copy(w_ref)
+    for iter in 1:500
+        # Gradient: gamma*Sigma*w - mu + eta*(ln(w/w_ref) + 1)
+        grad = risk_aversion .* Sigma * w .- mu .+
+               entropy_weight .* (log.(max.(w, T(1e-16))) .- log.(max.(w_ref, T(1e-16))) .+ one(T))
+        grad .-= mean(grad)
+        w .-= T(0.01) .* grad
+        for i in 1:n
+            w[i] = max(w[i], T(1e-8))
+        end
+        normalize_weights!(w)
+    end
+    w
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §36  Multi-Objective Optimization
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Pareto frontier of return vs risk vs diversification."""
+function pareto_frontier(mu::AbstractVector{T}, Sigma::AbstractMatrix{T};
+                         n_points::Int=50, lb::T=T(0.0), ub::T=T(1.0)) where T<:Real
+    n = length(mu)
+    results = Vector{NamedTuple{(:weights,:ret,:vol,:div_ratio,:sharpe),
+                                 NTuple{5,T}}}()
+    for i in 1:n_points
+        gamma = T(10.0^((i-1)/(n_points-1) * 4 - 2))
+        w = mean_variance_optimize(mu, Sigma; risk_aversion=gamma, lb=lb, ub=ub)
+        ret = dot(w, mu)
+        vol = port_vol(w, Sigma)
+        dr = diversification_ratio(w, Sigma)
+        sr = vol > T(1e-12) ? ret / vol : zero(T)
+        push!(results, (weights=w[1], ret=ret, vol=vol, div_ratio=dr, sharpe=sr))
+    end
+    results
+end
+
+"""Multi-objective: blend return, risk, diversification, and turnover."""
+function multi_objective_optimize(mu::AbstractVector{T}, Sigma::AbstractMatrix{T},
+                                   w_current::AbstractVector{T};
+                                   w_return::T=T(1.0),
+                                   w_risk::T=T(1.0),
+                                   w_div::T=T(0.5),
+                                   w_turnover::T=T(0.1),
+                                   max_iter::Int=1000,
+                                   lr::T=T(0.005)) where T<:Real
+    n = length(mu)
+    w = copy(w_current)
+    sigma_assets = sqrt.(diag(Sigma))
+    for iter in 1:max_iter
+        vol = port_vol(w, Sigma)
+        # Gradient of return
+        g_ret = mu
+        # Gradient of risk
+        g_risk = Sigma * w ./ max(vol, T(1e-16))
+        # Gradient of diversification ratio (approximate)
+        g_div = sigma_assets ./ max(vol, T(1e-16)) .-
+                dot(w, sigma_assets) .* (Sigma * w) ./ max(vol^3, T(1e-16))
+        # Gradient of turnover
+        g_turn = sign.(w .- w_current)
+        # Combined gradient (maximize return and div, minimize risk and turnover)
+        grad = w_return .* g_ret .- w_risk .* g_risk .+ w_div .* g_div .- w_turnover .* g_turn
+        grad .-= mean(grad)
+        w .+= lr .* grad
+        for i in 1:n
+            w[i] = max(w[i], T(1e-8))
+        end
+        normalize_weights!(w)
+    end
+    w
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §37  Black-Litterman Extensions
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Augmented Black-Litterman with factor views."""
+function bl_factor_views(Sigma::AbstractMatrix{T},
+                          w_mkt::AbstractVector{T},
+                          B::AbstractMatrix{T},
+                          factor_views::AbstractVector{T},
+                          factor_confidence::AbstractVector{T};
+                          tau::T=T(0.05),
+                          risk_aversion::T=T(2.5)) where T<:Real
+    n_assets, n_factors = size(B)
+    P = B'  # factor loading matrix as view matrix
+    Q = factor_views
+    k = length(Q)
+    tau_Sigma = tau .* Sigma
+    omega_diag = [(one(T) / factor_confidence[i] - one(T)) * dot(P[i,:], tau_Sigma * P[i,:])
+                  for i in 1:k]
+    Omega = Diagonal(omega_diag)
+    pi_eq = risk_aversion .* Sigma * w_mkt
+    M = tau_Sigma * P' * inv(P * tau_Sigma * P' .+ Omega)
+    mu_bl = pi_eq .+ M * (Q .- P * pi_eq)
+    Sigma_bl = (I(n_assets) .- M * P) * tau_Sigma
+    return mu_bl, Symmetric(Sigma .+ Sigma_bl)
+end
+
+"""Entropy-pooling (Meucci) for view blending."""
+function entropy_pooling(prior_probs::AbstractVector{T},
+                          A_eq::AbstractMatrix{T},
+                          b_eq::AbstractVector{T};
+                          A_ineq::AbstractMatrix{T}=zeros(T,0,length(prior_probs)),
+                          b_ineq::AbstractVector{T}=zeros(T,0),
+                          max_iter::Int=1000, tol::T=T(1e-8)) where T<:Real
+    n = length(prior_probs)
+    m_eq = size(A_eq, 1)
+    m_ineq = size(A_ineq, 1)
+    # Dual optimization
+    lambda = zeros(T, m_eq)
+    mu_dual = zeros(T, m_ineq)
+    for iter in 1:max_iter
+        # Posterior probabilities
+        log_p = log.(max.(prior_probs, T(1e-300)))
+        exp_arg = log_p .- A_eq' * lambda
+        if m_ineq > 0
+            exp_arg .-= A_ineq' * mu_dual
+        end
+        max_arg = maximum(exp_arg)
+        p = exp.(exp_arg .- max_arg)
+        p ./= sum(p)
+        # Gradient
+        grad_lambda = A_eq * p .- b_eq
+        if norm(grad_lambda) < tol && (m_ineq == 0 || norm(A_ineq * p .- b_ineq) < tol)
+            break
+        end
+        lambda .+= T(0.1) .* grad_lambda
+        if m_ineq > 0
+            grad_mu = A_ineq * p .- b_ineq
+            mu_dual .+= T(0.1) .* max.(grad_mu, zero(T))
+            mu_dual = max.(mu_dual, zero(T))
+        end
+    end
+    # Final probabilities
+    log_p = log.(max.(prior_probs, T(1e-300)))
+    exp_arg = log_p .- A_eq' * lambda
+    if m_ineq > 0
+        exp_arg .-= A_ineq' * mu_dual
+    end
+    max_arg = maximum(exp_arg)
+    p = exp.(exp_arg .- max_arg)
+    p ./= sum(p)
+    return p
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §38  Network-Based Portfolio Construction
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Correlation network: adjacency matrix from correlation thresholding."""
+function correlation_network(corr::AbstractMatrix{T};
+                             threshold::T=T(0.5)) where T<:Real
+    n = size(corr, 1)
+    adj = zeros(T, n, n)
+    for j in 1:n, i in 1:n
+        if i != j && abs(corr[i,j]) > threshold
+            adj[i,j] = abs(corr[i,j])
+        end
+    end
+    adj
+end
+
+"""Minimum spanning tree from distance matrix."""
+function minimum_spanning_tree(D::AbstractMatrix{T}) where T<:Real
+    n = size(D, 1)
+    in_tree = falses(n)
+    in_tree[1] = true
+    edges = Vector{Tuple{Int,Int,T}}()
+    min_dist = fill(T(Inf), n)
+    min_from = zeros(Int, n)
+    for j in 1:n
+        if j != 1
+            min_dist[j] = D[1, j]
+            min_from[j] = 1
+        end
+    end
+    for _ in 2:n
+        # Find min-distance node not in tree
+        best = 0
+        best_d = T(Inf)
+        for j in 1:n
+            if !in_tree[j] && min_dist[j] < best_d
+                best_d = min_dist[j]
+                best = j
+            end
+        end
+        if best == 0 break end
+        in_tree[best] = true
+        push!(edges, (min_from[best], best, best_d))
+        for j in 1:n
+            if !in_tree[j] && D[best, j] < min_dist[j]
+                min_dist[j] = D[best, j]
+                min_from[j] = best
+            end
+        end
+    end
+    edges
+end
+
+"""Network centrality: degree, closeness, betweenness (simplified)."""
+function network_centrality(adj::AbstractMatrix{T}) where T<:Real
+    n = size(adj, 1)
+    degree = vec(sum(adj .> zero(T); dims=2))
+    degree_norm = T.(degree) ./ T(n - 1)
+    # Closeness: inverse of mean shortest path (approximate via adjacency)
+    closeness = zeros(T, n)
+    for i in 1:n
+        total_dist = zero(T)
+        visited = falses(n)
+        visited[i] = true
+        queue = [i]
+        dist = zeros(Int, n)
+        while !isempty(queue)
+            u = popfirst!(queue)
+            for v in 1:n
+                if !visited[v] && adj[u, v] > zero(T)
+                    visited[v] = true
+                    dist[v] = dist[u] + 1
+                    push!(queue, v)
+                    total_dist += T(dist[v])
+                end
+            end
+        end
+        closeness[i] = total_dist > zero(T) ? T(count(visited) - 1) / total_dist : zero(T)
+    end
+    return (degree=degree_norm, closeness=closeness)
+end
+
+"""Centrality-weighted portfolio."""
+function centrality_portfolio(corr::AbstractMatrix{T};
+                               method::Symbol=:degree,
+                               threshold::T=T(0.3)) where T<:Real
+    adj = correlation_network(corr; threshold=threshold)
+    cent = network_centrality(adj)
+    if method == :degree
+        scores = cent.degree
+    else
+        scores = cent.closeness
+    end
+    # Inverse centrality: less connected = more weight (diversification)
+    inv_scores = one(T) ./ (scores .+ T(0.01))
+    inv_scores ./ sum(inv_scores)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §39  Moment Matching & Scenario Generation
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Generate scenarios matching first 4 moments."""
+function moment_matching_scenarios(mu::AbstractVector{T}, Sigma::AbstractMatrix{T},
+                                    skewness::AbstractVector{T},
+                                    kurtosis::AbstractVector{T};
+                                    n_scenarios::Int=1000,
+                                    rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n = length(mu)
+    L = cholesky(Symmetric(Sigma)).L
+    Z = randn(rng, T, n_scenarios, n)
+    # Fleishman transformation for target skewness/kurtosis
+    for j in 1:n
+        sk = skewness[j]
+        ku = kurtosis[j]
+        # Solve cubic: Y = a + bZ + cZ^2 + dZ^3
+        # Simplified: use Cornish-Fisher expansion
+        z = Z[:, j]
+        z_adj = z .+ (z.^2 .- one(T)) .* sk ./ T(6) .+
+                (z.^3 .- T(3) .* z) .* ku ./ T(24) .-
+                (T(2) .* z.^3 .- T(5) .* z) .* sk^2 ./ T(36)
+        Z[:, j] = z_adj
+    end
+    scenarios = Z * L' .+ mu'
+    scenarios
+end
+
+"""Scenario reduction: select representative subset of scenarios."""
+function scenario_reduction(scenarios::AbstractMatrix{T},
+                            n_keep::Int;
+                            rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n, p = size(scenarios)
+    if n <= n_keep
+        return scenarios, collect(1:n), fill(one(T)/n, n)
+    end
+    # K-medoids style: greedily select diverse scenarios
+    selected = Int[]
+    push!(selected, rand(rng, 1:n))
+    for _ in 2:n_keep
+        max_min_dist = T(-Inf)
+        best_idx = 0
+        for i in 1:n
+            if i in selected continue end
+            min_dist = minimum(sqrt(sum((scenarios[i,:] .- scenarios[j,:]).^2)) for j in selected)
+            if min_dist > max_min_dist
+                max_min_dist = min_dist
+                best_idx = i
+            end
+        end
+        push!(selected, best_idx)
+    end
+    # Assign weights: each selected scenario represents nearby unselected ones
+    probs = zeros(T, n_keep)
+    for i in 1:n
+        distances = [sqrt(sum((scenarios[i,:] .- scenarios[selected[j],:]).^2)) for j in 1:n_keep]
+        closest = argmin(distances)
+        probs[closest] += one(T) / n
+    end
+    return scenarios[selected, :], selected, probs
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §40  Portfolio Analytics Dashboard
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Comprehensive portfolio analytics."""
+function portfolio_analytics(w::AbstractVector{T}, returns::AbstractMatrix{T},
+                              mu::AbstractVector{T}, Sigma::AbstractMatrix{T};
+                              rf::T=T(0.02), benchmark_returns::Union{Nothing,AbstractVector{T}}=nothing) where T<:Real
+    port_rets = returns * w
+    n_obs = length(port_rets)
+    analytics = Dict{Symbol, T}()
+    analytics[:ann_return] = mean(port_rets) * 252
+    analytics[:ann_vol] = std(port_rets) * sqrt(T(252))
+    analytics[:sharpe] = (analytics[:ann_return] - rf) / max(analytics[:ann_vol], T(1e-16))
+    analytics[:sortino] = sortino_ratio(port_rets; rf=rf/252)
+    analytics[:calmar] = calmar_ratio(port_rets)
+    analytics[:max_drawdown] = max_drawdown(port_rets)
+    analytics[:var_95] = -sort(port_rets)[max(1, ceil(Int, 0.05 * n_obs))]
+    analytics[:cvar_95] = -mean(sort(port_rets)[1:max(1, floor(Int, 0.05 * n_obs))])
+    analytics[:omega] = omega_ratio(port_rets)
+    analytics[:hhi] = hhi(w)
+    analytics[:effective_n] = effective_n(w)
+    analytics[:portfolio_entropy] = portfolio_entropy(w)
+    analytics[:diversification_ratio] = diversification_ratio(w, Sigma)
+    analytics[:expected_return] = dot(w, mu)
+    analytics[:expected_vol] = port_vol(w, Sigma)
+    analytics[:turnover] = zero(T)  # need previous weights
+    # Risk contributions
+    rc = risk_contributions(w, Sigma)
+    analytics[:max_risk_contrib] = maximum(rc ./ max(sum(rc), T(1e-16)))
+    analytics[:min_risk_contrib] = minimum(rc ./ max(sum(rc), T(1e-16)))
+    if benchmark_returns !== nothing
+        bm = benchmark_returns[1:n_obs]
+        analytics[:tracking_error] = std(port_rets .- bm) * sqrt(T(252))
+        analytics[:info_ratio] = (mean(port_rets .- bm) * 252) / max(analytics[:tracking_error], T(1e-16))
+        analytics[:beta] = cov(port_rets, bm) / max(var(bm), T(1e-16))
+        analytics[:alpha] = (mean(port_rets) - analytics[:beta] * mean(bm)) * 252
+    end
+    analytics
+end
+
+"""Rolling portfolio analytics."""
+function rolling_portfolio_analytics(w::AbstractVector{T}, returns::AbstractMatrix{T};
+                                      window::Int=63, step::Int=21) where T<:Real
+    n_obs = size(returns, 1)
+    port_rets = returns * w
+    n_windows = div(n_obs - window, step) + 1
+    sharpes = Vector{T}(undef, n_windows)
+    vols = Vector{T}(undef, n_windows)
+    dds = Vector{T}(undef, n_windows)
+    for (k, t) in enumerate(window:step:n_obs)
+        r = port_rets[t-window+1:t]
+        sharpes[k] = mean(r) / max(std(r), T(1e-16)) * sqrt(T(252))
+        vols[k] = std(r) * sqrt(T(252))
+        cum = cumprod(one(T) .+ r)
+        peak = accumulate(max, cum)
+        dds[k] = maximum((peak .- cum) ./ peak)
+    end
+    return (sharpe=sharpes, vol=vols, max_dd=dds)
+end
+
+"""Style analysis: regress portfolio on style benchmarks."""
+function style_analysis(port_returns::AbstractVector{T},
+                         style_returns::AbstractMatrix{T}) where T<:Real
+    n = length(port_returns)
+    k = size(style_returns, 2)
+    # Constrained regression: weights in [0,1], sum to 1
+    # Use iterative projected gradient
+    w = fill(one(T)/k, k)
+    for iter in 1:500
+        pred = style_returns * w
+        resid = port_returns .- pred
+        grad = -style_returns' * resid ./ n
+        w .-= T(0.01) .* grad
+        for i in 1:k
+            w[i] = max(w[i], zero(T))
+        end
+        s = sum(w)
+        if s > T(1e-16)
+            w ./= s
+        end
+    end
+    pred = style_returns * w
+    resid = port_returns .- pred
+    r2 = one(T) - sum(resid.^2) / max(sum((port_returns .- mean(port_returns)).^2), T(1e-16))
+    return w, r2
+end
+
 end # module PortfolioOptimization

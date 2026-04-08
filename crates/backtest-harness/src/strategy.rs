@@ -191,7 +191,6 @@ impl Strategy for MomentumStrategy {
 }
 
 /// Multi-signal composite strategy
-#[derive(Debug)]
 pub struct CompositeStrategy {
     pub strategies: Vec<Box<dyn Strategy>>,
     pub weights: Vec<f64>,
@@ -270,7 +269,6 @@ impl Strategy for CompositeStrategy {
 }
 
 /// Regime filter: only pass signals through when regime matches
-#[derive(Debug)]
 pub struct RegimeFilteredStrategy {
     pub inner: Box<dyn Strategy>,
     pub regime_detector: Box<dyn Strategy>,
@@ -564,6 +562,184 @@ pub fn compute_turnover(weights_before: &HashMap<String, f64>, weights_after: &H
         turnover += (w_after - w_before).abs();
     }
     turnover / 2.0
+}
+
+/// Mean reversion strategy: fade large moves
+#[derive(Clone, Debug)]
+pub struct MeanReversionStrategy {
+    pub lookback: usize,
+    pub entry_z: f64,
+    pub exit_z: f64,
+    pub price_history: HashMap<String, Vec<f64>>,
+}
+
+impl MeanReversionStrategy {
+    pub fn new(lookback: usize, entry_z: f64, exit_z: f64) -> Self {
+        Self { lookback, entry_z, exit_z, price_history: HashMap::new() }
+    }
+}
+
+impl Strategy for MeanReversionStrategy {
+    fn generate_signals(&mut self, timestamp: u64, bars: &HashMap<String, &Bar>, _portfolio: &Portfolio) -> Vec<Signal> {
+        let mut signals = Vec::new();
+        for (sym, bar) in bars {
+            let history = self.price_history.entry(sym.to_string()).or_default();
+            history.push(bar.close);
+            if history.len() < self.lookback { continue; }
+            let sl = &history[history.len() - self.lookback..];
+            let mean = sl.iter().sum::<f64>() / self.lookback as f64;
+            let std = (sl.iter().map(|&p| (p - mean).powi(2)).sum::<f64>() / self.lookback as f64).sqrt();
+            if std < 1e-15 { continue; }
+            let z = (bar.close - mean) / std;
+            let value = if z > self.entry_z { -(z / self.entry_z).min(1.0) }
+                else if z < -self.entry_z { (-z / self.entry_z).min(1.0) }
+                else if z.abs() < self.exit_z { 0.0 }
+                else { 0.0 };
+            signals.push(Signal::new(sym, value, (z.abs() / 3.0).min(1.0), timestamp).with_source("MeanRev"));
+        }
+        signals
+    }
+    fn name(&self) -> &str { "MeanReversion" }
+}
+
+/// Pairs trading strategy
+#[derive(Clone, Debug)]
+pub struct PairsTradingStrategy {
+    pub symbol_a: String,
+    pub symbol_b: String,
+    pub lookback: usize,
+    pub entry_z: f64,
+    pub exit_z: f64,
+    pub hedge_ratio: f64,
+    pub spread_history: Vec<f64>,
+    pub price_a_history: Vec<f64>,
+    pub price_b_history: Vec<f64>,
+}
+
+impl PairsTradingStrategy {
+    pub fn new(sym_a: &str, sym_b: &str, lookback: usize, entry_z: f64, hedge_ratio: f64) -> Self {
+        Self {
+            symbol_a: sym_a.to_string(), symbol_b: sym_b.to_string(),
+            lookback, entry_z, exit_z: 0.5, hedge_ratio,
+            spread_history: Vec::new(), price_a_history: Vec::new(), price_b_history: Vec::new(),
+        }
+    }
+}
+
+impl Strategy for PairsTradingStrategy {
+    fn generate_signals(&mut self, timestamp: u64, bars: &HashMap<String, &Bar>, _portfolio: &Portfolio) -> Vec<Signal> {
+        let price_a = bars.get(self.symbol_a.as_str()).map(|b| b.close);
+        let price_b = bars.get(self.symbol_b.as_str()).map(|b| b.close);
+        let (pa, pb) = match (price_a, price_b) {
+            (Some(a), Some(b)) => (a, b),
+            _ => return vec![],
+        };
+        self.price_a_history.push(pa);
+        self.price_b_history.push(pb);
+        let spread = pa - self.hedge_ratio * pb;
+        self.spread_history.push(spread);
+        if self.spread_history.len() < self.lookback { return vec![]; }
+        let sl = &self.spread_history[self.spread_history.len() - self.lookback..];
+        let mean = sl.iter().sum::<f64>() / self.lookback as f64;
+        let std = (sl.iter().map(|&s| (s - mean).powi(2)).sum::<f64>() / self.lookback as f64).sqrt();
+        if std < 1e-15 { return vec![]; }
+        let z = (spread - mean) / std;
+        let mut signals = Vec::new();
+        if z > self.entry_z {
+            signals.push(Signal::new(&self.symbol_a, -1.0, (z / 3.0).min(1.0), timestamp).with_source("Pairs"));
+            signals.push(Signal::new(&self.symbol_b, 1.0, (z / 3.0).min(1.0), timestamp).with_source("Pairs"));
+        } else if z < -self.entry_z {
+            signals.push(Signal::new(&self.symbol_a, 1.0, (-z / 3.0).min(1.0), timestamp).with_source("Pairs"));
+            signals.push(Signal::new(&self.symbol_b, -1.0, (-z / 3.0).min(1.0), timestamp).with_source("Pairs"));
+        } else if z.abs() < self.exit_z {
+            signals.push(Signal::new(&self.symbol_a, 0.0, 1.0, timestamp).with_source("Pairs"));
+            signals.push(Signal::new(&self.symbol_b, 0.0, 1.0, timestamp).with_source("Pairs"));
+        }
+        signals
+    }
+    fn name(&self) -> &str { "PairsTrading" }
+}
+
+/// Breakout strategy: buy on new high, sell on new low
+#[derive(Clone, Debug)]
+pub struct BreakoutStrategy {
+    pub lookback: usize,
+    pub price_history: HashMap<String, Vec<f64>>,
+}
+
+impl BreakoutStrategy {
+    pub fn new(lookback: usize) -> Self {
+        Self { lookback, price_history: HashMap::new() }
+    }
+}
+
+impl Strategy for BreakoutStrategy {
+    fn generate_signals(&mut self, timestamp: u64, bars: &HashMap<String, &Bar>, _portfolio: &Portfolio) -> Vec<Signal> {
+        let mut signals = Vec::new();
+        for (sym, bar) in bars {
+            let history = self.price_history.entry(sym.to_string()).or_default();
+            history.push(bar.close);
+            if history.len() < self.lookback + 1 { continue; }
+            let window = &history[history.len() - self.lookback - 1..history.len() - 1];
+            let high = window.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let low = window.iter().cloned().fold(f64::INFINITY, f64::min);
+            let value = if bar.close > high { 1.0 }
+                else if bar.close < low { -1.0 }
+                else { 0.0 };
+            signals.push(Signal::new(sym, value, 0.7, timestamp).with_source("Breakout"));
+        }
+        signals
+    }
+    fn name(&self) -> &str { "Breakout" }
+}
+
+/// Volume-weighted strategy
+#[derive(Clone, Debug)]
+pub struct VolumeStrategy {
+    pub vol_lookback: usize,
+    pub vol_threshold: f64,
+    pub volume_history: HashMap<String, Vec<f64>>,
+    pub price_history: HashMap<String, Vec<f64>>,
+}
+
+impl VolumeStrategy {
+    pub fn new(lookback: usize, threshold: f64) -> Self {
+        Self { vol_lookback: lookback, vol_threshold: threshold, volume_history: HashMap::new(), price_history: HashMap::new() }
+    }
+}
+
+impl Strategy for VolumeStrategy {
+    fn generate_signals(&mut self, timestamp: u64, bars: &HashMap<String, &Bar>, _portfolio: &Portfolio) -> Vec<Signal> {
+        let mut signals = Vec::new();
+        for (sym, bar) in bars {
+            let vhist = self.volume_history.entry(sym.to_string()).or_default();
+            let phist = self.price_history.entry(sym.to_string()).or_default();
+            vhist.push(bar.volume);
+            phist.push(bar.close);
+            if vhist.len() < self.vol_lookback + 1 { continue; }
+            let avg_vol = vhist[vhist.len() - self.vol_lookback - 1..vhist.len() - 1].iter().sum::<f64>() / self.vol_lookback as f64;
+            let vol_ratio = bar.volume / avg_vol.max(1.0);
+            if vol_ratio > self.vol_threshold {
+                let ret = (bar.close - phist[phist.len() - 2]) / phist[phist.len() - 2];
+                let value = ret.signum();
+                let confidence = ((vol_ratio - 1.0) / 3.0).min(1.0);
+                signals.push(Signal::new(sym, value, confidence, timestamp).with_source("Volume"));
+            }
+        }
+        signals
+    }
+    fn name(&self) -> &str { "Volume" }
+}
+
+/// Dual-timeframe strategy: use slow TF for direction, fast for entry
+pub fn dual_timeframe_signal(
+    fast_signal: f64, slow_signal: f64, alignment_weight: f64,
+) -> f64 {
+    if fast_signal.signum() == slow_signal.signum() {
+        fast_signal * alignment_weight
+    } else {
+        fast_signal * (1.0 - alignment_weight) * 0.5
+    }
 }
 
 #[cfg(test)]

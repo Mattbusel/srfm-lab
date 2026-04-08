@@ -1606,4 +1606,574 @@ function generate_correlated_returns(n_bars::Int, n_assets::Int;
     returns
 end
 
+# ─────────────────────────────────────────────────────────────────────────────
+# §21  Advanced Fill Models
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Limit order fill probability model."""
+function limit_order_fill_prob(limit_price::T, mid_price::T, spread::T,
+                                vol::T, duration::T) where T<:Real
+    # Probability that price reaches limit within duration
+    distance = abs(limit_price - mid_price) / max(vol, T(1e-16))
+    # Approximate using Brownian motion first passage time
+    if limit_price <= mid_price  # buy limit
+        p = exp(-T(2) * distance^2 / max(duration, T(1e-8)))
+    else  # sell limit
+        p = exp(-T(2) * distance^2 / max(duration, T(1e-8)))
+    end
+    clamp(p, zero(T), one(T))
+end
+
+"""VWAP slippage model: deviation from volume-weighted average price."""
+function vwap_slippage(shares::T, total_volume::T, vol::T;
+                       participation_limit::T=T(0.1)) where T<:Real
+    participation = abs(shares) / max(total_volume, T(1.0))
+    if participation > participation_limit
+        # Significant market impact
+        excess = participation - participation_limit
+        return vol * sqrt(participation) + T(2) * vol * excess
+    end
+    vol * sqrt(participation)
+end
+
+"""Implementation shortfall decomposition."""
+function implementation_shortfall(decision_price::T, arrival_price::T,
+                                   execution_price::T, close_price::T,
+                                   shares::T, direction::Int) where T<:Real
+    # Total IS = (execution - decision) * direction * shares
+    total_is = (execution_price - decision_price) * T(direction) * shares
+    # Decomposition
+    delay_cost = (arrival_price - decision_price) * T(direction) * shares
+    market_impact = (execution_price - arrival_price) * T(direction) * shares
+    timing_cost = (close_price - execution_price) * T(direction) * shares
+    opportunity_cost = zero(T)  # for unfilled portion
+    return (total=total_is, delay=delay_cost, impact=market_impact,
+            timing=timing_cost, opportunity=opportunity_cost)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §22  Multi-Asset Backtest
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Cross-asset correlation regime detection."""
+function cross_asset_regime(returns::AbstractMatrix{T};
+                            window::Int=63, n_regimes::Int=3) where T<:Real
+    n, p = size(returns)
+    labels = ones(Int, n)
+    if n < window + 1
+        return labels
+    end
+    avg_corrs = Vector{T}(undef, n)
+    for t in window:n
+        sub = returns[t-window+1:t, :]
+        C = cor(sub)
+        total = zero(T)
+        count = 0
+        for j in 1:p, i in j+1:p
+            total += C[i,j]
+            count += 1
+        end
+        avg_corrs[t] = count > 0 ? total / count : zero(T)
+    end
+    # Quantile-based classification
+    valid = avg_corrs[window:end]
+    sorted = sort(valid)
+    thresholds = [sorted[max(1, round(Int, k * length(sorted) / n_regimes))]
+                  for k in 1:n_regimes-1]
+    for t in window:n
+        label = 1
+        for th in thresholds
+            if avg_corrs[t] > th
+                label += 1
+            end
+        end
+        labels[t] = label
+    end
+    labels
+end
+
+"""Pair trading backtest."""
+function pairs_backtest(prices1::AbstractVector{T}, prices2::AbstractVector{T};
+                        lookback::Int=60, entry_z::T=T(2.0),
+                        exit_z::T=T(0.5), max_hold::Int=20) where T<:Real
+    n = length(prices1)
+    spread = log.(prices1) .- log.(prices2)
+    returns_out = zeros(T, n)
+    position = 0  # +1: long spread, -1: short spread, 0: flat
+    hold_count = 0
+    for t in lookback+1:n
+        window = spread[t-lookback:t-1]
+        mu = mean(window)
+        sigma = std(window)
+        z = (spread[t] - mu) / max(sigma, T(1e-16))
+        if position == 0
+            if z > entry_z
+                position = -1  # short spread
+            elseif z < -entry_z
+                position = 1   # long spread
+            end
+            hold_count = 0
+        else
+            hold_count += 1
+            if (position == 1 && z >= -exit_z) || (position == -1 && z <= exit_z) || hold_count >= max_hold
+                position = 0
+            end
+        end
+        if position != 0
+            ret1 = (prices1[t] - prices1[t-1]) / prices1[t-1]
+            ret2 = (prices2[t] - prices2[t-1]) / prices2[t-1]
+            returns_out[t] = T(position) * (ret1 - ret2)
+        end
+    end
+    returns_out
+end
+
+"""Statistical arbitrage basket backtest."""
+function stat_arb_basket(returns::AbstractMatrix{T},
+                          hedge_ratios::AbstractVector{T},
+                          signals::AbstractVector{T};
+                          lookback::Int=60,
+                          entry_z::T=T(2.0),
+                          exit_z::T=T(0.5)) where T<:Real
+    n, p = size(returns)
+    spread_returns = returns * hedge_ratios
+    pnl = zeros(T, n)
+    position = zero(T)
+    for t in lookback+1:n
+        window = spread_returns[t-lookback:t-1]
+        mu = mean(window)
+        sigma = std(window)
+        z = (spread_returns[t] - mu) / max(sigma, T(1e-16))
+        signal = signals[t]
+        if abs(position) < T(1e-10)
+            if z > entry_z && signal < zero(T)
+                position = -one(T)
+            elseif z < -entry_z && signal > zero(T)
+                position = one(T)
+            end
+        else
+            if (position > zero(T) && z >= -exit_z) || (position < zero(T) && z <= exit_z)
+                position = zero(T)
+            end
+        end
+        pnl[t] = position * spread_returns[t]
+    end
+    pnl
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §23  Risk-Adjusted Performance Attribution
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Fama-French alpha decomposition."""
+function ff_alpha_decomposition(strategy_returns::AbstractVector{T},
+                                 market_returns::AbstractVector{T};
+                                 window::Int=252) where T<:Real
+    n = length(strategy_returns)
+    alphas = Vector{T}(undef, n)
+    betas = Vector{T}(undef, n)
+    fill!(alphas, zero(T))
+    fill!(betas, zero(T))
+    for t in window:n
+        sr = strategy_returns[t-window+1:t]
+        mr = market_returns[t-window+1:t]
+        X = hcat(ones(T, window), mr)
+        b = (X' * X) \ (X' * sr)
+        alphas[t] = b[1] * 252  # annualized
+        betas[t] = b[2]
+    end
+    return alphas, betas
+end
+
+"""Conditional alpha: alpha in different market regimes."""
+function conditional_alpha(strategy_returns::AbstractVector{T},
+                           market_returns::AbstractVector{T};
+                           window::Int=252) where T<:Real
+    n = length(strategy_returns)
+    up_alpha = T[]
+    down_alpha = T[]
+    for t in window:n
+        sr = strategy_returns[t-window+1:t]
+        mr = market_returns[t-window+1:t]
+        up_mask = mr .> zero(T)
+        down_mask = mr .<= zero(T)
+        if count(up_mask) > 5
+            push!(up_alpha, mean(sr[up_mask]) - mean(mr[up_mask]))
+        end
+        if count(down_mask) > 5
+            push!(down_alpha, mean(sr[down_mask]) - mean(mr[down_mask]))
+        end
+    end
+    return (up_alpha=isempty(up_alpha) ? zero(T) : mean(up_alpha) * 252,
+            down_alpha=isempty(down_alpha) ? zero(T) : mean(down_alpha) * 252)
+end
+
+"""Performance persistence test."""
+function performance_persistence(returns::AbstractVector{T};
+                                  period::Int=63) where T<:Real
+    n = length(returns)
+    n_periods = div(n, period)
+    if n_periods < 3
+        return zero(T), zero(T)
+    end
+    period_sharpes = Vector{T}(undef, n_periods)
+    for p in 1:n_periods
+        r = returns[(p-1)*period+1 : min(p*period, n)]
+        period_sharpes[p] = mean(r) / max(std(r), T(1e-16)) * sqrt(T(252))
+    end
+    # Autocorrelation of period Sharpes
+    mu_s = mean(period_sharpes)
+    var_s = var(period_sharpes)
+    if var_s < T(1e-16)
+        return zero(T), zero(T)
+    end
+    autocorr = zero(T)
+    for i in 2:n_periods
+        autocorr += (period_sharpes[i] - mu_s) * (period_sharpes[i-1] - mu_s)
+    end
+    autocorr /= ((n_periods - 1) * var_s)
+    # Hurst exponent approximation (R/S analysis)
+    hurst = _hurst_exponent(returns)
+    return autocorr, hurst
+end
+
+function _hurst_exponent(returns::AbstractVector{T}) where T<:Real
+    n = length(returns)
+    if n < 20
+        return T(0.5)
+    end
+    log_rs = T[]
+    log_n = T[]
+    for w in [10, 20, 40, 80, 160]
+        if w > n ÷ 2 break end
+        rs_vals = T[]
+        for start in 1:w:n-w+1
+            chunk = returns[start:start+w-1]
+            mu = mean(chunk)
+            cum_dev = cumsum(chunk .- mu)
+            R = maximum(cum_dev) - minimum(cum_dev)
+            S = std(chunk)
+            if S > T(1e-16)
+                push!(rs_vals, R / S)
+            end
+        end
+        if !isempty(rs_vals)
+            push!(log_rs, log(mean(rs_vals)))
+            push!(log_n, log(T(w)))
+        end
+    end
+    if length(log_rs) < 2
+        return T(0.5)
+    end
+    # Linear regression slope
+    x = log_n
+    y = log_rs
+    mx = mean(x)
+    my = mean(y)
+    num = dot(x .- mx, y .- my)
+    den = dot(x .- mx, x .- mx)
+    den < T(1e-16) ? T(0.5) : num / den
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §24  Order Book Simulation
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Simple order book state."""
+mutable struct OrderBookState{T<:Real}
+    bid_prices::Vector{T}
+    bid_sizes::Vector{T}
+    ask_prices::Vector{T}
+    ask_sizes::Vector{T}
+    mid_price::T
+    spread::T
+end
+
+function OrderBookState(mid::T; spread::T=T(0.01), n_levels::Int=5,
+                        level_size::T=T(100.0), tick::T=T(0.01)) where T<:Real
+    bids = [mid - spread/2 - (i-1)*tick for i in 1:n_levels]
+    asks = [mid + spread/2 + (i-1)*tick for i in 1:n_levels]
+    sizes = fill(level_size, n_levels)
+    OrderBookState{T}(bids, sizes, asks, copy(sizes), mid, spread)
+end
+
+"""Simulate market order execution against order book."""
+function simulate_market_order(book::OrderBookState{T}, side::Int, size::T) where T<:Real
+    remaining = size
+    total_cost = zero(T)
+    if side > 0  # buy: consume asks
+        for i in eachindex(book.ask_prices)
+            if remaining <= zero(T) break end
+            fill_qty = min(remaining, book.ask_sizes[i])
+            total_cost += fill_qty * book.ask_prices[i]
+            remaining -= fill_qty
+        end
+    else  # sell: consume bids
+        for i in eachindex(book.bid_prices)
+            if remaining <= zero(T) break end
+            fill_qty = min(remaining, book.bid_sizes[i])
+            total_cost += fill_qty * book.bid_prices[i]
+            remaining -= fill_qty
+        end
+    end
+    filled = size - remaining
+    avg_price = filled > zero(T) ? total_cost / filled : book.mid_price
+    slippage = abs(avg_price - book.mid_price) / book.mid_price
+    return avg_price, filled, slippage
+end
+
+"""Estimate market impact from order book depth."""
+function order_book_impact(book::OrderBookState{T}, side::Int, size::T) where T<:Real
+    avg_price, filled, slippage = simulate_market_order(book, side, size)
+    impact_bps = slippage * T(10000)
+    return impact_bps, avg_price
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §25  Strategy Combination and Selection
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Optimal strategy combination via mean-variance of strategy returns."""
+function optimal_strategy_combination(strategy_returns::AbstractMatrix{T};
+                                       target_vol::T=T(0.10),
+                                       lookback::Int=252) where T<:Real
+    n_obs, n_strats = size(strategy_returns)
+    weights = Matrix{T}(undef, n_obs, n_strats)
+    fill!(weights, one(T) / n_strats)
+    for t in lookback+1:n_obs
+        sub = strategy_returns[t-lookback:t-1, :]
+        mu = vec(mean(sub; dims=1))
+        Sigma = cov(sub)
+        # Maximum Sharpe weights
+        Sigma_inv = try
+            inv(Symmetric(Sigma))
+        catch
+            pinv(Sigma)
+        end
+        w = Sigma_inv * mu
+        s = sum(w)
+        if abs(s) > T(1e-10)
+            w ./= s
+        else
+            w = fill(one(T)/n_strats, n_strats)
+        end
+        # Enforce non-negative
+        for i in 1:n_strats
+            w[i] = max(w[i], zero(T))
+        end
+        s = sum(w)
+        if s > T(1e-10)
+            w ./= s
+        else
+            w = fill(one(T)/n_strats, n_strats)
+        end
+        # Vol targeting
+        port_ret = sub * w
+        realized_vol = std(port_ret) * sqrt(T(252))
+        scale = target_vol / max(realized_vol, T(1e-10))
+        w .*= min(scale, T(3.0))
+        weights[t, :] = w
+    end
+    combined = vec(sum(strategy_returns .* weights; dims=2))
+    return combined, weights
+end
+
+"""Strategy selection via deflated Sharpe."""
+function strategy_selection(strategy_returns::AbstractMatrix{T};
+                            significance::T=T(0.05)) where T<:Real
+    n_obs, n_strats = size(strategy_returns)
+    sharpes = [sharpe_ratio(strategy_returns[:, i]) for i in 1:n_strats]
+    # Deflated Sharpe for each strategy
+    selected = Int[]
+    for i in 1:n_strats
+        sr = sharpes[i]
+        sk = begin
+            r = strategy_returns[:, i]
+            mu = mean(r); s = std(r)
+            s > T(1e-16) ? sum((r .- mu).^3) / (n_obs * s^3) : zero(T)
+        end
+        ku = begin
+            r = strategy_returns[:, i]
+            mu = mean(r); s = std(r)
+            s > T(1e-16) ? sum((r .- mu).^4) / (n_obs * s^4) - T(3) : zero(T)
+        end
+        dsr, p = deflated_sharpe_ratio(sr, n_strats, n_obs; skewness=sk, kurtosis=ku)
+        if p < significance
+            push!(selected, i)
+        end
+    end
+    return selected, sharpes
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §26  Turnover Analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Compute turnover time series from weight history."""
+function turnover_series(weights::AbstractMatrix{T}) where T<:Real
+    n = size(weights, 1)
+    turnovers = zeros(T, n)
+    for t in 2:n
+        turnovers[t] = sum(abs.(weights[t,:] .- weights[t-1,:])) / 2
+    end
+    turnovers
+end
+
+"""Net-of-cost Sharpe ratio."""
+function net_sharpe(returns::AbstractVector{T}, turnovers::AbstractVector{T};
+                    cost_bps::T=T(10.0), rf::T=T(0.02)) where T<:Real
+    costs = turnovers .* cost_bps .* T(1e-4)
+    net_returns = returns .- costs
+    sharpe_ratio(net_returns; rf=rf)
+end
+
+"""Break-even transaction cost."""
+function breakeven_cost(returns::AbstractVector{T},
+                        turnovers::AbstractVector{T};
+                        rf::T=T(0.02)) where T<:Real
+    # Find cost_bps where Sharpe = 0
+    lo, hi = T(0), T(1000)
+    for _ in 1:50
+        mid = (lo + hi) / 2
+        ns = net_sharpe(returns, turnovers; cost_bps=mid, rf=rf)
+        if ns > zero(T)
+            lo = mid
+        else
+            hi = mid
+        end
+    end
+    (lo + hi) / 2
+end
+
+"""Half-life of strategy alpha decay."""
+function alpha_half_life(returns::AbstractVector{T}; max_lag::Int=252) where T<:Real
+    n = length(returns)
+    if n < max_lag + 1
+        return T(Inf)
+    end
+    # Regress r_t on r_{t-1}: AR(1)
+    y = returns[2:end]
+    x = returns[1:end-1]
+    beta = dot(x, y) / max(dot(x, x), T(1e-16))
+    if beta <= zero(T) || beta >= one(T)
+        return T(Inf)
+    end
+    -log(T(2)) / log(beta)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §27  Seasonal and Calendar Effects
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Day-of-week effect analysis."""
+function day_of_week_analysis(returns::AbstractVector{T};
+                               days_per_week::Int=5) where T<:Real
+    n = length(returns)
+    dow_returns = [T[] for _ in 1:days_per_week]
+    for t in 1:n
+        day = mod1(t, days_per_week)
+        push!(dow_returns[day], returns[t])
+    end
+    means = [isempty(d) ? zero(T) : mean(d) for d in dow_returns]
+    stds = [length(d) > 1 ? std(d) : zero(T) for d in dow_returns]
+    t_stats = means ./ max.(stds ./ sqrt.(T.(max.(length.(dow_returns), 1))), T(1e-16))
+    return means, stds, t_stats
+end
+
+"""Month-of-year effect analysis."""
+function month_of_year_analysis(returns::AbstractVector{T};
+                                 days_per_month::Int=21) where T<:Real
+    n = length(returns)
+    monthly_returns = [T[] for _ in 1:12]
+    for t in 1:n
+        month = mod1(div(t - 1, days_per_month) + 1, 12)
+        push!(monthly_returns[month], returns[t])
+    end
+    means = [isempty(m) ? zero(T) : mean(m) for m in monthly_returns]
+    t_stats = [length(m) > 1 ? mean(m) / (std(m) / sqrt(T(length(m))) + T(1e-16)) : zero(T)
+               for m in monthly_returns]
+    return means, t_stats
+end
+
+"""Turn-of-month effect."""
+function turn_of_month_effect(returns::AbstractVector{T};
+                               window::Int=3, month_length::Int=21) where T<:Real
+    n = length(returns)
+    tom_returns = T[]
+    non_tom_returns = T[]
+    for t in 1:n
+        day_in_month = mod1(t, month_length)
+        if day_in_month <= window || day_in_month > month_length - window
+            push!(tom_returns, returns[t])
+        else
+            push!(non_tom_returns, returns[t])
+        end
+    end
+    tom_mean = isempty(tom_returns) ? zero(T) : mean(tom_returns)
+    non_tom_mean = isempty(non_tom_returns) ? zero(T) : mean(non_tom_returns)
+    diff = tom_mean - non_tom_mean
+    return (tom_mean=tom_mean, non_tom_mean=non_tom_mean, difference=diff)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §28  Market Microstructure Metrics
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Kyle's lambda (price impact coefficient)."""
+function kyle_lambda(returns::AbstractVector{T}, volumes::AbstractVector{T}) where T<:Real
+    n = length(returns)
+    signed_volume = returns .* volumes  # Approximate order flow
+    X = hcat(ones(T, n), signed_volume)
+    beta = (X' * X) \ (X' * returns)
+    beta[2]  # Kyle's lambda
+end
+
+"""Amihud illiquidity ratio."""
+function amihud_illiquidity(returns::AbstractVector{T},
+                            dollar_volumes::AbstractVector{T};
+                            window::Int=21) where T<:Real
+    n = length(returns)
+    illiq = Vector{T}(undef, n)
+    for t in 1:n
+        lo = max(1, t - window + 1)
+        illiq[t] = mean(abs.(returns[lo:t]) ./ max.(dollar_volumes[lo:t], T(1e-10)))
+    end
+    illiq
+end
+
+"""Roll's spread estimator."""
+function roll_spread(returns::AbstractVector{T}) where T<:Real
+    n = length(returns)
+    if n < 3
+        return zero(T)
+    end
+    autocovariance = zero(T)
+    for t in 2:n
+        autocovariance += returns[t] * returns[t-1]
+    end
+    autocovariance /= (n - 1)
+    if autocovariance < zero(T)
+        return T(2) * sqrt(-autocovariance)
+    else
+        return zero(T)
+    end
+end
+
+"""Corwin-Schultz high-low spread estimator."""
+function corwin_schultz_spread(highs::AbstractVector{T},
+                                lows::AbstractVector{T}) where T<:Real
+    n = length(highs)
+    spreads = Vector{T}(undef, n)
+    fill!(spreads, zero(T))
+    for t in 2:n
+        beta = (log(highs[t] / lows[t]))^2 + (log(highs[t-1] / lows[t-1]))^2
+        gamma = (log(max(highs[t], highs[t-1]) / min(lows[t], lows[t-1])))^2
+        alpha_cs = (sqrt(T(2) * beta) - sqrt(beta)) / (T(3) - T(2) * sqrt(T(2))) -
+                   sqrt(gamma / (T(3) - T(2) * sqrt(T(2))))
+        spreads[t] = T(2) * (exp(alpha_cs) - one(T)) / (one(T) + exp(alpha_cs))
+        spreads[t] = max(spreads[t], zero(T))
+    end
+    spreads
+end
+
 end # module BacktestEngine

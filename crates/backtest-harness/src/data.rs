@@ -487,6 +487,233 @@ pub fn generate_synthetic_bars(num_bars: usize, initial_price: f64, volatility: 
     series
 }
 
+/// Volume-weighted bar aggregation
+pub fn volume_bars(ticks: &[Tick], volume_threshold: f64) -> BarSeries {
+    let mut bars = BarSeries::new("VBAR");
+    if ticks.is_empty() { return bars; }
+    let mut o = ticks[0].price;
+    let mut h = o; let mut l = o; let mut c = o;
+    let mut vol = 0.0;
+    let mut ts = ticks[0].timestamp;
+    for tick in ticks {
+        h = h.max(tick.price);
+        l = l.min(tick.price);
+        c = tick.price;
+        vol += tick.size;
+        if vol >= volume_threshold {
+            bars.push(Bar::new(ts, o, h, l, c, vol));
+            o = tick.price; h = o; l = o;
+            vol = 0.0;
+            ts = tick.timestamp;
+        }
+    }
+    if vol > 0.0 { bars.push(Bar::new(ts, o, h, l, c, vol)); }
+    bars
+}
+
+/// Dollar bars
+pub fn dollar_bars(ticks: &[Tick], dollar_threshold: f64) -> BarSeries {
+    let mut bars = BarSeries::new("DBAR");
+    if ticks.is_empty() { return bars; }
+    let mut o = ticks[0].price;
+    let mut h = o; let mut l = o; let mut c = o;
+    let mut vol = 0.0;
+    let mut dollar_vol = 0.0;
+    let mut ts = ticks[0].timestamp;
+    for tick in ticks {
+        h = h.max(tick.price);
+        l = l.min(tick.price);
+        c = tick.price;
+        vol += tick.size;
+        dollar_vol += tick.notional();
+        if dollar_vol >= dollar_threshold {
+            bars.push(Bar::new(ts, o, h, l, c, vol));
+            o = tick.price; h = o; l = o;
+            vol = 0.0; dollar_vol = 0.0;
+            ts = tick.timestamp;
+        }
+    }
+    if vol > 0.0 { bars.push(Bar::new(ts, o, h, l, c, vol)); }
+    bars
+}
+
+/// Tick imbalance bars (TIB)
+pub fn tick_imbalance_bars(ticks: &[Tick], expected_imbalance: f64) -> BarSeries {
+    let mut bars = BarSeries::new("TIB");
+    if ticks.is_empty() { return bars; }
+    let mut o = ticks[0].price;
+    let mut h = o; let mut l = o; let mut c = o;
+    let mut vol = 0.0;
+    let mut imbalance = 0.0f64;
+    let mut ts = ticks[0].timestamp;
+    let mut prev_price = ticks[0].price;
+    for tick in ticks {
+        let direction = if tick.price > prev_price { 1.0 } else if tick.price < prev_price { -1.0 } else { 0.0 };
+        imbalance += direction;
+        h = h.max(tick.price);
+        l = l.min(tick.price);
+        c = tick.price;
+        vol += tick.size;
+        if imbalance.abs() >= expected_imbalance {
+            bars.push(Bar::new(ts, o, h, l, c, vol));
+            o = tick.price; h = o; l = o;
+            vol = 0.0; imbalance = 0.0;
+            ts = tick.timestamp;
+        }
+        prev_price = tick.price;
+    }
+    if vol > 0.0 { bars.push(Bar::new(ts, o, h, l, c, vol)); }
+    bars
+}
+
+/// Resample bars to lower frequency
+pub fn resample_bars(series: &BarSeries, factor: usize) -> BarSeries {
+    let mut result = BarSeries::new(&series.symbol);
+    for chunk in series.bars.chunks(factor) {
+        if chunk.is_empty() { continue; }
+        let ts = chunk[0].timestamp;
+        let o = chunk[0].open;
+        let h = chunk.iter().map(|b| b.high).fold(f64::NEG_INFINITY, f64::max);
+        let l = chunk.iter().map(|b| b.low).fold(f64::INFINITY, f64::min);
+        let c = chunk.last().unwrap().close;
+        let v: f64 = chunk.iter().map(|b| b.volume).sum();
+        result.push(Bar::new(ts, o, h, l, c, v));
+    }
+    result
+}
+
+/// Compute rolling statistics on bar series
+pub fn rolling_volatility_bars(series: &BarSeries, window: usize) -> Vec<f64> {
+    let rets = series.returns();
+    if rets.len() < window { return vec![]; }
+    (0..=rets.len() - window).map(|i| {
+        let w = &rets[i..i + window];
+        let mean = w.iter().sum::<f64>() / window as f64;
+        (w.iter().map(|&r| (r - mean).powi(2)).sum::<f64>() / window as f64).sqrt()
+    }).collect()
+}
+
+/// Compute rolling mean
+pub fn rolling_mean_bars(series: &BarSeries, window: usize) -> Vec<f64> {
+    let prices = series.close_prices();
+    if prices.len() < window { return vec![]; }
+    (0..=prices.len() - window).map(|i| {
+        prices[i..i + window].iter().sum::<f64>() / window as f64
+    }).collect()
+}
+
+/// Compute Bollinger Bands
+pub fn bollinger_bands(series: &BarSeries, window: usize, num_std: f64) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let prices = series.close_prices();
+    if prices.len() < window { return (vec![], vec![], vec![]); }
+    let n = prices.len() - window + 1;
+    let mut upper = Vec::with_capacity(n);
+    let mut middle = Vec::with_capacity(n);
+    let mut lower = Vec::with_capacity(n);
+    for i in 0..n {
+        let sl = &prices[i..i + window];
+        let mean = sl.iter().sum::<f64>() / window as f64;
+        let std = (sl.iter().map(|&p| (p - mean).powi(2)).sum::<f64>() / window as f64).sqrt();
+        middle.push(mean);
+        upper.push(mean + num_std * std);
+        lower.push(mean - num_std * std);
+    }
+    (upper, middle, lower)
+}
+
+/// Compute RSI
+pub fn compute_rsi(series: &BarSeries, period: usize) -> Vec<f64> {
+    let prices = series.close_prices();
+    if prices.len() < period + 1 { return vec![]; }
+    let mut result = Vec::new();
+    for i in period..prices.len() {
+        let mut gains = 0.0;
+        let mut losses = 0.0;
+        for j in (i - period)..i {
+            let diff = prices[j + 1] - prices[j];
+            if diff > 0.0 { gains += diff; } else { losses -= diff; }
+        }
+        let avg_gain = gains / period as f64;
+        let avg_loss = losses / period as f64;
+        let rsi = if avg_loss < 1e-15 { 100.0 } else { 100.0 - 100.0 / (1.0 + avg_gain / avg_loss) };
+        result.push(rsi);
+    }
+    result
+}
+
+/// Compute MACD
+pub fn compute_macd(series: &BarSeries, fast: usize, slow: usize, signal: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let prices = series.close_prices();
+    if prices.len() < slow { return (vec![], vec![], vec![]); }
+
+    let ema = |data: &[f64], period: usize| -> Vec<f64> {
+        let alpha = 2.0 / (period + 1) as f64;
+        let mut result = vec![data[0]];
+        for i in 1..data.len() {
+            result.push(alpha * data[i] + (1.0 - alpha) * result[i - 1]);
+        }
+        result
+    };
+
+    let fast_ema = ema(&prices, fast);
+    let slow_ema = ema(&prices, slow);
+    let macd_line: Vec<f64> = fast_ema.iter().zip(slow_ema.iter()).map(|(&f, &s)| f - s).collect();
+    let signal_line = ema(&macd_line, signal);
+    let histogram: Vec<f64> = macd_line.iter().zip(signal_line.iter()).map(|(&m, &s)| m - s).collect();
+    (macd_line, signal_line, histogram)
+}
+
+/// Average True Range
+pub fn compute_atr(series: &BarSeries, period: usize) -> Vec<f64> {
+    if series.len() < period + 1 { return vec![]; }
+    let mut tr = Vec::with_capacity(series.len() - 1);
+    for i in 1..series.len() {
+        let bar = &series.bars[i];
+        let prev_close = series.bars[i - 1].close;
+        let t = (bar.high - bar.low)
+            .max((bar.high - prev_close).abs())
+            .max((bar.low - prev_close).abs());
+        tr.push(t);
+    }
+    if tr.len() < period { return vec![]; }
+    let mut atr = Vec::with_capacity(tr.len() - period + 1);
+    let first: f64 = tr[..period].iter().sum::<f64>() / period as f64;
+    atr.push(first);
+    for i in period..tr.len() {
+        let prev = atr.last().unwrap();
+        atr.push((prev * (period - 1) as f64 + tr[i]) / period as f64);
+    }
+    atr
+}
+
+/// On-balance volume
+pub fn compute_obv(series: &BarSeries) -> Vec<f64> {
+    let mut obv = vec![0.0];
+    for i in 1..series.len() {
+        let prev = obv.last().unwrap();
+        let dir = if series.bars[i].close > series.bars[i - 1].close { 1.0 }
+            else if series.bars[i].close < series.bars[i - 1].close { -1.0 }
+            else { 0.0 };
+        obv.push(prev + dir * series.bars[i].volume);
+    }
+    obv
+}
+
+/// Commodity Channel Index
+pub fn compute_cci(series: &BarSeries, period: usize) -> Vec<f64> {
+    if series.len() < period { return vec![]; }
+    let tp: Vec<f64> = series.bars.iter().map(|b| b.typical_price()).collect();
+    let mut result = Vec::new();
+    for i in (period - 1)..tp.len() {
+        let sl = &tp[i + 1 - period..=i];
+        let mean = sl.iter().sum::<f64>() / period as f64;
+        let mean_dev = sl.iter().map(|&p| (p - mean).abs()).sum::<f64>() / period as f64;
+        let cci = if mean_dev > 1e-15 { (tp[i] - mean) / (0.015 * mean_dev) } else { 0.0 };
+        result.push(cci);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -924,6 +924,495 @@ impl Tensor {
         }
         (0..n).map(|i| a.data[i * n + i]).collect()
     }
+
+    /// Kronecker product
+    pub fn kronecker(&self, other: &Tensor) -> Tensor {
+        assert_eq!(self.ndim(), 2);
+        assert_eq!(other.ndim(), 2);
+        let (m1, n1) = (self.shape[0], self.shape[1]);
+        let (m2, n2) = (other.shape[0], other.shape[1]);
+        let mut data = vec![0.0; m1 * m2 * n1 * n2];
+        let out_cols = n1 * n2;
+        for i1 in 0..m1 {
+            for j1 in 0..n1 {
+                let a = self.data[i1 * n1 + j1];
+                for i2 in 0..m2 {
+                    for j2 in 0..n2 {
+                        let row = i1 * m2 + i2;
+                        let col = j1 * n2 + j2;
+                        data[row * out_cols + col] = a * other.data[i2 * n2 + j2];
+                    }
+                }
+            }
+        }
+        Tensor::from_vec(data, &[m1 * m2, n1 * n2])
+    }
+
+    /// Hadamard (element-wise) product for matrices
+    pub fn hadamard(&self, other: &Tensor) -> Tensor {
+        self.mul_elem(other)
+    }
+
+    /// Normalize along axis (L2)
+    pub fn normalize(&self, axis: usize) -> Tensor {
+        let outer: usize = self.shape[..axis].iter().product();
+        let dim = self.shape[axis];
+        let inner: usize = self.shape[axis + 1..].iter().product();
+        let mut out = self.clone();
+        for o in 0..outer {
+            for i in 0..inner {
+                let mut norm_sq = 0.0;
+                for d in 0..dim {
+                    let idx = o * dim * inner + d * inner + i;
+                    norm_sq += self.data[idx] * self.data[idx];
+                }
+                let inv_norm = if norm_sq > 1e-30 { 1.0 / norm_sq.sqrt() } else { 0.0 };
+                for d in 0..dim {
+                    let idx = o * dim * inner + d * inner + i;
+                    out.data[idx] *= inv_norm;
+                }
+            }
+        }
+        out
+    }
+
+    /// Cosine similarity between two 1D vectors
+    pub fn cosine_similarity(a: &Tensor, b: &Tensor) -> f64 {
+        assert_eq!(a.ndim(), 1);
+        assert_eq!(b.ndim(), 1);
+        assert_eq!(a.shape[0], b.shape[0]);
+        let dot = Self::dot(&a.data, &b.data);
+        let na = a.frobenius_norm();
+        let nb = b.frobenius_norm();
+        if na < 1e-15 || nb < 1e-15 { return 0.0; }
+        dot / (na * nb)
+    }
+
+    /// Pairwise distance matrix: [N, D] -> [N, N]
+    pub fn pairwise_distances(&self) -> Tensor {
+        assert_eq!(self.ndim(), 2);
+        let n = self.shape[0];
+        let d = self.shape[1];
+        let mut dist = vec![0.0; n * n];
+        for i in 0..n {
+            for j in i + 1..n {
+                let mut sq = 0.0;
+                for k in 0..d {
+                    let diff = self.data[i * d + k] - self.data[j * d + k];
+                    sq += diff * diff;
+                }
+                let val = sq.sqrt();
+                dist[i * n + j] = val;
+                dist[j * n + i] = val;
+            }
+        }
+        Tensor::from_vec(dist, &[n, n])
+    }
+
+    /// Moving average along axis 0
+    pub fn moving_average(&self, window: usize) -> Tensor {
+        assert_eq!(self.ndim(), 2);
+        let (rows, cols) = (self.shape[0], self.shape[1]);
+        if rows < window { return Tensor::zeros(&[0, cols]); }
+        let out_rows = rows - window + 1;
+        let mut data = vec![0.0; out_rows * cols];
+        // cumulative sum approach
+        for c in 0..cols {
+            let mut cum = 0.0;
+            for r in 0..rows {
+                cum += self.data[r * cols + c];
+                if r >= window {
+                    cum -= self.data[(r - window) * cols + c];
+                }
+                if r >= window - 1 {
+                    data[(r - window + 1) * cols + c] = cum / window as f64;
+                }
+            }
+        }
+        Tensor::from_vec(data, &[out_rows, cols])
+    }
+
+    /// Exponential moving average along axis 0
+    pub fn ema(&self, alpha: f64) -> Tensor {
+        assert_eq!(self.ndim(), 2);
+        let (rows, cols) = (self.shape[0], self.shape[1]);
+        let mut data = vec![0.0; rows * cols];
+        data[..cols].copy_from_slice(&self.data[..cols]);
+        for r in 1..rows {
+            for c in 0..cols {
+                data[r * cols + c] = alpha * self.data[r * cols + c] + (1.0 - alpha) * data[(r - 1) * cols + c];
+            }
+        }
+        Tensor::from_vec(data, &[rows, cols])
+    }
+
+    /// Difference along axis 0
+    pub fn diff(&self, n: usize) -> Tensor {
+        assert_eq!(self.ndim(), 2);
+        let (rows, cols) = (self.shape[0], self.shape[1]);
+        if rows <= n { return Tensor::zeros(&[0, cols]); }
+        let out_rows = rows - n;
+        let mut data = vec![0.0; out_rows * cols];
+        for r in 0..out_rows {
+            for c in 0..cols {
+                data[r * cols + c] = self.data[(r + n) * cols + c] - self.data[r * cols + c];
+            }
+        }
+        Tensor::from_vec(data, &[out_rows, cols])
+    }
+
+    /// Correlation matrix from columns: [N, D] -> [D, D]
+    pub fn correlation_matrix(&self) -> Tensor {
+        assert_eq!(self.ndim(), 2);
+        let (n, d) = (self.shape[0], self.shape[1]);
+        let mut means = vec![0.0; d];
+        let mut stds = vec![0.0; d];
+        for c in 0..d {
+            for r in 0..n { means[c] += self.data[r * d + c]; }
+            means[c] /= n as f64;
+            for r in 0..n { stds[c] += (self.data[r * d + c] - means[c]).powi(2); }
+            stds[c] = (stds[c] / n as f64).sqrt();
+        }
+        let mut corr = vec![0.0; d * d];
+        for i in 0..d {
+            corr[i * d + i] = 1.0;
+            for j in i + 1..d {
+                let mut cov = 0.0;
+                for r in 0..n {
+                    cov += (self.data[r * d + i] - means[i]) * (self.data[r * d + j] - means[j]);
+                }
+                cov /= n as f64;
+                let c = if stds[i] > 1e-15 && stds[j] > 1e-15 { cov / (stds[i] * stds[j]) } else { 0.0 };
+                corr[i * d + j] = c;
+                corr[j * d + i] = c;
+            }
+        }
+        Tensor::from_vec(corr, &[d, d])
+    }
+
+    /// Covariance matrix from columns: [N, D] -> [D, D]
+    pub fn covariance_matrix(&self) -> Tensor {
+        assert_eq!(self.ndim(), 2);
+        let (n, d) = (self.shape[0], self.shape[1]);
+        let mut means = vec![0.0; d];
+        for c in 0..d {
+            for r in 0..n { means[c] += self.data[r * d + c]; }
+            means[c] /= n as f64;
+        }
+        let mut cov = vec![0.0; d * d];
+        for i in 0..d {
+            for j in i..d {
+                let mut s = 0.0;
+                for r in 0..n {
+                    s += (self.data[r * d + i] - means[i]) * (self.data[r * d + j] - means[j]);
+                }
+                s /= (n - 1).max(1) as f64;
+                cov[i * d + j] = s;
+                cov[j * d + i] = s;
+            }
+        }
+        Tensor::from_vec(cov, &[d, d])
+    }
+
+    /// Power iteration for largest eigenvalue
+    pub fn power_iteration(&self, max_iter: usize) -> (f64, Tensor) {
+        assert_eq!(self.ndim(), 2);
+        let n = self.shape[0];
+        assert_eq!(n, self.shape[1]);
+        let mut v = Tensor::ones(&[n]).mul_scalar(1.0 / (n as f64).sqrt());
+        let mut eigenvalue = 0.0;
+        for _ in 0..max_iter {
+            let av = self.matvec(&v);
+            eigenvalue = av.frobenius_norm();
+            if eigenvalue > 1e-15 {
+                v = av.mul_scalar(1.0 / eigenvalue);
+            }
+        }
+        (eigenvalue, v)
+    }
+
+    /// Solve Ax = b using conjugate gradient (for SPD matrices)
+    pub fn cg_solve(&self, b: &Tensor, max_iter: usize, tol: f64) -> Tensor {
+        assert_eq!(self.ndim(), 2);
+        let n = self.shape[0];
+        assert_eq!(b.shape, vec![n]);
+        let mut x = Tensor::zeros(&[n]);
+        let mut r = b.sub(&self.matvec(&x));
+        let mut p = r.clone();
+        let mut rsold = Self::dot(&r.data, &r.data);
+        for _ in 0..max_iter {
+            if rsold.sqrt() < tol { break; }
+            let ap = self.matvec(&p);
+            let pap = Self::dot(&p.data, &ap.data);
+            if pap.abs() < 1e-30 { break; }
+            let alpha = rsold / pap;
+            x = x.add(&p.mul_scalar(alpha));
+            r = r.sub(&ap.mul_scalar(alpha));
+            let rsnew = Self::dot(&r.data, &r.data);
+            let beta = rsnew / rsold;
+            p = r.add(&p.mul_scalar(beta));
+            rsold = rsnew;
+        }
+        x
+    }
+
+    /// SVD via eigendecomposition of A^T A (simplified, returns singular values only)
+    pub fn singular_values(&self, max_iter: usize) -> Vec<f64> {
+        assert_eq!(self.ndim(), 2);
+        let ata = self.transpose().matmul(self);
+        let eigs = ata.eig_symmetric(max_iter);
+        eigs.iter().map(|&e| e.max(0.0).sqrt()).collect()
+    }
+
+    /// Matrix exponential via Pade approximation (simplified: Taylor series)
+    pub fn matrix_exp(&self, order: usize) -> Tensor {
+        assert_eq!(self.ndim(), 2);
+        let n = self.shape[0];
+        assert_eq!(n, self.shape[1]);
+        let mut result = Self::eye(n);
+        let mut term = Self::eye(n);
+        for k in 1..=order {
+            term = term.matmul(self).mul_scalar(1.0 / k as f64);
+            result = result.add(&term);
+        }
+        result
+    }
+
+    /// Condition number (ratio of max to min singular value)
+    pub fn condition_number(&self, max_iter: usize) -> f64 {
+        let sv = self.singular_values(max_iter);
+        if sv.is_empty() { return f64::INFINITY; }
+        let max_sv = sv.iter().cloned().fold(0.0f64, f64::max);
+        let min_sv = sv.iter().cloned().fold(f64::INFINITY, f64::min);
+        if min_sv < 1e-15 { f64::INFINITY } else { max_sv / min_sv }
+    }
+
+    /// Pseudo-inverse via SVD (simplified)
+    pub fn pinverse(&self) -> Tensor {
+        // Use (A^T A)^{-1} A^T for full column rank
+        let ata = self.transpose().matmul(self);
+        let ata_inv = ata.inverse();
+        ata_inv.matmul(&self.transpose())
+    }
+
+    /// Least squares solve: min ||Ax - b||^2
+    pub fn lstsq(&self, b: &Tensor) -> Tensor {
+        let pinv = self.pinverse();
+        pinv.matvec(b)
+    }
+
+    /// Weighted sum along axis 0 given weight vector
+    pub fn weighted_sum(&self, weights: &Tensor) -> Tensor {
+        assert_eq!(self.ndim(), 2);
+        assert_eq!(weights.ndim(), 1);
+        assert_eq!(self.shape[0], weights.shape[0]);
+        let (n, d) = (self.shape[0], self.shape[1]);
+        let mut result = vec![0.0; d];
+        for r in 0..n {
+            let w = weights.data[r];
+            for c in 0..d {
+                result[c] += w * self.data[r * d + c];
+            }
+        }
+        Tensor::from_vec(result, &[d])
+    }
+
+    /// Top-k values and indices along flattened tensor
+    pub fn topk(&self, k: usize) -> (Vec<f64>, Vec<usize>) {
+        let mut indexed: Vec<(usize, f64)> = self.data.iter().cloned().enumerate().collect();
+        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        indexed.truncate(k);
+        let values: Vec<f64> = indexed.iter().map(|(_, v)| *v).collect();
+        let indices: Vec<usize> = indexed.iter().map(|(i, _)| *i).collect();
+        (values, indices)
+    }
+
+    /// Percentile computation
+    pub fn percentile(&self, p: f64) -> f64 {
+        let mut sorted = self.data.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let idx = (p / 100.0 * (sorted.len() - 1) as f64) as usize;
+        sorted[idx.min(sorted.len() - 1)]
+    }
+
+    /// Histogram of values
+    pub fn histogram(&self, num_bins: usize) -> (Vec<f64>, Vec<usize>) {
+        let min_v = self.min_all();
+        let max_v = self.max_all();
+        let range = max_v - min_v;
+        if range < 1e-15 { return (vec![min_v], vec![self.data.len()]); }
+        let bin_width = range / num_bins as f64;
+        let edges: Vec<f64> = (0..=num_bins).map(|i| min_v + i as f64 * bin_width).collect();
+        let mut counts = vec![0usize; num_bins];
+        for &v in &self.data {
+            let bin = ((v - min_v) / bin_width) as usize;
+            let bin = bin.min(num_bins - 1);
+            counts[bin] += 1;
+        }
+        (edges, counts)
+    }
+
+    /// Element-wise comparison: returns 1.0 where condition holds, 0.0 otherwise
+    pub fn gt_scalar(&self, val: f64) -> Tensor {
+        Self::from_vec(self.data.iter().map(|&x| if x > val { 1.0 } else { 0.0 }).collect(), &self.shape)
+    }
+
+    pub fn lt_scalar(&self, val: f64) -> Tensor {
+        Self::from_vec(self.data.iter().map(|&x| if x < val { 1.0 } else { 0.0 }).collect(), &self.shape)
+    }
+
+    pub fn eq_scalar(&self, val: f64, eps: f64) -> Tensor {
+        Self::from_vec(self.data.iter().map(|&x| if (x - val).abs() < eps { 1.0 } else { 0.0 }).collect(), &self.shape)
+    }
+
+    /// Count non-zero elements
+    pub fn count_nonzero(&self) -> usize {
+        self.data.iter().filter(|&&x| x.abs() > 1e-15).count()
+    }
+
+    /// Masked fill: set elements where mask > 0.5 to val
+    pub fn masked_fill(&self, mask: &Tensor, val: f64) -> Tensor {
+        assert_eq!(self.shape, mask.shape);
+        let data: Vec<f64> = self.data.iter().zip(mask.data.iter())
+            .map(|(&x, &m)| if m > 0.5 { val } else { x }).collect();
+        Self::from_vec(data, &self.shape)
+    }
+
+    /// Flip tensor along axis
+    pub fn flip(&self, axis: usize) -> Tensor {
+        let outer: usize = self.shape[..axis].iter().product();
+        let dim = self.shape[axis];
+        let inner: usize = self.shape[axis + 1..].iter().product();
+        let mut out = self.clone();
+        for o in 0..outer {
+            for d in 0..dim {
+                for i in 0..inner {
+                    let src = o * dim * inner + d * inner + i;
+                    let dst = o * dim * inner + (dim - 1 - d) * inner + i;
+                    out.data[dst] = self.data[src];
+                }
+            }
+        }
+        out
+    }
+
+    /// Roll (circular shift) along axis
+    pub fn roll(&self, axis: usize, shift: i64) -> Tensor {
+        let dim = self.shape[axis];
+        let outer: usize = self.shape[..axis].iter().product();
+        let inner: usize = self.shape[axis + 1..].iter().product();
+        let mut out = self.clone();
+        for o in 0..outer {
+            for d in 0..dim {
+                let new_d = ((d as i64 + shift) % dim as i64 + dim as i64) as usize % dim;
+                for i in 0..inner {
+                    out.data[o * dim * inner + new_d * inner + i] = self.data[o * dim * inner + d * inner + i];
+                }
+            }
+        }
+        out
+    }
+
+    /// Interpolation: given x coordinates and y values, interpolate at new x points
+    pub fn interp1d(x: &[f64], y: &[f64], x_new: &[f64]) -> Vec<f64> {
+        assert_eq!(x.len(), y.len());
+        let n = x.len();
+        x_new.iter().map(|&xn| {
+            if xn <= x[0] { return y[0]; }
+            if xn >= x[n - 1] { return y[n - 1]; }
+            let mut lo = 0;
+            let mut hi = n - 1;
+            while lo < hi - 1 {
+                let mid = (lo + hi) / 2;
+                if x[mid] <= xn { lo = mid; } else { hi = mid; }
+            }
+            let frac = (xn - x[lo]) / (x[hi] - x[lo]);
+            y[lo] + frac * (y[hi] - y[lo])
+        }).collect()
+    }
+
+    /// FFT (radix-2 DIT, power of 2 only)
+    pub fn fft(real: &[f64], imag: &[f64]) -> (Vec<f64>, Vec<f64>) {
+        let n = real.len();
+        assert_eq!(n, imag.len());
+        assert!(n.is_power_of_two());
+        let mut re = real.to_vec();
+        let mut im = imag.to_vec();
+        // bit-reversal permutation
+        let mut j = 0usize;
+        for i in 1..n {
+            let mut bit = n >> 1;
+            while j & bit != 0 { j ^= bit; bit >>= 1; }
+            j ^= bit;
+            if i < j { re.swap(i, j); im.swap(i, j); }
+        }
+        // Cooley-Tukey
+        let mut len = 2;
+        while len <= n {
+            let half = len / 2;
+            let angle = -2.0 * std::f64::consts::PI / len as f64;
+            let wn_re = angle.cos();
+            let wn_im = angle.sin();
+            let mut i = 0;
+            while i < n {
+                let mut w_re = 1.0;
+                let mut w_im = 0.0;
+                for k in 0..half {
+                    let u_re = re[i + k];
+                    let u_im = im[i + k];
+                    let t_re = w_re * re[i + k + half] - w_im * im[i + k + half];
+                    let t_im = w_re * im[i + k + half] + w_im * re[i + k + half];
+                    re[i + k] = u_re + t_re;
+                    im[i + k] = u_im + t_im;
+                    re[i + k + half] = u_re - t_re;
+                    im[i + k + half] = u_im - t_im;
+                    let new_w_re = w_re * wn_re - w_im * wn_im;
+                    let new_w_im = w_re * wn_im + w_im * wn_re;
+                    w_re = new_w_re;
+                    w_im = new_w_im;
+                }
+                i += len;
+            }
+            len <<= 1;
+        }
+        (re, im)
+    }
+
+    /// Inverse FFT
+    pub fn ifft(real: &[f64], imag: &[f64]) -> (Vec<f64>, Vec<f64>) {
+        let n = real.len();
+        let neg_imag: Vec<f64> = imag.iter().map(|&x| -x).collect();
+        let (mut re, mut im) = Self::fft(real, &neg_imag);
+        let inv = 1.0 / n as f64;
+        for v in re.iter_mut() { *v *= inv; }
+        for v in im.iter_mut() { *v *= inv; }
+        for v in im.iter_mut() { *v = -*v; }
+        (re, im)
+    }
+
+    /// Power spectral density from real signal
+    pub fn psd(signal: &[f64]) -> Vec<f64> {
+        let n = signal.len().next_power_of_two();
+        let mut re = signal.to_vec();
+        re.resize(n, 0.0);
+        let im = vec![0.0; n];
+        let (fft_re, fft_im) = Self::fft(&re, &im);
+        fft_re.iter().zip(fft_im.iter())
+            .map(|(&r, &i)| r * r + i * i)
+            .collect()
+    }
+
+    /// Autocorrelation via FFT
+    pub fn autocorrelation(signal: &[f64], max_lag: usize) -> Vec<f64> {
+        let n = signal.len();
+        let mean = signal.iter().sum::<f64>() / n as f64;
+        let var: f64 = signal.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n as f64;
+        if var < 1e-15 { return vec![1.0; max_lag]; }
+        (0..max_lag).map(|lag| {
+            let cov: f64 = (0..n - lag).map(|i| (signal[i] - mean) * (signal[i + lag] - mean)).sum::<f64>() / n as f64;
+            cov / var
+        }).collect()
+    }
 }
 
 impl fmt::Display for Tensor {

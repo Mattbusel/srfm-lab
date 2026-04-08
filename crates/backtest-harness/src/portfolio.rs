@@ -506,6 +506,197 @@ pub fn compute_portfolio_risk(portfolio: &Portfolio) -> PortfolioRisk {
     PortfolioRisk { var_95, var_99, cvar_95, max_position_pct: max_pos, hhi }
 }
 
+/// Portfolio snapshot at a point in time
+#[derive(Clone, Debug)]
+pub struct PortfolioSnapshot {
+    pub timestamp: u64,
+    pub equity: f64,
+    pub cash: f64,
+    pub positions: Vec<(String, f64, f64, f64)>, // (symbol, qty, price, pnl)
+    pub leverage: f64,
+    pub drawdown: f64,
+}
+
+impl Portfolio {
+    pub fn snapshot(&self, timestamp: u64) -> PortfolioSnapshot {
+        let positions: Vec<(String, f64, f64, f64)> = self.positions.iter()
+            .filter(|(_, p)| !p.is_flat())
+            .map(|(sym, p)| (sym.clone(), p.quantity, p.market_price, p.total_pnl()))
+            .collect();
+        PortfolioSnapshot {
+            timestamp,
+            equity: self.total_equity(),
+            cash: self.cash,
+            positions,
+            leverage: self.leverage(),
+            drawdown: self.drawdown,
+        }
+    }
+
+    /// Correlation of portfolio returns with a benchmark
+    pub fn correlation_with(&self, benchmark_returns: &[f64]) -> f64 {
+        let my_returns = self.returns();
+        let n = my_returns.len().min(benchmark_returns.len());
+        if n < 2 { return 0.0; }
+        let mr = &my_returns[..n];
+        let br = &benchmark_returns[..n];
+        let mm = mr.iter().sum::<f64>() / n as f64;
+        let mb = br.iter().sum::<f64>() / n as f64;
+        let cov: f64 = mr.iter().zip(br.iter()).map(|(&a, &b)| (a - mm) * (b - mb)).sum::<f64>() / n as f64;
+        let sa = (mr.iter().map(|&a| (a - mm).powi(2)).sum::<f64>() / n as f64).sqrt();
+        let sb = (br.iter().map(|&b| (b - mb).powi(2)).sum::<f64>() / n as f64).sqrt();
+        if sa < 1e-15 || sb < 1e-15 { 0.0 } else { cov / (sa * sb) }
+    }
+
+    /// Sector exposure given sector mapping
+    pub fn sector_exposure(&self, sector_map: &HashMap<String, String>) -> HashMap<String, f64> {
+        let eq = self.total_equity();
+        if eq.abs() < 1e-10 { return HashMap::new(); }
+        let mut result: HashMap<String, f64> = HashMap::new();
+        for (sym, pos) in &self.positions {
+            if pos.is_flat() { continue; }
+            let sector = sector_map.get(sym).cloned().unwrap_or_else(|| "Other".to_string());
+            *result.entry(sector).or_insert(0.0) += pos.market_value() / eq;
+        }
+        result
+    }
+
+    /// Concentration: largest N positions as fraction of equity
+    pub fn top_n_concentration(&self, n: usize) -> f64 {
+        let eq = self.total_equity();
+        if eq.abs() < 1e-10 { return 0.0; }
+        let mut exposures: Vec<f64> = self.positions.values()
+            .filter(|p| !p.is_flat())
+            .map(|p| p.market_value().abs())
+            .collect();
+        exposures.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        exposures.iter().take(n).sum::<f64>() / eq
+    }
+
+    /// Time in market (fraction of bars with non-zero position)
+    pub fn time_in_market(&self) -> f64 {
+        let total = self.equity_history.len();
+        if total == 0 { return 0.0; }
+        // approximate: if we have positions, we're in market
+        let in_market = self.equity_history.windows(2)
+            .filter(|w| (w[1] - w[0]).abs() > 1e-10)
+            .count();
+        in_market as f64 / total as f64
+    }
+
+    /// Average holding period (in bars)
+    pub fn avg_holding_period(&self) -> f64 {
+        let roundtrips = extract_roundtrips(&self.trade_log);
+        if roundtrips.is_empty() { return 0.0; }
+        let total: u64 = roundtrips.iter().map(|r| r.exit_time - r.entry_time).sum();
+        total as f64 / roundtrips.len() as f64
+    }
+
+    /// Sharpe of realized PnL stream
+    pub fn trade_sharpe(&self) -> f64 {
+        let pnls: Vec<f64> = self.trade_log.iter().map(|t| t.pnl).collect();
+        if pnls.len() < 2 { return 0.0; }
+        let mean = pnls.iter().sum::<f64>() / pnls.len() as f64;
+        let std = (pnls.iter().map(|&p| (p - mean).powi(2)).sum::<f64>() / (pnls.len() - 1) as f64).sqrt();
+        if std < 1e-15 { 0.0 } else { mean / std }
+    }
+}
+
+/// Multi-currency portfolio support
+#[derive(Clone, Debug)]
+pub struct CurrencyConverter {
+    pub rates: HashMap<String, f64>, // currency pair -> rate
+    pub base_currency: String,
+}
+
+impl CurrencyConverter {
+    pub fn new(base: &str) -> Self {
+        Self { rates: HashMap::new(), base_currency: base.to_string() }
+    }
+
+    pub fn set_rate(&mut self, pair: &str, rate: f64) {
+        self.rates.insert(pair.to_string(), rate);
+    }
+
+    pub fn convert(&self, amount: f64, from: &str, to: &str) -> f64 {
+        if from == to { return amount; }
+        let pair = format!("{}/{}", from, to);
+        if let Some(&rate) = self.rates.get(&pair) {
+            return amount * rate;
+        }
+        let inv_pair = format!("{}/{}", to, from);
+        if let Some(&rate) = self.rates.get(&inv_pair) {
+            return amount / rate;
+        }
+        // Try via base
+        let to_base = format!("{}/{}", from, &self.base_currency);
+        let from_base = format!("{}/{}", &self.base_currency, to);
+        if let (Some(&r1), Some(&r2)) = (self.rates.get(&to_base), self.rates.get(&from_base)) {
+            return amount * r1 * r2;
+        }
+        amount // fallback: no conversion
+    }
+}
+
+/// Tax lot tracking (FIFO)
+#[derive(Clone, Debug)]
+pub struct TaxLot {
+    pub entry_time: u64,
+    pub quantity: f64,
+    pub cost_basis: f64,
+}
+
+#[derive(Clone, Debug)]
+pub struct TaxLotTracker {
+    pub lots: HashMap<String, Vec<TaxLot>>,
+}
+
+impl TaxLotTracker {
+    pub fn new() -> Self { Self { lots: HashMap::new() } }
+
+    pub fn add_lot(&mut self, symbol: &str, time: u64, qty: f64, price: f64) {
+        self.lots.entry(symbol.to_string()).or_default().push(TaxLot {
+            entry_time: time, quantity: qty, cost_basis: price,
+        });
+    }
+
+    pub fn sell_fifo(&mut self, symbol: &str, qty: f64, price: f64) -> f64 {
+        let lots = match self.lots.get_mut(symbol) {
+            Some(l) => l,
+            None => return 0.0,
+        };
+        let mut remaining = qty;
+        let mut realized_pnl = 0.0;
+        while remaining > 1e-10 && !lots.is_empty() {
+            let lot = &mut lots[0];
+            let close_qty = remaining.min(lot.quantity);
+            realized_pnl += close_qty * (price - lot.cost_basis);
+            lot.quantity -= close_qty;
+            remaining -= close_qty;
+            if lot.quantity < 1e-10 { lots.remove(0); }
+        }
+        realized_pnl
+    }
+
+    pub fn unrealized_pnl(&self, symbol: &str, current_price: f64) -> f64 {
+        self.lots.get(symbol).map_or(0.0, |lots| {
+            lots.iter().map(|l| l.quantity * (current_price - l.cost_basis)).sum()
+        })
+    }
+
+    pub fn total_cost_basis(&self, symbol: &str) -> f64 {
+        self.lots.get(symbol).map_or(0.0, |lots| {
+            lots.iter().map(|l| l.quantity * l.cost_basis).sum()
+        })
+    }
+
+    pub fn total_quantity(&self, symbol: &str) -> f64 {
+        self.lots.get(symbol).map_or(0.0, |lots| {
+            lots.iter().map(|l| l.quantity).sum()
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

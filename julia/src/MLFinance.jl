@@ -2029,4 +2029,685 @@ function auc_roc(y_true::AbstractVector{T}, y_scores::AbstractVector{T}) where T
     auc / (T(n_pos) * T(n_neg))
 end
 
+# ─────────────────────────────────────────────────────────────────────────────
+# §16  Quantile Regression
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Quantile regression via iteratively reweighted least squares."""
+function quantile_regression(X::AbstractMatrix{T}, y::AbstractVector{T};
+                              tau::T=T(0.5), max_iter::Int=200,
+                              tol::T=T(1e-6)) where T<:Real
+    n, p = size(X)
+    X_aug = hcat(ones(T, n), X)
+    beta = (X_aug' * X_aug) \ (X_aug' * y)  # OLS start
+    for iter in 1:max_iter
+        residuals = y .- X_aug * beta
+        weights = zeros(T, n)
+        for i in 1:n
+            if residuals[i] > T(1e-10)
+                weights[i] = tau / (abs(residuals[i]) + T(1e-10))
+            elseif residuals[i] < T(-1e-10)
+                weights[i] = (one(T) - tau) / (abs(residuals[i]) + T(1e-10))
+            else
+                weights[i] = one(T) / T(1e-6)
+            end
+        end
+        W = Diagonal(weights)
+        beta_new = (X_aug' * W * X_aug) \ (X_aug' * W * y)
+        if norm(beta_new .- beta) < tol
+            beta = beta_new
+            break
+        end
+        beta = beta_new
+    end
+    return beta[2:end], beta[1]
+end
+
+"""Multiple quantile regression (for full conditional distribution)."""
+function multi_quantile_regression(X::AbstractMatrix{T}, y::AbstractVector{T};
+                                    quantiles::AbstractVector{T}=T.(0.1:0.1:0.9)) where T<:Real
+    n_q = length(quantiles)
+    p = size(X, 2)
+    betas = Matrix{T}(undef, p, n_q)
+    intercepts = Vector{T}(undef, n_q)
+    for (k, tau) in enumerate(quantiles)
+        b, i = quantile_regression(X, y; tau=tau)
+        betas[:, k] = b
+        intercepts[k] = i
+    end
+    return betas, intercepts
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §17  Bayesian Linear Regression
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Bayesian linear regression with conjugate normal-inverse-gamma prior."""
+function bayesian_linear_regression(X::AbstractMatrix{T}, y::AbstractVector{T};
+                                     prior_precision::T=T(0.01),
+                                     noise_var::T=T(1.0)) where T<:Real
+    n, p = size(X)
+    X_aug = hcat(ones(T, n), X)
+    k = p + 1
+    # Prior: beta ~ N(0, (1/prior_precision) * I)
+    Lambda_0 = prior_precision .* Matrix{T}(I, k, k)
+    mu_0 = zeros(T, k)
+    # Posterior
+    Lambda_n = Lambda_0 .+ X_aug' * X_aug ./ noise_var
+    Sigma_n = inv(Symmetric(Lambda_n))
+    mu_n = Sigma_n * (Lambda_0 * mu_0 .+ X_aug' * y ./ noise_var)
+    return mu_n[2:end], mu_n[1], Sigma_n
+end
+
+"""Predictive distribution for Bayesian regression."""
+function bayesian_predict(X_test::AbstractMatrix{T}, mu_n::AbstractVector{T},
+                           Sigma_n::AbstractMatrix{T}, noise_var::T) where T<:Real
+    n_test = size(X_test, 1)
+    X_aug = hcat(ones(T, n_test), X_test)
+    pred_mean = X_aug * mu_n
+    pred_var = [dot(X_aug[i,:], Sigma_n * X_aug[i,:]) + noise_var for i in 1:n_test]
+    return pred_mean, pred_var
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §18  Support Vector Machine (Linear SVM)
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Linear SVM via subgradient descent (primal)."""
+function linear_svm(X::AbstractMatrix{T}, y::AbstractVector{T};
+                    C::T=T(1.0), max_iter::Int=1000, lr::T=T(0.01),
+                    rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n, p = size(X)
+    w = zeros(T, p)
+    b = zero(T)
+    for iter in 1:max_iter
+        idx = rand(rng, 1:n)
+        xi = X[idx, :]
+        yi = y[idx]  # should be +1 or -1
+        margin = yi * (dot(w, xi) + b)
+        if margin < one(T)
+            w .-= lr .* (w .- C .* yi .* xi)
+            b += lr * C * yi
+        else
+            w .-= lr .* w
+        end
+    end
+    return w, b
+end
+
+"""SVM predict."""
+function svm_predict(X::AbstractMatrix{T}, w::AbstractVector{T}, b::T) where T<:Real
+    scores = X * w .+ b
+    sign.(scores)
+end
+
+"""SVM decision scores (for ranking)."""
+function svm_decision_function(X::AbstractMatrix{T}, w::AbstractVector{T}, b::T) where T<:Real
+    X * w .+ b
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §19  Isotonic Regression (for calibration)
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Pool Adjacent Violators Algorithm for isotonic regression."""
+function isotonic_regression(y::AbstractVector{T};
+                              weights::Union{Nothing, AbstractVector{T}}=nothing) where T<:Real
+    n = length(y)
+    result = copy(y)
+    w = weights === nothing ? ones(T, n) : copy(weights)
+    # Pool adjacent violators
+    changed = true
+    while changed
+        changed = false
+        i = 1
+        while i < n
+            if result[i] > result[i+1]
+                # Pool
+                combined_w = w[i] + w[i+1]
+                combined_val = (w[i] * result[i] + w[i+1] * result[i+1]) / combined_w
+                result[i] = combined_val
+                result[i+1] = combined_val
+                w[i] = combined_w
+                w[i+1] = combined_w
+                changed = true
+                # Check backward
+                j = i
+                while j > 1 && result[j-1] > result[j]
+                    combined_w = w[j-1] + w[j]
+                    combined_val = (w[j-1] * result[j-1] + w[j] * result[j]) / combined_w
+                    result[j-1] = combined_val
+                    result[j] = combined_val
+                    w[j-1] = combined_w
+                    w[j] = combined_w
+                    j -= 1
+                end
+            end
+            i += 1
+        end
+    end
+    result
+end
+
+"""Probability calibration using isotonic regression."""
+function calibrate_probabilities(y_true::AbstractVector{T},
+                                  y_scores::AbstractVector{T};
+                                  n_bins::Int=100) where T<:Real
+    n = length(y_true)
+    sorted_idx = sortperm(y_scores)
+    bin_size = max(1, div(n, n_bins))
+    bin_means = T[]
+    bin_probs = T[]
+    for i in 1:bin_size:n
+        j = min(i + bin_size - 1, n)
+        idx = sorted_idx[i:j]
+        push!(bin_means, mean(y_scores[idx]))
+        push!(bin_probs, mean(y_true[idx]))
+    end
+    # Isotonic regression on binned probabilities
+    calibrated = isotonic_regression(bin_probs)
+    return bin_means, calibrated
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §20  Ensemble Methods
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Stacking ensemble: train meta-learner on out-of-fold predictions."""
+function stacking_ensemble(X::AbstractMatrix{T}, y::AbstractVector{T},
+                           base_learners::Vector{Function};
+                           n_folds::Int=5,
+                           rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n = size(X, 1)
+    n_models = length(base_learners)
+    meta_features = Matrix{T}(undef, n, n_models)
+    fold_size = div(n, n_folds)
+    for fold in 1:n_folds
+        test_start = (fold - 1) * fold_size + 1
+        test_end = min(fold * fold_size, n)
+        train_idx = vcat(1:test_start-1, test_end+1:n)
+        for (m, learner) in enumerate(base_learners)
+            preds = learner(X[train_idx, :], y[train_idx], X[test_start:test_end, :])
+            meta_features[test_start:test_end, m] = preds
+        end
+    end
+    # Train meta-learner (ridge regression)
+    meta_beta, meta_intercept = ridge_regression(meta_features, y; lambda=T(0.1))
+    return meta_beta, meta_intercept, meta_features
+end
+
+"""Bagging ensemble with arbitrary base learner."""
+function bagging_ensemble(X::AbstractMatrix{T}, y::AbstractVector{T},
+                          base_learner::Function;
+                          n_bags::Int=50,
+                          rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n = size(X, 1)
+    predictions = Matrix{T}(undef, n, n_bags)
+    for b in 1:n_bags
+        idx = rand(rng, 1:n, n)
+        oob_idx = setdiff(1:n, unique(idx))
+        pred = base_learner(X[idx, :], y[idx], X)
+        predictions[:, b] = pred
+    end
+    mean_pred = vec(mean(predictions; dims=2))
+    return mean_pred, predictions
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §21  Time Series Features for Finance
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Hurst exponent estimation via R/S analysis."""
+function hurst_exponent(series::AbstractVector{T}) where T<:Real
+    n = length(series)
+    if n < 20 return T(0.5) end
+    log_rs = T[]
+    log_n = T[]
+    for w in [8, 16, 32, 64, 128, 256]
+        if w > n ÷ 2 break end
+        rs_vals = T[]
+        for start in 1:w:n-w+1
+            chunk = series[start:start+w-1]
+            mu = mean(chunk)
+            cum_dev = cumsum(chunk .- mu)
+            R = maximum(cum_dev) - minimum(cum_dev)
+            S = std(chunk)
+            if S > T(1e-16)
+                push!(rs_vals, R / S)
+            end
+        end
+        if !isempty(rs_vals)
+            push!(log_rs, log(mean(rs_vals)))
+            push!(log_n, log(T(w)))
+        end
+    end
+    if length(log_rs) < 2 return T(0.5) end
+    x = log_n; y = log_rs
+    mx = mean(x); my = mean(y)
+    dot(x .- mx, y .- my) / max(dot(x .- mx, x .- mx), T(1e-16))
+end
+
+"""Detrended fluctuation analysis (DFA)."""
+function dfa(series::AbstractVector{T}; min_window::Int=10, max_window::Int=0) where T<:Real
+    n = length(series)
+    if max_window == 0 max_window = div(n, 4) end
+    cum = cumsum(series .- mean(series))
+    log_F = T[]
+    log_s = T[]
+    s = min_window
+    while s <= max_window
+        n_segs = div(n, s)
+        if n_segs < 1 break end
+        F2 = zero(T)
+        for seg in 1:n_segs
+            idx = ((seg-1)*s+1):min(seg*s, n)
+            y = cum[idx]
+            x = T.(1:length(idx))
+            # Linear detrend
+            mx = mean(x); my = mean(y)
+            beta = dot(x .- mx, y .- my) / max(dot(x .- mx, x .- mx), T(1e-16))
+            alpha_val = my - beta * mx
+            trend = alpha_val .+ beta .* x
+            F2 += mean((y .- trend).^2)
+        end
+        F2 /= n_segs
+        if F2 > T(1e-16)
+            push!(log_F, log(sqrt(F2)))
+            push!(log_s, log(T(s)))
+        end
+        s = round(Int, s * 1.5)
+    end
+    if length(log_F) < 2 return T(0.5) end
+    x = log_s; y = log_F
+    mx = mean(x); my = mean(y)
+    dot(x .- mx, y .- my) / max(dot(x .- mx, x .- mx), T(1e-16))
+end
+
+"""Sample entropy of a time series."""
+function sample_entropy(series::AbstractVector{T}; m::Int=2, r::T=T(0.2)) where T<:Real
+    n = length(series)
+    sigma = std(series)
+    tolerance = r * sigma
+    # Count template matches of length m and m+1
+    function _count_matches(template_len::Int)
+        count = 0
+        for i in 1:n-template_len
+            for j in i+1:n-template_len
+                match = true
+                for k in 0:template_len-1
+                    if abs(series[i+k] - series[j+k]) > tolerance
+                        match = false
+                        break
+                    end
+                end
+                if match count += 1 end
+            end
+        end
+        count
+    end
+    B = _count_matches(m)
+    A = _count_matches(m + 1)
+    if B == 0 return zero(T) end
+    -log(T(A) / T(B))
+end
+
+"""Approximate entropy."""
+function approx_entropy(series::AbstractVector{T}; m::Int=2, r::T=T(0.2)) where T<:Real
+    n = length(series)
+    sigma = std(series)
+    tolerance = r * sigma
+    function _phi(template_len::Int)
+        counts = zeros(T, n - template_len + 1)
+        for i in 1:n-template_len+1
+            for j in 1:n-template_len+1
+                match = true
+                for k in 0:template_len-1
+                    if abs(series[i+k] - series[j+k]) > tolerance
+                        match = false
+                        break
+                    end
+                end
+                if match counts[i] += one(T) end
+            end
+        end
+        mean(log.(counts ./ (n - template_len + 1)))
+    end
+    _phi(m) - _phi(m + 1)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §22  Dimensionality Reduction for Finance
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Factor analysis via EM algorithm."""
+function factor_analysis_em(X::AbstractMatrix{T}; n_factors::Int=3,
+                            max_iter::Int=100, tol::T=T(1e-6)) where T<:Real
+    n, p = size(X)
+    mu = vec(mean(X; dims=1))
+    X_c = X .- mu'
+    S = X_c' * X_c / (n - 1)
+    # Initialize with PCA
+    F = eigen(Symmetric(S); sortby=x -> -x)
+    Lambda = F.vectors[:, 1:n_factors] .* sqrt.(F.values[1:n_factors]')
+    Psi = Diagonal(max.(diag(S) .- vec(sum(Lambda.^2; dims=2)), T(1e-6)))
+    for iter in 1:max_iter
+        # E-step
+        M = Lambda' * inv(Lambda * Lambda' .+ Psi)
+        E_z = X_c * M'  # n x n_factors
+        E_zz = I(n_factors) .- M * Lambda .+ M * S * M'
+        # M-step
+        Lambda_new = S * M' * inv(E_zz)
+        Psi_new = Diagonal(max.(diag(S .- Lambda_new * M * S), T(1e-6)))
+        if norm(Lambda_new .- Lambda) < tol
+            Lambda = Lambda_new
+            Psi = Psi_new
+            break
+        end
+        Lambda = Lambda_new
+        Psi = Psi_new
+    end
+    return Lambda, Psi, mu
+end
+
+"""t-SNE (simplified, for small datasets)."""
+function tsne_simple(X::AbstractMatrix{T}; n_components::Int=2,
+                     perplexity::T=T(30.0), max_iter::Int=500,
+                     lr::T=T(100.0),
+                     rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n = size(X, 1)
+    # Compute pairwise distances
+    D = Matrix{T}(undef, n, n)
+    for j in 1:n, i in j:n
+        D[i,j] = sum((X[i,:] .- X[j,:]).^2)
+        D[j,i] = D[i,j]
+    end
+    # Compute P (joint probabilities in high-dim)
+    P = zeros(T, n, n)
+    for i in 1:n
+        # Binary search for sigma to achieve target perplexity
+        sigma = one(T)
+        for _ in 1:50
+            p_row = exp.(-D[i,:] ./ (T(2) * sigma^2))
+            p_row[i] = zero(T)
+            s = sum(p_row)
+            if s > T(1e-16)
+                p_row ./= s
+            end
+            H = -sum(p_row[j] > T(1e-16) ? p_row[j] * log(p_row[j]) : zero(T) for j in 1:n)
+            perp = exp(H)
+            if abs(perp - perplexity) < one(T)
+                P[i, :] = p_row
+                break
+            end
+            if perp > perplexity
+                sigma *= T(0.8)
+            else
+                sigma *= T(1.2)
+            end
+        end
+    end
+    P = (P .+ P') ./ (T(2) * n)
+    P = max.(P, T(1e-12))
+    # Initialize Y randomly
+    Y = randn(rng, T, n, n_components) .* T(0.01)
+    for iter in 1:max_iter
+        # Compute Q (t-distribution in low-dim)
+        num = Matrix{T}(undef, n, n)
+        for j in 1:n, i in j:n
+            d = one(T) + sum((Y[i,:] .- Y[j,:]).^2)
+            num[i,j] = one(T) / d
+            num[j,i] = num[i,j]
+        end
+        for i in 1:n num[i,i] = zero(T) end
+        Q = num ./ max(sum(num), T(1e-16))
+        Q = max.(Q, T(1e-12))
+        # Gradient
+        grad = zeros(T, n, n_components)
+        for i in 1:n
+            for j in 1:n
+                if i == j continue end
+                f = T(4) * (P[i,j] - Q[i,j]) * num[i,j]
+                grad[i, :] .+= f .* (Y[i,:] .- Y[j,:])
+            end
+        end
+        Y .-= lr .* grad
+        # Center
+        Y .-= mean(Y; dims=1)
+    end
+    Y
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §23  Mixture Models
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Gaussian Mixture Model via EM."""
+function gmm_em(X::AbstractMatrix{T}; n_components::Int=3,
+                max_iter::Int=100, tol::T=T(1e-6),
+                rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n, p = size(X)
+    # Initialize with K-means
+    labels, centers, _ = kmeans(X, n_components; rng=rng)
+    # Initialize parameters
+    pi_k = [count(labels .== k) / n for k in 1:n_components]
+    mu_k = [centers[k, :] for k in 1:n_components]
+    Sigma_k = [cov(X[labels .== k, :]) .+ T(1e-6) .* I(p) for k in 1:n_components]
+    # Handle empty clusters
+    for k in 1:n_components
+        if count(labels .== k) < p + 1
+            Sigma_k[k] = cov(X) .+ T(1e-6) .* I(p)
+        end
+    end
+    responsibilities = Matrix{T}(undef, n, n_components)
+    prev_ll = T(-Inf)
+    for iter in 1:max_iter
+        # E-step
+        for i in 1:n
+            for k in 1:n_components
+                diff = X[i, :] .- mu_k[k]
+                try
+                    L = cholesky(Symmetric(Sigma_k[k]))
+                    log_det = T(2) * sum(log.(diag(L.L)))
+                    maha = sum((L.L \ diff).^2)
+                    responsibilities[i, k] = log(max(pi_k[k], T(1e-300))) -
+                                              T(0.5) * (log_det + maha + T(p) * log(T(2π)))
+                catch
+                    responsibilities[i, k] = T(-1e10)
+                end
+            end
+            # Log-sum-exp normalization
+            max_r = maximum(responsibilities[i, :])
+            responsibilities[i, :] = exp.(responsibilities[i, :] .- max_r)
+            s = sum(responsibilities[i, :])
+            responsibilities[i, :] ./= max(s, T(1e-300))
+        end
+        # Log-likelihood
+        ll = zero(T)
+        for i in 1:n
+            ll += log(max(sum(responsibilities[i, :]), T(1e-300)))
+        end
+        if abs(ll - prev_ll) < tol break end
+        prev_ll = ll
+        # M-step
+        for k in 1:n_components
+            N_k = sum(responsibilities[:, k])
+            pi_k[k] = N_k / n
+            mu_k[k] = (responsibilities[:, k]' * X)' ./ max(N_k, T(1e-16))
+            diff = X .- mu_k[k]'
+            Sigma_k[k] = (diff' * Diagonal(responsibilities[:, k]) * diff) ./ max(N_k, T(1e-16))
+            Sigma_k[k] = Symmetric(Sigma_k[k] .+ T(1e-6) .* I(p))
+        end
+    end
+    labels_out = [argmax(responsibilities[i, :]) for i in 1:n]
+    return labels_out, pi_k, mu_k, Sigma_k
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §24  Regime Detection for Finance
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Detect market regimes using HMM."""
+function detect_regimes_hmm(returns::AbstractVector{T};
+                            n_regimes::Int=2,
+                            rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    hmm = HMM(n_regimes, T)
+    # Initialize with k-means on returns
+    sorted = sort(returns)
+    n = length(returns)
+    for k in 1:n_regimes
+        idx = round(Int, (k - 0.5) * n / n_regimes)
+        hmm.mu[k] = sorted[max(1, idx)]
+        hmm.sigma[k] = std(returns) / sqrt(T(n_regimes))
+    end
+    trained, _ = baum_welch(hmm, returns; max_iter=50)
+    path, _ = viterbi(trained, returns)
+    _, _, gamma, _, _ = forward_backward(trained, returns)
+    return path, gamma, trained
+end
+
+"""Regime-switching model parameters."""
+function regime_parameters(returns::AbstractVector{T},
+                           regimes::AbstractVector{Int}) where T<:Real
+    unique_regimes = unique(regimes)
+    params = Dict{Int, NamedTuple{(:mean, :vol, :sharpe, :n_obs),
+                                   NTuple{4, T}}}()
+    for r in unique_regimes
+        mask = regimes .== r
+        r_ret = returns[mask]
+        if length(r_ret) > 1
+            mu = mean(r_ret)
+            vol = std(r_ret)
+            sharpe = mu / max(vol, T(1e-16)) * sqrt(T(252))
+            params[r] = (mean=mu * 252, vol=vol * sqrt(T(252)),
+                        sharpe=sharpe, n_obs=T(length(r_ret)))
+        end
+    end
+    params
+end
+
+"""Transition probability matrix from regime sequence."""
+function transition_matrix(regimes::AbstractVector{Int}) where T
+    states = unique(regimes)
+    n_states = length(states)
+    state_map = Dict(s => i for (i, s) in enumerate(states))
+    trans = zeros(Float64, n_states, n_states)
+    for t in 2:length(regimes)
+        from = state_map[regimes[t-1]]
+        to = state_map[regimes[t]]
+        trans[from, to] += 1.0
+    end
+    for i in 1:n_states
+        s = sum(trans[i, :])
+        if s > 0
+            trans[i, :] ./= s
+        end
+    end
+    trans
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §25  Data Preprocessing
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Standard scaling: zero mean, unit variance."""
+function standard_scale(X::AbstractMatrix{T}) where T<:Real
+    mu = vec(mean(X; dims=1))
+    sigma = vec(std(X; dims=1))
+    sigma = max.(sigma, T(1e-16))
+    X_scaled = (X .- mu') ./ sigma'
+    return X_scaled, mu, sigma
+end
+
+"""Robust scaling: median centering, IQR scaling."""
+function robust_scale(X::AbstractMatrix{T}) where T<:Real
+    n, p = size(X)
+    medians = Vector{T}(undef, p)
+    iqrs = Vector{T}(undef, p)
+    for j in 1:p
+        sorted = sort(X[:, j])
+        medians[j] = sorted[div(n, 2) + 1]
+        q25 = sorted[max(1, round(Int, 0.25 * n))]
+        q75 = sorted[min(n, round(Int, 0.75 * n))]
+        iqrs[j] = max(q75 - q25, T(1e-16))
+    end
+    X_scaled = (X .- medians') ./ iqrs'
+    return X_scaled, medians, iqrs
+end
+
+"""Winsorize features at given percentiles."""
+function winsorize_features(X::AbstractMatrix{T}; pct::T=T(0.05)) where T<:Real
+    n, p = size(X)
+    X_out = copy(X)
+    for j in 1:p
+        sorted = sort(X[:, j])
+        lo = sorted[max(1, ceil(Int, pct * n))]
+        hi = sorted[min(n, floor(Int, (1 - pct) * n))]
+        X_out[:, j] = clamp.(X[:, j], lo, hi)
+    end
+    X_out
+end
+
+"""Fill missing values (NaN) with forward fill then backfill."""
+function fill_missing(X::AbstractMatrix{T}) where T<:Real
+    n, p = size(X)
+    X_out = copy(X)
+    for j in 1:p
+        # Forward fill
+        for i in 2:n
+            if isnan(X_out[i, j]) && !isnan(X_out[i-1, j])
+                X_out[i, j] = X_out[i-1, j]
+            end
+        end
+        # Backward fill
+        for i in n-1:-1:1
+            if isnan(X_out[i, j]) && !isnan(X_out[i+1, j])
+                X_out[i, j] = X_out[i+1, j]
+            end
+        end
+        # Fill remaining with column mean
+        col_mean = mean(filter(!isnan, X_out[:, j]))
+        for i in 1:n
+            if isnan(X_out[i, j])
+                X_out[i, j] = col_mean
+            end
+        end
+    end
+    X_out
+end
+
+"""Feature selection via mutual information (discretized)."""
+function mutual_info_score(x::AbstractVector{T}, y::AbstractVector{T};
+                           n_bins::Int=10) where T<:Real
+    n = length(x)
+    # Discretize
+    x_min, x_max = extrema(x)
+    y_min, y_max = extrema(y)
+    x_bins = clamp.(floor.(Int, (x .- x_min) ./ max(x_max - x_min, T(1e-16)) .* (n_bins - 1)) .+ 1, 1, n_bins)
+    y_bins = clamp.(floor.(Int, (y .- y_min) ./ max(y_max - y_min, T(1e-16)) .* (n_bins - 1)) .+ 1, 1, n_bins)
+    # Joint and marginal distributions
+    joint = zeros(T, n_bins, n_bins)
+    for i in 1:n
+        joint[x_bins[i], y_bins[i]] += one(T) / n
+    end
+    px = vec(sum(joint; dims=2))
+    py = vec(sum(joint; dims=1))
+    mi = zero(T)
+    for i in 1:n_bins, j in 1:n_bins
+        if joint[i, j] > T(1e-16) && px[i] > T(1e-16) && py[j] > T(1e-16)
+            mi += joint[i, j] * log(joint[i, j] / (px[i] * py[j]))
+        end
+    end
+    mi
+end
+
+"""Select top-k features by mutual information."""
+function select_features_mi(X::AbstractMatrix{T}, y::AbstractVector{T};
+                            k::Int=10) where T<:Real
+    p = size(X, 2)
+    scores = [mutual_info_score(X[:, j], y) for j in 1:p]
+    sorted_idx = sortperm(scores; rev=true)
+    selected = sorted_idx[1:min(k, p)]
+    return selected, scores
+end
+
 end # module MLFinance

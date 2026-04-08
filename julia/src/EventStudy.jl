@@ -1551,4 +1551,521 @@ function generate_event_data(n_obs::Int, n_events::Int, n_firms::Int;
     return firm_returns, market, event_dates
 end
 
+# ─────────────────────────────────────────────────────────────────────────────
+# §16  Abnormal Volume Analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Compute abnormal volume around events."""
+function abnormal_volume(volumes::AbstractVector{T}, event_idx::Int,
+                          window::EventWindow) where T<:Real
+    n = length(volumes)
+    est_start = event_idx + window.estimation_start
+    est_end = event_idx + window.estimation_end
+    evt_start = event_idx + window.event_start
+    evt_end = event_idx + window.event_end
+    if est_start < 1 || evt_end > n
+        return zeros(T, 0)
+    end
+    mean_vol = mean(volumes[est_start:est_end])
+    std_vol = std(volumes[est_start:est_end])
+    evt_len = evt_end - evt_start + 1
+    av = Vector{T}(undef, evt_len)
+    for i in 1:evt_len
+        t = evt_start + i - 1
+        av[i] = (volumes[t] - mean_vol) / max(std_vol, T(1e-16))
+    end
+    av
+end
+
+"""Cumulative abnormal volume."""
+function cumulative_abnormal_volume(volumes::AbstractMatrix{T},
+                                     event_dates::AbstractVector{Int},
+                                     window::EventWindow) where T<:Real
+    n_events = length(event_dates)
+    n_firms = size(volumes, 2)
+    evt_len = window.event_end - window.event_start + 1
+    cav = zeros(T, evt_len)
+    count = 0
+    for (k, d) in enumerate(event_dates)
+        firm = min(k, n_firms)
+        av = abnormal_volume(volumes[:, firm], d, window)
+        if !isempty(av)
+            cav .+= av
+            count += 1
+        end
+    end
+    if count > 0
+        cav ./= count
+    end
+    cumsum(cav)
+end
+
+"""Joint test of abnormal returns and abnormal volume."""
+function joint_ar_av_test(results::Vector{EventResult{T}},
+                           av_series::Vector{Vector{T}}) where T<:Real
+    N = min(length(results), length(av_series))
+    if N < 2
+        return zero(T), one(T)
+    end
+    cars = [r.car for r in results[1:N]]
+    avg_avs = [isempty(av) ? zero(T) : mean(av) for av in av_series[1:N]]
+    # Correlation between CAR and abnormal volume
+    if std(cars) < T(1e-16) || std(avg_avs) < T(1e-16)
+        return zero(T), one(T)
+    end
+    rho = cor(cars, avg_avs)
+    t_stat = rho * sqrt(T(N - 2)) / sqrt(max(one(T) - rho^2, T(1e-16)))
+    p = 2 * (one(T) - _normal_cdf(abs(t_stat)))
+    return t_stat, p
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §17  Abnormal Volatility
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Detect abnormal volatility around events."""
+function abnormal_volatility(returns::AbstractVector{T}, event_idx::Int,
+                              window::EventWindow;
+                              vol_window::Int=5) where T<:Real
+    n = length(returns)
+    est_start = event_idx + window.estimation_start
+    est_end = event_idx + window.estimation_end
+    evt_start = event_idx + window.event_start
+    evt_end = event_idx + window.event_end
+    if est_start < 1 || evt_end > n
+        return zeros(T, 0)
+    end
+    # Estimation period realized vol
+    est_rets = returns[est_start:est_end]
+    n_windows = length(est_rets) - vol_window + 1
+    if n_windows < 1
+        return zeros(T, 0)
+    end
+    est_vols = [std(est_rets[i:i+vol_window-1]) for i in 1:n_windows]
+    mean_vol = mean(est_vols)
+    std_vol = std(est_vols)
+    # Event period rolling vol
+    evt_rets = returns[max(1, evt_start-vol_window+1):evt_end]
+    n_evt_vols = length(evt_rets) - vol_window + 1
+    if n_evt_vols < 1
+        return zeros(T, 0)
+    end
+    avol = [(std(evt_rets[i:i+vol_window-1]) - mean_vol) / max(std_vol, T(1e-16))
+            for i in 1:n_evt_vols]
+    avol
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §18  Bid-Ask Spread Event Study
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Abnormal bid-ask spread around events."""
+function abnormal_spread(spreads::AbstractVector{T}, event_idx::Int,
+                          window::EventWindow) where T<:Real
+    n = length(spreads)
+    est_start = event_idx + window.estimation_start
+    est_end = event_idx + window.estimation_end
+    evt_start = event_idx + window.event_start
+    evt_end = event_idx + window.event_end
+    if est_start < 1 || evt_end > n
+        return zeros(T, 0)
+    end
+    mean_spread = mean(spreads[est_start:est_end])
+    std_spread = std(spreads[est_start:est_end])
+    evt_len = evt_end - evt_start + 1
+    as = Vector{T}(undef, evt_len)
+    for i in 1:evt_len
+        t = evt_start + i - 1
+        as[i] = (spreads[t] - mean_spread) / max(std_spread, T(1e-16))
+    end
+    as
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §19  Dividend Event Study
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Dividend announcement effect."""
+function dividend_event_study(firm_returns::AbstractMatrix{T},
+                               market_returns::AbstractVector{T},
+                               div_announce_dates::AbstractVector{Int},
+                               div_changes::AbstractVector{T};
+                               window::EventWindow=EventWindow()) where T<:Real
+    n_events = length(div_announce_dates)
+    n_firms = size(firm_returns, 2)
+    increase_results = EventResult{T}[]
+    decrease_results = EventResult{T}[]
+    no_change_results = EventResult{T}[]
+    for (k, d) in enumerate(div_announce_dates)
+        firm = min(k, n_firms)
+        result = compute_abnormal_returns(firm_returns[:, firm], market_returns,
+                                          d, window; firm_id=k)
+        if result === nothing continue end
+        if div_changes[k] > T(0.001)
+            push!(increase_results, result)
+        elseif div_changes[k] < T(-0.001)
+            push!(decrease_results, result)
+        else
+            push!(no_change_results, result)
+        end
+    end
+    summary = Dict{Symbol, Any}()
+    if !isempty(increase_results)
+        summary[:increase_mean_car] = mean(r.car for r in increase_results)
+        summary[:increase_n] = length(increase_results)
+        z, p = patell_test(increase_results)
+        summary[:increase_z] = z
+        summary[:increase_p] = p
+    end
+    if !isempty(decrease_results)
+        summary[:decrease_mean_car] = mean(r.car for r in decrease_results)
+        summary[:decrease_n] = length(decrease_results)
+        z, p = patell_test(decrease_results)
+        summary[:decrease_z] = z
+        summary[:decrease_p] = p
+    end
+    if !isempty(no_change_results)
+        summary[:no_change_mean_car] = mean(r.car for r in no_change_results)
+        summary[:no_change_n] = length(no_change_results)
+    end
+    return summary
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §20  Stock Split Event Study
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Stock split announcement and execution effects."""
+function stock_split_study(firm_returns::AbstractMatrix{T},
+                           market_returns::AbstractVector{T},
+                           announce_dates::AbstractVector{Int},
+                           execution_dates::AbstractVector{Int},
+                           split_ratios::AbstractVector{T};
+                           window::EventWindow=EventWindow()) where T<:Real
+    n_events = length(announce_dates)
+    n_firms = size(firm_returns, 2)
+    announce_results = EventResult{T}[]
+    exec_results = EventResult{T}[]
+    for (k, (ad, ed)) in enumerate(zip(announce_dates, execution_dates))
+        firm = min(k, n_firms)
+        ar = compute_abnormal_returns(firm_returns[:, firm], market_returns, ad, window; firm_id=k)
+        er = compute_abnormal_returns(firm_returns[:, firm], market_returns, ed, window; firm_id=k + n_events)
+        if ar !== nothing push!(announce_results, ar) end
+        if er !== nothing push!(exec_results, er) end
+    end
+    summary = Dict{Symbol, Any}()
+    if !isempty(announce_results)
+        summary[:announce_mean_car] = mean(r.car for r in announce_results)
+        z, p = patell_test(announce_results)
+        summary[:announce_z] = z
+        summary[:announce_p] = p
+    end
+    if !isempty(exec_results)
+        summary[:exec_mean_car] = mean(r.car for r in exec_results)
+        z, p = patell_test(exec_results)
+        summary[:exec_z] = z
+        summary[:exec_p] = p
+    end
+    # Split ratio effect
+    if !isempty(announce_results) && n_events > 5
+        cars = [r.car for r in announce_results]
+        ratios = split_ratios[1:min(length(cars), length(split_ratios))]
+        if length(cars) == length(ratios) && std(ratios) > T(1e-16)
+            summary[:car_ratio_corr] = cor(cars, ratios)
+        end
+    end
+    return summary
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §21  Regulatory Event Study
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Industry-wide regulatory event study."""
+function regulatory_event_study(industry_returns::AbstractMatrix{T},
+                                 market_returns::AbstractVector{T},
+                                 event_date::Int;
+                                 window::EventWindow=EventWindow()) where T<:Real
+    n_obs, n_firms = size(industry_returns)
+    results = EventResult{T}[]
+    for firm in 1:n_firms
+        r = compute_abnormal_returns(industry_returns[:, firm], market_returns,
+                                      event_date, window; firm_id=firm)
+        if r !== nothing
+            push!(results, r)
+        end
+    end
+    if isempty(results)
+        return Dict{Symbol, Any}(:n_firms => 0)
+    end
+    cars = [r.car for r in results]
+    summary = Dict{Symbol, Any}()
+    summary[:n_firms] = length(results)
+    summary[:mean_car] = mean(cars)
+    summary[:median_car] = sort(cars)[div(length(cars), 2) + 1]
+    summary[:pct_positive] = mean(cars .> zero(T))
+    z_p, p_p = patell_test(results)
+    z_b, p_b = bmp_test(results)
+    summary[:patell_z] = z_p
+    summary[:patell_p] = p_p
+    summary[:bmp_t] = z_b
+    summary[:bmp_p] = p_b
+    # Wealth effect
+    summary[:total_wealth_effect] = sum(cars)
+    return summary
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §22  Short-Selling Event Study
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Short interest announcement effect."""
+function short_interest_study(firm_returns::AbstractMatrix{T},
+                               market_returns::AbstractVector{T},
+                               si_announce_dates::AbstractVector{Int},
+                               si_changes::AbstractVector{T};
+                               window::EventWindow=EventWindow(evt_start=-2, evt_end=5)) where T<:Real
+    n_events = length(si_announce_dates)
+    n_firms = size(firm_returns, 2)
+    high_si_results = EventResult{T}[]
+    low_si_results = EventResult{T}[]
+    for (k, d) in enumerate(si_announce_dates)
+        firm = min(k, n_firms)
+        r = compute_abnormal_returns(firm_returns[:, firm], market_returns,
+                                      d, window; firm_id=k)
+        if r === nothing continue end
+        if si_changes[k] > zero(T)
+            push!(high_si_results, r)
+        else
+            push!(low_si_results, r)
+        end
+    end
+    summary = Dict{Symbol, Any}()
+    if !isempty(high_si_results)
+        summary[:high_si_mean_car] = mean(r.car for r in high_si_results)
+        summary[:high_si_n] = length(high_si_results)
+    end
+    if !isempty(low_si_results)
+        summary[:low_si_mean_car] = mean(r.car for r in low_si_results)
+        summary[:low_si_n] = length(low_si_results)
+    end
+    return summary
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §23  Insider Trading Event Study
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Insider trading disclosure effect."""
+function insider_trading_study(firm_returns::AbstractMatrix{T},
+                                market_returns::AbstractVector{T},
+                                filing_dates::AbstractVector{Int},
+                                trade_types::AbstractVector{Int},  # 1=buy, -1=sell
+                                trade_sizes::AbstractVector{T};
+                                window::EventWindow=EventWindow(evt_start=-1, evt_end=10)) where T<:Real
+    n_events = length(filing_dates)
+    n_firms = size(firm_returns, 2)
+    buy_results = EventResult{T}[]
+    sell_results = EventResult{T}[]
+    for (k, d) in enumerate(filing_dates)
+        firm = min(k, n_firms)
+        r = compute_abnormal_returns(firm_returns[:, firm], market_returns,
+                                      d, window; firm_id=k)
+        if r === nothing continue end
+        if trade_types[k] > 0
+            push!(buy_results, r)
+        else
+            push!(sell_results, r)
+        end
+    end
+    summary = Dict{Symbol, Any}()
+    if !isempty(buy_results)
+        summary[:buy_mean_car] = mean(r.car for r in buy_results)
+        summary[:buy_n] = length(buy_results)
+        z, p = patell_test(buy_results)
+        summary[:buy_z] = z
+        summary[:buy_p] = p
+    end
+    if !isempty(sell_results)
+        summary[:sell_mean_car] = mean(r.car for r in sell_results)
+        summary[:sell_n] = length(sell_results)
+        z, p = patell_test(sell_results)
+        summary[:sell_z] = z
+        summary[:sell_p] = p
+    end
+    return summary
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §24  Credit Rating Change Event Study
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Credit rating change effect on equity and bonds."""
+function rating_change_study(firm_returns::AbstractMatrix{T},
+                              market_returns::AbstractVector{T},
+                              change_dates::AbstractVector{Int},
+                              rating_changes::AbstractVector{Int};  # +1=upgrade, -1=downgrade
+                              window::EventWindow=EventWindow()) where T<:Real
+    n_events = length(change_dates)
+    n_firms = size(firm_returns, 2)
+    upgrade_results = EventResult{T}[]
+    downgrade_results = EventResult{T}[]
+    for (k, d) in enumerate(change_dates)
+        firm = min(k, n_firms)
+        r = compute_abnormal_returns(firm_returns[:, firm], market_returns,
+                                      d, window; firm_id=k)
+        if r === nothing continue end
+        if rating_changes[k] > 0
+            push!(upgrade_results, r)
+        else
+            push!(downgrade_results, r)
+        end
+    end
+    summary = Dict{Symbol, Any}()
+    if !isempty(upgrade_results)
+        summary[:upgrade_mean_car] = mean(r.car for r in upgrade_results)
+        summary[:upgrade_n] = length(upgrade_results)
+        z, p = patell_test(upgrade_results)
+        summary[:upgrade_z] = z
+        summary[:upgrade_p] = p
+    end
+    if !isempty(downgrade_results)
+        summary[:downgrade_mean_car] = mean(r.car for r in downgrade_results)
+        summary[:downgrade_n] = length(downgrade_results)
+        z, p = patell_test(downgrade_results)
+        summary[:downgrade_z] = z
+        summary[:downgrade_p] = p
+    end
+    # Asymmetry: downgrades typically have larger effect
+    if !isempty(upgrade_results) && !isempty(downgrade_results)
+        summary[:asymmetry] = abs(mean(r.car for r in downgrade_results)) -
+                              abs(mean(r.car for r in upgrade_results))
+    end
+    return summary
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §25  Event Window Optimization
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Find optimal event window that maximizes test power."""
+function optimal_event_window(firm_returns::AbstractMatrix{T},
+                               market_returns::AbstractVector{T},
+                               event_dates::AbstractVector{Int};
+                               min_window::Int=1, max_window::Int=20,
+                               est_start::Int=-270, est_end::Int=-21) where T<:Real
+    best_z = zero(T)
+    best_window = (0, 0)
+    for w_pre in 0:max_window
+        for w_post in 0:max_window
+            if w_pre + w_post < min_window
+                continue
+            end
+            win = EventWindow(est_start=est_start, est_end=est_end,
+                             evt_start=-w_pre, evt_end=w_post)
+            results = EventResult{T}[]
+            for (k, d) in enumerate(event_dates)
+                firm = min(k, size(firm_returns, 2))
+                r = compute_abnormal_returns(firm_returns[:, firm], market_returns,
+                                              d, win; firm_id=k)
+                if r !== nothing
+                    push!(results, r)
+                end
+            end
+            if length(results) >= 5
+                z, _ = patell_test(results)
+                if abs(z) > abs(best_z)
+                    best_z = z
+                    best_window = (-w_pre, w_post)
+                end
+            end
+        end
+    end
+    return best_window, best_z
+end
+
+"""Robustness check: sensitivity to window specification."""
+function window_sensitivity(firm_returns::AbstractMatrix{T},
+                            market_returns::AbstractVector{T},
+                            event_dates::AbstractVector{Int};
+                            windows::Vector{Tuple{Int,Int}}=[(-1,1),(-2,2),(-5,5),(-10,10),(-20,20)],
+                            est_start::Int=-270, est_end::Int=-21) where T<:Real
+    results_dict = Dict{Tuple{Int,Int}, Dict{Symbol, T}}()
+    for (ws, we) in windows
+        win = EventWindow(est_start=est_start, est_end=est_end,
+                         evt_start=ws, evt_end=we)
+        results = EventResult{T}[]
+        for (k, d) in enumerate(event_dates)
+            firm = min(k, size(firm_returns, 2))
+            r = compute_abnormal_returns(firm_returns[:, firm], market_returns,
+                                          d, win; firm_id=k)
+            if r !== nothing push!(results, r) end
+        end
+        if !isempty(results)
+            cars = [r.car for r in results]
+            z_p, p_p = patell_test(results)
+            z_b, p_b = bmp_test(results)
+            results_dict[(ws, we)] = Dict{Symbol, T}(
+                :mean_car => mean(cars),
+                :patell_z => z_p,
+                :patell_p => p_p,
+                :bmp_t => z_b,
+                :bmp_p => p_b,
+                :n_events => T(length(results))
+            )
+        end
+    end
+    results_dict
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §26  Bootstrap Event Study Inference
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Bootstrap confidence intervals for mean CAR."""
+function bootstrap_car_ci(results::Vector{EventResult{T}};
+                          n_bootstrap::Int=5000,
+                          confidence::T=T(0.95),
+                          rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    N = length(results)
+    if N == 0
+        return (mean=zero(T), ci_lower=zero(T), ci_upper=zero(T))
+    end
+    cars = [r.car for r in results]
+    boot_means = Vector{T}(undef, n_bootstrap)
+    for b in 1:n_bootstrap
+        idx = rand(rng, 1:N, N)
+        boot_means[b] = mean(cars[idx])
+    end
+    sorted = sort(boot_means)
+    alpha = (one(T) - confidence) / 2
+    lo = sorted[max(1, round(Int, alpha * n_bootstrap))]
+    hi = sorted[min(n_bootstrap, round(Int, (one(T) - alpha) * n_bootstrap))]
+    return (mean=mean(cars), ci_lower=lo, ci_upper=hi, se=std(boot_means))
+end
+
+"""Wild bootstrap for robust inference under heteroskedasticity."""
+function wild_bootstrap_test(results::Vector{EventResult{T}};
+                              n_bootstrap::Int=5000,
+                              rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    N = length(results)
+    if N == 0
+        return zero(T), one(T)
+    end
+    cars = [r.car for r in results]
+    observed_mean = mean(cars)
+    observed_t = observed_mean / (std(cars) / sqrt(T(N)))
+    boot_t_stats = Vector{T}(undef, n_bootstrap)
+    for b in 1:n_bootstrap
+        # Rademacher weights
+        weights = [rand(rng) < 0.5 ? one(T) : -one(T) for _ in 1:N]
+        boot_cars = cars .* weights
+        boot_mean = mean(boot_cars)
+        boot_se = std(boot_cars) / sqrt(T(N))
+        boot_t_stats[b] = boot_mean / max(boot_se, T(1e-16))
+    end
+    p_value = mean(abs.(boot_t_stats) .>= abs(observed_t))
+    return observed_t, p_value
+end
+
 end # module EventStudy

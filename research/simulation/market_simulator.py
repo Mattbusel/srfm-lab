@@ -1,820 +1,747 @@
 """
-research/simulation/market_simulator.py
+Full market simulator for strategy testing.
 
-Realistic market microstructure simulator. Generates synthetic OHLCV bars
-with embedded alpha signals, regime switching, correlated multi-asset paths,
-and full BH-ACTIVE dynamics compatible with the LARSA BH physics engine.
-
-Design notes:
-  - 15-min bar dt = 1/252 / 6.5 / 4  (4 bars/hour, 6.5 trading hours/day)
-  - OHLCV built from 5-step intrabar GBM sub-simulation
-  - Volume follows log-normal with intraday U-shape (open/close spikes)
-  - Regime transitions modelled via Markov chain with configurable probability
-  - BH_ACTIVE regime reproduces LARSA mass accumulation dynamics
+Multi-asset correlated GBM, Heston stochastic volatility, Merton jump-diffusion,
+regime-switching, order book simulation, market impact, informed/noise traders,
+flash crashes, earnings announcements, intraday patterns, correlation regime shifts,
+and central bank interventions.
 """
 
 from __future__ import annotations
-
-import math
-import logging
+import numpy as np
+from typing import Optional, Tuple, List, Dict, Any
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
-
-import numpy as np
-import pandas as pd
-from numpy.typing import NDArray
-
-logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# 15-min bar: 1 trading day = 252 days, 6.5 hours/day, 4 bars/hour
-DT_15M: float = 1.0 / 252.0 / 6.5 / 4.0
-
-# Annualised vol to per-bar vol scaling
-BARS_PER_YEAR: float = 252.0 * 6.5 * 4.0   # ~6552 bars/year
-
-# LARSA BH physics defaults (mirror larsa-v16 constants)
-BH_FORM_DEFAULT: float = 1.5
-BH_COLLAPSE_DEFAULT: float = 1.0
-BH_DECAY: float = 0.95
-BH_MASS_EMA_FAST: float = 0.03
-BH_MASS_EMA_SLOW: float = 0.97
-
-# Regime drift / vol multipliers (annualised)
-REGIME_DRIFT = {
-    "TRENDING_BULL":    0.05,
-    "TRENDING_BEAR":   -0.05,
-    "VOLATILE":         0.00,
-    "MEAN_REVERTING":   0.00,
-    "BLACK_HOLE_ACTIVE": 0.10,
-}
-
-REGIME_VOL_MULT = {
-    "TRENDING_BULL":    1.0,
-    "TRENDING_BEAR":    1.0,
-    "VOLATILE":         3.0,
-    "MEAN_REVERTING":   0.6,
-    "BLACK_HOLE_ACTIVE": 2.0,
-}
-
-# Intraday volume U-shape: bar positions within a day (26 bars/day at 15m)
-_BARS_PER_DAY = 26  # 6.5 hours * 4 bars/hour
 
 
 # ---------------------------------------------------------------------------
-# Enums and dataclasses
+# 1. Multi-Asset Correlated GBM
 # ---------------------------------------------------------------------------
 
-class MarketRegime(str, Enum):
-    """Market regimes recognised by the simulation engine."""
-    TRENDING_BULL    = "TRENDING_BULL"
-    TRENDING_BEAR    = "TRENDING_BEAR"
-    VOLATILE         = "VOLATILE"
-    MEAN_REVERTING   = "MEAN_REVERTING"
-    BLACK_HOLE_ACTIVE = "BLACK_HOLE_ACTIVE"
+class CorrelatedGBM:
+    """Multi-asset geometric Brownian motion with Cholesky decomposition."""
 
+    def __init__(self, n_assets: int, mus: np.ndarray, sigmas: np.ndarray,
+                 corr: np.ndarray, dt: float = 1 / 252,
+                 rng: Optional[np.random.Generator] = None):
+        self.n_assets = n_assets
+        self.mus = mus
+        self.sigmas = sigmas
+        self.corr = corr
+        self.dt = dt
+        self.rng = rng or np.random.default_rng(42)
+        self.L = np.linalg.cholesky(corr + np.eye(n_assets) * 1e-8)
+
+    def simulate(self, S0: np.ndarray, n_steps: int) -> np.ndarray:
+        """Returns (n_steps+1, n_assets) price paths."""
+        paths = np.zeros((n_steps + 1, self.n_assets))
+        paths[0] = S0
+        for t in range(n_steps):
+            z = self.rng.standard_normal(self.n_assets)
+            corr_z = self.L @ z
+            drift = (self.mus - 0.5 * self.sigmas ** 2) * self.dt
+            diffusion = self.sigmas * np.sqrt(self.dt) * corr_z
+            paths[t + 1] = paths[t] * np.exp(drift + diffusion)
+        return paths
+
+    def simulate_returns(self, n_steps: int) -> np.ndarray:
+        S0 = np.ones(self.n_assets) * 100
+        paths = self.simulate(S0, n_steps)
+        return np.diff(np.log(paths), axis=0)
+
+
+# ---------------------------------------------------------------------------
+# 2. Heston Stochastic Volatility
+# ---------------------------------------------------------------------------
+
+class HestonModel:
+    """Heston stochastic volatility model per asset."""
+
+    def __init__(self, kappa: float = 2.0, theta: float = 0.04,
+                 xi: float = 0.3, rho: float = -0.7,
+                 v0: float = 0.04, mu: float = 0.05,
+                 dt: float = 1 / 252, rng: Optional[np.random.Generator] = None):
+        self.kappa = kappa    # mean reversion speed
+        self.theta = theta    # long-run variance
+        self.xi = xi          # vol of vol
+        self.rho = rho        # correlation between price and vol
+        self.v0 = v0          # initial variance
+        self.mu = mu
+        self.dt = dt
+        self.rng = rng or np.random.default_rng(42)
+
+    def simulate(self, S0: float, n_steps: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Returns (prices, variances) arrays of length n_steps+1."""
+        prices = np.zeros(n_steps + 1)
+        variances = np.zeros(n_steps + 1)
+        prices[0] = S0
+        variances[0] = self.v0
+        for t in range(n_steps):
+            z1 = self.rng.standard_normal()
+            z2 = self.rho * z1 + np.sqrt(1 - self.rho ** 2) * self.rng.standard_normal()
+            v = max(variances[t], 0)
+            sqrt_v = np.sqrt(v)
+            # Variance process (truncated)
+            dv = self.kappa * (self.theta - v) * self.dt + self.xi * sqrt_v * np.sqrt(self.dt) * z2
+            variances[t + 1] = max(v + dv, 1e-8)
+            # Price process
+            dp = (self.mu - 0.5 * v) * self.dt + sqrt_v * np.sqrt(self.dt) * z1
+            prices[t + 1] = prices[t] * np.exp(dp)
+        return prices, variances
+
+
+class MultiAssetHeston:
+    """Multi-asset Heston with correlation structure."""
+
+    def __init__(self, n_assets: int, params: List[Dict[str, float]],
+                 corr: np.ndarray, dt: float = 1 / 252,
+                 rng: Optional[np.random.Generator] = None):
+        self.n_assets = n_assets
+        self.models = []
+        self.rng = rng or np.random.default_rng(42)
+        for p in params:
+            self.models.append(HestonModel(**p, dt=dt, rng=self.rng))
+        self.corr = corr
+        self.L = np.linalg.cholesky(corr + np.eye(n_assets) * 1e-8)
+
+    def simulate(self, S0: np.ndarray, n_steps: int) -> Tuple[np.ndarray, np.ndarray]:
+        prices = np.zeros((n_steps + 1, self.n_assets))
+        vols = np.zeros((n_steps + 1, self.n_assets))
+        prices[0] = S0
+        for i in range(self.n_assets):
+            vols[0, i] = self.models[i].v0
+        for t in range(n_steps):
+            z = self.rng.standard_normal(self.n_assets)
+            corr_z = self.L @ z
+            for i in range(self.n_assets):
+                m = self.models[i]
+                v = max(vols[t, i], 0)
+                sqrt_v = np.sqrt(v)
+                z1 = corr_z[i]
+                z2 = m.rho * z1 + np.sqrt(1 - m.rho ** 2) * self.rng.standard_normal()
+                dv = m.kappa * (m.theta - v) * m.dt + m.xi * sqrt_v * np.sqrt(m.dt) * z2
+                vols[t + 1, i] = max(v + dv, 1e-8)
+                dp = (m.mu - 0.5 * v) * m.dt + sqrt_v * np.sqrt(m.dt) * z1
+                prices[t + 1, i] = prices[t, i] * np.exp(dp)
+        return prices, vols
+
+
+# ---------------------------------------------------------------------------
+# 3. Jump-Diffusion (Merton) Overlay
+# ---------------------------------------------------------------------------
+
+class MertonJumpDiffusion:
+    """Merton jump-diffusion: GBM + compound Poisson jumps."""
+
+    def __init__(self, mu: float = 0.05, sigma: float = 0.2,
+                 jump_intensity: float = 2.0,
+                 jump_mean: float = -0.02, jump_std: float = 0.05,
+                 dt: float = 1 / 252, rng: Optional[np.random.Generator] = None):
+        self.mu = mu
+        self.sigma = sigma
+        self.lam = jump_intensity
+        self.jump_mean = jump_mean
+        self.jump_std = jump_std
+        self.dt = dt
+        self.rng = rng or np.random.default_rng(42)
+
+    def simulate(self, S0: float, n_steps: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Returns (prices, jump_indicators)."""
+        prices = np.zeros(n_steps + 1)
+        jumps = np.zeros(n_steps + 1)
+        prices[0] = S0
+        for t in range(n_steps):
+            z = self.rng.standard_normal()
+            n_jumps = self.rng.poisson(self.lam * self.dt)
+            jump_size = 0.0
+            if n_jumps > 0:
+                jump_size = np.sum(self.rng.normal(self.jump_mean, self.jump_std, n_jumps))
+                jumps[t + 1] = 1
+            drift = (self.mu - 0.5 * self.sigma ** 2) * self.dt
+            diffusion = self.sigma * np.sqrt(self.dt) * z
+            prices[t + 1] = prices[t] * np.exp(drift + diffusion + jump_size)
+        return prices, jumps
+
+    def simulate_multi(self, S0: np.ndarray, n_steps: int,
+                       corr: np.ndarray) -> np.ndarray:
+        n = len(S0)
+        L = np.linalg.cholesky(corr + np.eye(n) * 1e-8)
+        prices = np.zeros((n_steps + 1, n))
+        prices[0] = S0
+        for t in range(n_steps):
+            z = L @ self.rng.standard_normal(n)
+            for i in range(n):
+                n_j = self.rng.poisson(self.lam * self.dt)
+                js = np.sum(self.rng.normal(self.jump_mean, self.jump_std, n_j)) if n_j > 0 else 0
+                drift = (self.mu - 0.5 * self.sigma ** 2) * self.dt
+                prices[t + 1, i] = prices[t, i] * np.exp(drift + self.sigma * np.sqrt(self.dt) * z[i] + js)
+        return prices
+
+
+# ---------------------------------------------------------------------------
+# 4. Regime-Switching Dynamics
+# ---------------------------------------------------------------------------
+
+class RegimeSwitchingSimulator:
+    """Market dynamics with regime-switching parameters."""
+
+    def __init__(self, regime_params: List[Dict[str, float]],
+                 transition_matrix: np.ndarray,
+                 dt: float = 1 / 252, rng: Optional[np.random.Generator] = None):
+        """
+        regime_params: [{"mu": ..., "sigma": ..., "jump_intensity": ...}, ...]
+        transition_matrix: (n_regimes, n_regimes) Markov chain
+        """
+        self.params = regime_params
+        self.P = transition_matrix
+        self.n_regimes = len(regime_params)
+        self.dt = dt
+        self.rng = rng or np.random.default_rng(42)
+
+    def simulate(self, S0: float, n_steps: int,
+                 initial_regime: int = 0) -> Tuple[np.ndarray, np.ndarray]:
+        """Returns (prices, regime_labels)."""
+        prices = np.zeros(n_steps + 1)
+        regimes = np.zeros(n_steps + 1, dtype=int)
+        prices[0] = S0
+        regimes[0] = initial_regime
+        regime = initial_regime
+        for t in range(n_steps):
+            # Regime transition
+            regime = self.rng.choice(self.n_regimes, p=self.P[regime])
+            regimes[t + 1] = regime
+            p = self.params[regime]
+            mu = p.get("mu", 0.05)
+            sigma = p.get("sigma", 0.2)
+            lam = p.get("jump_intensity", 0)
+            jm = p.get("jump_mean", 0)
+            js = p.get("jump_std", 0.05)
+            z = self.rng.standard_normal()
+            jump = 0.0
+            if lam > 0:
+                nj = self.rng.poisson(lam * self.dt)
+                if nj > 0:
+                    jump = np.sum(self.rng.normal(jm, js, nj))
+            drift = (mu - 0.5 * sigma ** 2) * self.dt
+            prices[t + 1] = prices[t] * np.exp(drift + sigma * np.sqrt(self.dt) * z + jump)
+        return prices, regimes
+
+    @staticmethod
+    def default_regimes() -> Tuple[List[Dict], np.ndarray]:
+        params = [
+            {"mu": 0.10, "sigma": 0.12, "jump_intensity": 0.5, "jump_mean": 0.01, "jump_std": 0.02},  # bull
+            {"mu": -0.05, "sigma": 0.25, "jump_intensity": 3.0, "jump_mean": -0.03, "jump_std": 0.05},  # bear
+            {"mu": 0.02, "sigma": 0.15, "jump_intensity": 1.0, "jump_mean": 0.0, "jump_std": 0.03},   # sideways
+            {"mu": -0.15, "sigma": 0.40, "jump_intensity": 5.0, "jump_mean": -0.05, "jump_std": 0.08},  # crisis
+        ]
+        P = np.array([
+            [0.95, 0.03, 0.015, 0.005],
+            [0.05, 0.90, 0.03, 0.02],
+            [0.04, 0.04, 0.90, 0.02],
+            [0.10, 0.10, 0.10, 0.70],
+        ])
+        return params, P
+
+
+# ---------------------------------------------------------------------------
+# 5. Order Book Simulation
+# ---------------------------------------------------------------------------
 
 @dataclass
-class SimConfig:
-    """Configuration for a regime-switching simulation run.
+class OrderBookLevel:
+    price: float
+    size: float
 
-    Attributes
-    ----------
-    n_bars:
-        Total number of 15-min bars to generate.
-    regime_sequence:
-        List of (regime, duration_bars) tuples that define the regime schedule.
-        If the total duration is less than n_bars, the last regime is extended.
-        If None, a random sequence is generated using regime_transition_prob.
-    initial_price:
-        Starting price for the simulation.
-    annual_vol:
-        Annualised volatility (e.g. 0.20 for 20%).
-    regime_transition_prob:
-        Per-bar probability of a regime transition (used when regime_sequence
-        is None to generate a random Markov chain of regimes).
-    seed:
-        Optional random seed for reproducibility.
-    cf:
-        Capture-fraction constant mirroring LARSA CF["15m"] (default 0.0003).
-    cf_scale:
-        Additional scale factor on cf (LARSA sets 3.0 in BULL, 1.0 otherwise).
-    """
-    n_bars: int = 2000
-    regime_sequence: Optional[list[tuple[MarketRegime, int]]] = None
-    initial_price: float = 100.0
-    annual_vol: float = 0.20
-    regime_transition_prob: float = 0.002
-    seed: Optional[int] = None
-    cf: float = 0.0003
-    cf_scale: float = 1.0
+
+class OrderBookSimulator:
+    """Simulated limit order book with Poisson arrivals."""
+
+    def __init__(self, mid_price: float = 100.0, tick_size: float = 0.01,
+                 n_levels: int = 10, arrival_rate: float = 100.0,
+                 cancel_rate: float = 50.0,
+                 rng: Optional[np.random.Generator] = None):
+        self.mid = mid_price
+        self.tick = tick_size
+        self.n_levels = n_levels
+        self.arrival_rate = arrival_rate
+        self.cancel_rate = cancel_rate
+        self.rng = rng or np.random.default_rng(42)
+        self.bids: List[OrderBookLevel] = []
+        self.asks: List[OrderBookLevel] = []
+        self._init_book()
+
+    def _init_book(self) -> None:
+        self.bids = []
+        self.asks = []
+        for i in range(self.n_levels):
+            bp = self.mid - (i + 1) * self.tick
+            ap = self.mid + (i + 1) * self.tick
+            bs = self.rng.exponential(1000)
+            as_ = self.rng.exponential(1000)
+            self.bids.append(OrderBookLevel(bp, bs))
+            self.asks.append(OrderBookLevel(ap, as_))
+
+    def step(self, dt: float = 0.001) -> Dict[str, Any]:
+        """Advance order book by dt seconds."""
+        events = []
+        # Arrivals
+        n_arrivals = self.rng.poisson(self.arrival_rate * dt)
+        for _ in range(n_arrivals):
+            side = self.rng.choice(["bid", "ask"])
+            level = self.rng.integers(0, self.n_levels)
+            size = self.rng.exponential(500)
+            if side == "bid" and level < len(self.bids):
+                self.bids[level] = OrderBookLevel(self.bids[level].price,
+                                                   self.bids[level].size + size)
+            elif side == "ask" and level < len(self.asks):
+                self.asks[level] = OrderBookLevel(self.asks[level].price,
+                                                   self.asks[level].size + size)
+            events.append({"type": "arrival", "side": side, "level": level, "size": size})
+        # Cancellations
+        n_cancels = self.rng.poisson(self.cancel_rate * dt)
+        for _ in range(n_cancels):
+            side = self.rng.choice(["bid", "ask"])
+            level = self.rng.integers(0, self.n_levels)
+            if side == "bid" and level < len(self.bids):
+                cancel_size = min(self.rng.exponential(300), self.bids[level].size)
+                self.bids[level] = OrderBookLevel(self.bids[level].price,
+                                                   max(self.bids[level].size - cancel_size, 0))
+            elif side == "ask" and level < len(self.asks):
+                cancel_size = min(self.rng.exponential(300), self.asks[level].size)
+                self.asks[level] = OrderBookLevel(self.asks[level].price,
+                                                   max(self.asks[level].size - cancel_size, 0))
+        return {
+            "best_bid": self.bids[0].price if self.bids else 0,
+            "best_ask": self.asks[0].price if self.asks else 0,
+            "spread": (self.asks[0].price - self.bids[0].price) if self.bids and self.asks else 0,
+            "bid_depth": sum(b.size for b in self.bids),
+            "ask_depth": sum(a.size for a in self.asks),
+            "n_events": len(events),
+        }
+
+    def simulate_session(self, duration: float = 3600.0,
+                          dt: float = 0.1) -> List[Dict[str, Any]]:
+        n_steps = int(duration / dt)
+        snapshots = []
+        for _ in range(n_steps):
+            snap = self.step(dt)
+            snapshots.append(snap)
+        return snapshots
 
 
 # ---------------------------------------------------------------------------
-# Geometric Brownian Motion
+# 6. Market Impact Model
 # ---------------------------------------------------------------------------
 
-class GeometricBrownianMotion:
-    """
-    Standard and jump-diffusion GBM price path generators.
+class MarketImpact:
+    """Permanent and temporary market impact models."""
 
-    All methods return arrays of *price levels* (not returns), starting
-    from 1.0 (scale by initial_price at the call site).
-    """
+    def __init__(self, sigma: float = 0.02, adv: float = 1e7,
+                 permanent_coeff: float = 0.1, temporary_coeff: float = 0.05):
+        self.sigma = sigma
+        self.adv = adv
+        self.perm = permanent_coeff
+        self.temp = temporary_coeff
 
-    @staticmethod
-    def generate(
-        n: int,
-        mu: float,
-        sigma: float,
-        dt: float = DT_15M,
-        seed: Optional[int] = None,
-        initial: float = 1.0,
-    ) -> NDArray[np.float64]:
-        """Generate a GBM price path of length n+1 (includes t=0).
+    def sqrt_model(self, trade_value: float) -> Dict[str, float]:
+        participation = abs(trade_value) / (self.adv + 1e-10)
+        permanent = self.perm * self.sigma * np.sign(trade_value) * np.sqrt(participation)
+        temporary = self.temp * self.sigma * np.sqrt(participation)
+        return {
+            "permanent_impact": float(permanent),
+            "temporary_impact": float(temporary),
+            "total_cost": float(abs(trade_value) * (abs(permanent) + temporary)),
+            "participation_rate": float(participation),
+        }
 
-        Parameters
-        ----------
-        n:
-            Number of steps (returns array of length n+1).
-        mu:
-            Annualised drift.
-        sigma:
-            Annualised volatility.
-        dt:
-            Time step in years (default = 15-min bar dt).
-        seed:
-            Optional random seed.
-        initial:
-            Starting price level.
+    def almgren_chriss(self, trade_value: float, T: float = 1.0,
+                       risk_aversion: float = 1e-6) -> Dict[str, Any]:
+        """Optimal execution trajectory via Almgren-Chriss."""
+        n_steps = max(int(T * 252), 1)
+        X = abs(trade_value)
+        dt_exec = T / n_steps
+        # Optimal TWAP-like with urgency
+        kappa = np.sqrt(risk_aversion * self.sigma ** 2 / (self.temp + 1e-10))
+        trajectory = np.zeros(n_steps + 1)
+        trajectory[0] = X
+        for i in range(1, n_steps + 1):
+            t_remain = (n_steps - i) * dt_exec
+            trajectory[i] = X * np.sinh(kappa * t_remain) / (np.sinh(kappa * T) + 1e-30)
+        trades = -np.diff(trajectory)
+        costs = self.temp * self.sigma * np.sqrt(np.abs(trades) / (self.adv * dt_exec + 1e-10))
+        return {
+            "trajectory": trajectory,
+            "trades": trades,
+            "per_step_cost": costs,
+            "total_cost": float(np.sum(costs * np.abs(trades))),
+        }
 
-        Returns
-        -------
-        np.ndarray shape (n+1,)
+
+# ---------------------------------------------------------------------------
+# 7. Informed vs Noise Trader Flow
+# ---------------------------------------------------------------------------
+
+class InformedNoiseTraderModel:
+    """Model informed and noise trader order flow."""
+
+    def __init__(self, pct_informed: float = 0.2, sigma_noise: float = 0.02,
+                 signal_strength: float = 0.05,
+                 rng: Optional[np.random.Generator] = None):
+        self.pct_informed = pct_informed
+        self.sigma_noise = sigma_noise
+        self.signal_strength = signal_strength
+        self.rng = rng or np.random.default_rng(42)
+
+    def simulate_flow(self, true_value: np.ndarray, n_trades: int = 1000) -> Dict[str, np.ndarray]:
         """
-        rng = np.random.default_rng(seed)
-        drift = (mu - 0.5 * sigma ** 2) * dt
-        diffusion = sigma * math.sqrt(dt)
-        z = rng.standard_normal(n)
-        log_returns = drift + diffusion * z
-        log_path = np.concatenate([[0.0], np.cumsum(log_returns)])
-        return initial * np.exp(log_path)
-
-    @staticmethod
-    def generate_with_jumps(
-        n: int,
-        mu: float,
-        sigma: float,
-        jump_intensity: float = 2.0,
-        jump_size_mu: float = -0.02,
-        jump_size_sigma: float = 0.04,
-        dt: float = DT_15M,
-        seed: Optional[int] = None,
-        initial: float = 1.0,
-    ) -> NDArray[np.float64]:
-        """Merton jump-diffusion price path.
-
-        Adds a compound Poisson process to standard GBM.
-
-        Parameters
-        ----------
-        jump_intensity:
-            Expected jumps per year (lambda in Merton model).
-        jump_size_mu:
-            Mean log-jump size.
-        jump_size_sigma:
-            Std-dev of log-jump size.
+        true_value: (T,) true value path.
+        Returns order flow decomposition.
         """
-        rng = np.random.default_rng(seed)
-        # Jump compensation term so drift is still mu in expectation
-        k = math.exp(jump_size_mu + 0.5 * jump_size_sigma ** 2) - 1.0
-        drift_comp = (mu - 0.5 * sigma ** 2 - jump_intensity * k) * dt
-        diffusion = sigma * math.sqrt(dt)
-
-        z_diff = rng.standard_normal(n)
-        # Number of jumps per bar ~ Poisson(lambda * dt)
-        n_jumps = rng.poisson(jump_intensity * dt, size=n)
-        # Jump sizes -- sum n_jumps[i] normal draws per bar
-        # vectorised: draw enough, then accumulate
-        max_jumps = max(n_jumps.max(), 1)
-        jump_pool = rng.normal(jump_size_mu, jump_size_sigma, size=(n, max_jumps))
-        # Mask jumps beyond actual count
-        jump_mask = np.arange(max_jumps)[None, :] < n_jumps[:, None]
-        jump_log_returns = (jump_pool * jump_mask).sum(axis=1)
-
-        log_returns = drift_comp + diffusion * z_diff + jump_log_returns
-        log_path = np.concatenate([[0.0], np.cumsum(log_returns)])
-        return initial * np.exp(log_path)
-
-
-# ---------------------------------------------------------------------------
-# Ornstein-Uhlenbeck process
-# ---------------------------------------------------------------------------
-
-class OrnsteinUhlenbeck:
-    """
-    Ornstein-Uhlenbeck mean-reverting process.
-
-    Discrete form:
-        x[t] = x[t-1] + kappa * (theta - x[t-1]) * dt + sigma * sqrt(dt) * Z
-    """
-
-    @staticmethod
-    def generate(
-        n: int,
-        kappa: float,
-        theta: float,
-        sigma: float,
-        x0: Optional[float] = None,
-        dt: float = DT_15M,
-        seed: Optional[int] = None,
-    ) -> NDArray[np.float64]:
-        """Generate OU path of length n+1 (includes t=0).
-
-        Parameters
-        ----------
-        kappa:
-            Mean reversion speed (per year). Typical range: 2-50.
-        theta:
-            Long-run mean level.
-        sigma:
-            Annualised diffusion coefficient.
-        x0:
-            Starting value. Defaults to theta.
-
-        Returns
-        -------
-        np.ndarray shape (n+1,)
-        """
-        rng = np.random.default_rng(seed)
-        if x0 is None:
-            x0 = theta
-        path = np.empty(n + 1)
-        path[0] = x0
-        sqrt_dt = math.sqrt(dt)
-        z = rng.standard_normal(n)
-        for i in range(n):
-            path[i + 1] = (
-                path[i]
-                + kappa * (theta - path[i]) * dt
-                + sigma * sqrt_dt * z[i]
-            )
-        return path
-
-    @staticmethod
-    def fit(prices: NDArray[np.float64]) -> tuple[float, float, float]:
-        """Fit OU parameters via OLS on the discretised SDE.
-
-        Regresses:
-            dx = a + b * x[t-1] + noise
-
-        Then recovers: kappa = -b/dt, theta = -a/b, sigma from residuals.
-
-        Parameters
-        ----------
-        prices:
-            1-D array of price levels.
-
-        Returns
-        -------
-        (kappa, theta, sigma) -- annualised parameters
-        """
-        dt = DT_15M
-        x = prices[:-1]
-        dx = np.diff(prices)
-        # OLS: dx = a + b*x + eps
-        X = np.column_stack([np.ones_like(x), x])
-        try:
-            coeffs, residuals, _, _ = np.linalg.lstsq(X, dx, rcond=None)
-        except np.linalg.LinAlgError:
-            return (1.0, float(np.mean(prices)), float(np.std(prices)))
-        a, b = coeffs
-        if b >= 0:
-            # Non-mean-reverting: return nominal estimates
-            kappa = 0.1
-            theta = float(np.mean(prices))
-        else:
-            kappa = -b / dt
-            theta = -a / b if abs(b) > 1e-12 else float(np.mean(prices))
-        # Sigma from residual std
-        if len(residuals) > 0 and residuals[0] > 0:
-            resid_std = math.sqrt(residuals[0] / len(x))
-        else:
-            resid_std = float(np.std(dx - (a + b * x)))
-        sigma = resid_std / math.sqrt(dt)
-        return (float(kappa), float(theta), float(sigma))
-
-
-# ---------------------------------------------------------------------------
-# OHLCV bar construction helpers
-# ---------------------------------------------------------------------------
-
-def _build_ohlcv_from_sub_path(
-    sub_path: NDArray[np.float64],
-    open_price: float,
-    volume_base: float,
-) -> dict:
-    """Build a single OHLCV bar from a 6-point intrabar path (5 steps).
-
-    sub_path: shape (6,) -- open to close prices (relative, starting at 1.0)
-    """
-    prices = sub_path * open_price
-    o = prices[0]
-    h = float(np.max(prices))
-    l = float(np.min(prices))
-    c = prices[-1]
-    return {"open": o, "high": h, "low": l, "close": c, "volume": volume_base}
-
-
-def _intraday_volume_factor(bar_idx_in_day: int, n_bars_day: int = _BARS_PER_DAY) -> float:
-    """Return a volume multiplier for the U-shape intraday pattern.
-
-    First ~2 bars and last ~2 bars get elevated volume.
-    """
-    x = bar_idx_in_day / max(n_bars_day - 1, 1)
-    # U-shape: high at 0 and 1, low in the middle
-    # Uses a simple quadratic: 4*(x - 0.5)^2 + base_level
-    factor = 4.0 * (x - 0.5) ** 2 + 0.4
-    return float(np.clip(factor, 0.1, 4.0))
-
-
-# ---------------------------------------------------------------------------
-# Regime-switching market generator
-# ---------------------------------------------------------------------------
-
-class RegimeSwitchingMarket:
-    """
-    Generates OHLCV bars with regime switching across all five MarketRegime
-    states including BH_ACTIVE dynamics.
-
-    Usage
-    -----
-    >>> cfg = SimConfig(n_bars=500, initial_price=4500.0, annual_vol=0.18)
-    >>> df = RegimeSwitchingMarket.generate(cfg)
-    >>> df.columns
-    Index(['open', 'high', 'low', 'close', 'volume', 'regime', 'bh_mass'], dtype='object')
-    """
-
-    @staticmethod
-    def generate(config: SimConfig) -> pd.DataFrame:
-        """Generate OHLCV bars with regime-switching dynamics.
-
-        Returns
-        -------
-        pd.DataFrame with columns:
-            open, high, low, close, volume, regime, bh_mass
-        Index is a RangeIndex matching bar number.
-        """
-        rng = np.random.default_rng(config.seed)
-        n = config.n_bars
-        sigma_annual = config.annual_vol
-        p0 = config.initial_price
-
-        # -- Build regime schedule --
-        regime_at_bar = RegimeSwitchingMarket._build_regime_schedule(config, rng, n)
-
-        # -- Simulate intrabar sub-paths and build bars --
-        records = []
-        current_price = p0
-
-        # BH mass state (mirrors LARSA FutureInstrument.update_bh)
-        bh_mass = 0.0
-        ctl = 0        # consecutive timelike bars
-        bh_active = False
-        bh_dir = 0
-        cf = config.cf * config.cf_scale
-        price_window: list[float] = []  # rolling window for BH direction
-
-        # OU state for MEAN_REVERTING regime
-        ou_theta = p0
-        ou_kappa = 15.0
-        ou_sigma = sigma_annual * 0.6
-
-        # BH event state for BLACK_HOLE_ACTIVE regime
-        bh_event_bar = 0   # bars since BH_ACTIVE regime started
-
-        for i in range(n):
-            regime = regime_at_bar[i]
-            bar_in_day = i % _BARS_PER_DAY
-
-            # -- Regime-specific drift and vol --
-            drift_ann, vol_ann = RegimeSwitchingMarket._regime_params(
-                regime, sigma_annual, bh_event_bar if regime == MarketRegime.BLACK_HOLE_ACTIVE else 0
-            )
-            dt = DT_15M
-
-            # -- Generate intrabar sub-path (5 steps -> 6 points) --
-            sub_path = RegimeSwitchingMarket._intrabar_subpath(
-                regime, drift_ann, vol_ann, current_price, ou_theta, ou_kappa, ou_sigma, rng
-            )
-
-            # -- Volume --
-            vol_base_log = math.log(max(current_price * 1e-3, 1.0)) + 5.0
-            vol_noise = rng.normal(0.0, 0.4)
-            vol_base = math.exp(vol_base_log + vol_noise)
-            # Spike volume at regime transitions
-            is_transition = (i > 0 and regime_at_bar[i] != regime_at_bar[i - 1])
-            if is_transition:
-                vol_base *= rng.uniform(2.0, 5.0)
-            intraday_mult = _intraday_volume_factor(bar_in_day)
-            final_volume = vol_base * intraday_mult
-
-            # -- Build OHLCV --
-            bar = _build_ohlcv_from_sub_path(sub_path, current_price, final_volume)
-            current_price = bar["close"]
-
-            # -- Update OU theta for mean-reverting regime --
-            if regime == MarketRegime.MEAN_REVERTING:
-                window = 50
-                if len(price_window) >= window:
-                    ou_theta = float(np.mean(price_window[-window:]))
+        T = len(true_value)
+        n_per_period = n_trades // T
+        order_flow = np.zeros(T)
+        informed_flow = np.zeros(T)
+        noise_flow = np.zeros(T)
+        for t in range(T):
+            for _ in range(n_per_period):
+                is_informed = self.rng.random() < self.pct_informed
+                if is_informed:
+                    direction = np.sign(true_value[t] - true_value[max(0, t - 1)])
+                    if direction == 0:
+                        direction = self.rng.choice([-1, 1])
+                    size = abs(self.rng.normal(self.signal_strength, self.signal_strength * 0.3))
+                    informed_flow[t] += direction * size
                 else:
-                    ou_theta = p0
+                    size = self.rng.normal(0, self.sigma_noise)
+                    noise_flow[t] += size
+            order_flow[t] = informed_flow[t] + noise_flow[t]
+        return {
+            "total_flow": order_flow,
+            "informed_flow": informed_flow,
+            "noise_flow": noise_flow,
+            "signal_to_noise": np.std(informed_flow) / (np.std(noise_flow) + 1e-10),
+        }
 
-            # -- BH mass update (LARSA update_bh logic) --
-            if len(price_window) >= 1:
-                prev_close = price_window[-1]
-                beta_raw = abs(bar["close"] - prev_close) / (prev_close + 1e-9)
-                beta = beta_raw / (cf + 1e-9)
-                if beta < 1.0:
-                    ctl += 1
-                    sb = min(2.0, 1.0 + ctl * 0.1)
-                    bh_mass = bh_mass * BH_MASS_EMA_SLOW + BH_MASS_EMA_FAST * 1.0 * sb
-                else:
-                    ctl = 0
-                    bh_mass *= BH_DECAY
-                was_active = bh_active
-                if not was_active:
-                    bh_active = bh_mass > BH_FORM_DEFAULT and ctl >= 3
-                else:
-                    bh_active = bh_mass > BH_COLLAPSE_DEFAULT and ctl >= 3
-                if not was_active and bh_active:
-                    lookback = min(20, len(price_window))
-                    bh_dir = 1 if bar["close"] > price_window[-lookback] else -1
+
+# ---------------------------------------------------------------------------
+# 8. Flash Crash Simulation
+# ---------------------------------------------------------------------------
+
+class FlashCrashSimulator:
+    """Simulate flash crash: sudden liquidity withdrawal."""
+
+    def __init__(self, normal_vol: float = 0.15, crash_vol: float = 0.80,
+                 recovery_speed: float = 0.3, crash_depth: float = -0.10,
+                 rng: Optional[np.random.Generator] = None):
+        self.normal_vol = normal_vol
+        self.crash_vol = crash_vol
+        self.recovery_speed = recovery_speed
+        self.crash_depth = crash_depth
+        self.rng = rng or np.random.default_rng(42)
+
+    def simulate(self, S0: float, n_steps: int, crash_start: int,
+                 crash_duration: int = 10, recovery_duration: int = 50) -> Dict[str, np.ndarray]:
+        dt = 1 / 252
+        prices = np.zeros(n_steps + 1)
+        volumes = np.zeros(n_steps + 1)
+        spreads = np.zeros(n_steps + 1)
+        prices[0] = S0
+        volumes[0] = 1.0
+        spreads[0] = 0.01
+        crash_end = crash_start + crash_duration
+        recovery_end = crash_end + recovery_duration
+        for t in range(n_steps):
+            if crash_start <= t < crash_end:
+                # Crash phase
+                progress = (t - crash_start) / crash_duration
+                vol = self.crash_vol
+                drift = self.crash_depth / crash_duration
+                volumes[t + 1] = 0.1 + 3.0 * progress
+                spreads[t + 1] = 0.01 * (1 + 20 * progress)
+            elif crash_end <= t < recovery_end:
+                # Recovery phase
+                progress = (t - crash_end) / recovery_duration
+                vol = self.crash_vol * (1 - progress) + self.normal_vol * progress
+                drift = -self.crash_depth * self.recovery_speed / recovery_duration
+                volumes[t + 1] = 3.0 * (1 - progress) + 1.0 * progress
+                spreads[t + 1] = 0.01 * (1 + 20 * (1 - progress))
             else:
-                beta = 0.0
+                vol = self.normal_vol
+                drift = 0.05 * dt
+                volumes[t + 1] = 1.0 + self.rng.standard_normal() * 0.2
+                spreads[t + 1] = 0.01
+            z = self.rng.standard_normal()
+            prices[t + 1] = prices[t] * np.exp(drift * dt + vol * np.sqrt(dt) * z)
+        return {
+            "prices": prices,
+            "volumes": np.maximum(volumes, 0.01),
+            "spreads": np.maximum(spreads, 0.001),
+            "crash_window": (crash_start, crash_end),
+            "recovery_window": (crash_end, recovery_end),
+        }
 
-            price_window.append(bar["close"])
-            if len(price_window) > 50:
-                price_window.pop(0)
 
-            # Track bars in BH_ACTIVE regime
-            if regime == MarketRegime.BLACK_HOLE_ACTIVE:
-                bh_event_bar += 1
+# ---------------------------------------------------------------------------
+# 9. Earnings Announcement Model
+# ---------------------------------------------------------------------------
+
+class EarningsAnnouncementModel:
+    """Simulate gap + vol spike around earnings."""
+
+    def __init__(self, gap_mean: float = 0.0, gap_std: float = 0.05,
+                 vol_spike_mult: float = 3.0, vol_decay: float = 0.85,
+                 rng: Optional[np.random.Generator] = None):
+        self.gap_mean = gap_mean
+        self.gap_std = gap_std
+        self.vol_spike = vol_spike_mult
+        self.vol_decay = vol_decay
+        self.rng = rng or np.random.default_rng(42)
+
+    def simulate(self, S0: float, n_days: int, announcement_days: List[int],
+                 base_vol: float = 0.2) -> Dict[str, np.ndarray]:
+        dt = 1 / 252
+        prices = np.zeros(n_days + 1)
+        realized_vol = np.zeros(n_days + 1)
+        prices[0] = S0
+        current_vol_mult = 1.0
+        for t in range(n_days):
+            if t in announcement_days:
+                gap = self.rng.normal(self.gap_mean, self.gap_std)
+                prices[t] *= np.exp(gap)
+                current_vol_mult = self.vol_spike
             else:
-                bh_event_bar = 0
-
-            bar["regime"] = regime.value
-            bar["bh_mass"] = bh_mass
-            bar["bh_active"] = bh_active
-            bar["bh_dir"] = bh_dir
-            records.append(bar)
-
-        df = pd.DataFrame(records)
-        df.index.name = "bar"
-        return df
-
-    @staticmethod
-    def _build_regime_schedule(
-        config: SimConfig,
-        rng: np.random.Generator,
-        n: int,
-    ) -> list[MarketRegime]:
-        """Return list of length n with regime at each bar."""
-        if config.regime_sequence is not None:
-            schedule: list[MarketRegime] = []
-            for regime, dur in config.regime_sequence:
-                schedule.extend([regime] * dur)
-            # Extend or truncate to n
-            if len(schedule) < n:
-                schedule.extend([schedule[-1]] * (n - len(schedule)))
-            return schedule[:n]
-
-        # Random Markov chain
-        all_regimes = list(MarketRegime)
-        n_regimes = len(all_regimes)
-        p_stay = 1.0 - config.regime_transition_prob
-        p_switch = config.regime_transition_prob / (n_regimes - 1)
-        trans_matrix = np.full((n_regimes, n_regimes), p_switch)
-        np.fill_diagonal(trans_matrix, p_stay)
-
-        schedule = []
-        current_idx = rng.integers(0, n_regimes)
-        for _ in range(n):
-            schedule.append(all_regimes[current_idx])
-            current_idx = int(rng.choice(n_regimes, p=trans_matrix[current_idx]))
-        return schedule
-
-    @staticmethod
-    def _regime_params(
-        regime: MarketRegime,
-        sigma_annual: float,
-        bh_event_bar: int = 0,
-    ) -> tuple[float, float]:
-        """Return (drift_annualised, vol_annualised) for a regime."""
-        base_drift = REGIME_DRIFT[regime.value]
-        vol_mult = REGIME_VOL_MULT[regime.value]
-
-        if regime == MarketRegime.BLACK_HOLE_ACTIVE:
-            # Drift accelerates as BH event matures then reverses
-            if bh_event_bar < 20:
-                # Accumulation phase: moderate positive drift
-                drift = 0.08 + bh_event_bar * 0.01
-            elif bh_event_bar < 35:
-                # Breakout phase: explosive
-                drift = 0.30
-            else:
-                # Reversal phase: strong mean reversion
-                drift = -0.20
-            return (drift, sigma_annual * vol_mult)
-
-        return (base_drift, sigma_annual * vol_mult)
-
-    @staticmethod
-    def _intrabar_subpath(
-        regime: MarketRegime,
-        drift_ann: float,
-        vol_ann: float,
-        open_price: float,
-        ou_theta: float,
-        ou_kappa: float,
-        ou_sigma: float,
-        rng: np.random.Generator,
-    ) -> NDArray[np.float64]:
-        """Generate 6-point intrabar path (5 steps) starting from 1.0.
-
-        Returns relative path (divide by open_price outside to scale).
-        Returns array where path[0] = 1.0 (open), path[-1] = close.
-        """
-        n_sub = 5
-        dt_sub = DT_15M / n_sub
-
-        if regime == MarketRegime.MEAN_REVERTING:
-            # OU sub-path scaled to price level
-            path = np.empty(n_sub + 1)
-            path[0] = open_price
-            sqrt_dt_sub = math.sqrt(dt_sub)
-            z = rng.standard_normal(n_sub)
-            for j in range(n_sub):
-                path[j + 1] = (
-                    path[j]
-                    + ou_kappa * (ou_theta - path[j]) * dt_sub
-                    + ou_sigma * sqrt_dt_sub * z[j]
-                )
-            # Ensure no negative prices
-            path = np.maximum(path, open_price * 0.01)
-            return path / open_price
-
-        # GBM sub-path (all other regimes)
-        drift_sub = (drift_ann - 0.5 * vol_ann ** 2) * dt_sub
-        diff_sub = vol_ann * math.sqrt(dt_sub)
-        z = rng.standard_normal(n_sub)
-
-        if regime == MarketRegime.VOLATILE:
-            # Add small jump probability within bar
-            jump_prob = 0.15
-            for idx in range(n_sub):
-                if rng.random() < jump_prob:
-                    z[idx] += rng.choice([-1, 1]) * rng.uniform(1.5, 3.0)
-
-        log_returns = drift_sub + diff_sub * z
-        log_path = np.concatenate([[0.0], np.cumsum(log_returns)])
-        return np.exp(log_path)
+                current_vol_mult = max(1.0, current_vol_mult * self.vol_decay)
+            vol = base_vol * current_vol_mult
+            realized_vol[t + 1] = vol
+            z = self.rng.standard_normal()
+            prices[t + 1] = prices[t] * np.exp(-0.5 * vol ** 2 * dt + vol * np.sqrt(dt) * z)
+        return {
+            "prices": prices,
+            "realized_vol": realized_vol,
+            "announcement_days": announcement_days,
+        }
 
 
 # ---------------------------------------------------------------------------
-# Correlated multi-asset simulator
+# 10. Intraday Patterns
 # ---------------------------------------------------------------------------
 
-class CorrelatedAssetSimulator:
-    """
-    Generates correlated multi-asset price paths via Cholesky decomposition.
+class IntradayPatternSimulator:
+    """U-shaped volume, spread widening at open/close."""
 
-    Supports:
-      - Regime-dependent correlation (contagion in VOLATILE)
-      - BTC dominance effect: when BTC is in BH_ACTIVE, other crypto follows
-        with a configurable lag in bars.
+    def __init__(self, n_minutes: int = 390, base_vol: float = 0.15,
+                 rng: Optional[np.random.Generator] = None):
+        self.n_minutes = n_minutes  # 6.5 hours
+        self.base_vol = base_vol
+        self.rng = rng or np.random.default_rng(42)
 
-    Usage
-    -----
-    >>> sim = CorrelatedAssetSimulator(asset_names=["BTC", "ETH", "SOL"])
-    >>> paths = sim.generate(n=1000, corr_matrix=corr, mus=mus, sigmas=sigmas)
-    >>> paths["BTC"].shape
-    (1001,)
-    """
+    def u_shaped_volume(self) -> np.ndarray:
+        """Generate U-shaped intraday volume profile."""
+        t = np.linspace(0, 1, self.n_minutes)
+        u_shape = 3.0 * (t - 0.5) ** 2 + 0.5
+        # Add lunch dip
+        lunch = 1.0 - 0.3 * np.exp(-((t - 0.5) ** 2) / 0.01)
+        volume = u_shape * lunch
+        volume /= volume.mean()
+        return volume
 
-    def __init__(
-        self,
-        asset_names: Optional[list[str]] = None,
-        btc_dominance_lag: int = 2,
-        contagion_boost: float = 0.3,
-        seed: Optional[int] = None,
-    ):
-        """
-        Parameters
-        ----------
-        asset_names:
-            Names for each asset; first asset treated as BTC for dominance effect.
-        btc_dominance_lag:
-            Bars of lag before BTC BH_ACTIVE event propagates to other assets.
-        contagion_boost:
-            Added to all pairwise correlations when VOLATILE regime detected.
-        seed:
-            Optional random seed.
-        """
-        self.asset_names = asset_names or []
-        self.btc_dominance_lag = btc_dominance_lag
-        self.contagion_boost = contagion_boost
-        self.seed = seed
-
-    def generate(
-        self,
-        n: int,
-        corr_matrix: NDArray[np.float64],
-        mus: NDArray[np.float64],
-        sigmas: NDArray[np.float64],
-        regime: Optional[MarketRegime] = None,
-        btc_bh_active_bars: Optional[list[int]] = None,
-        initial_prices: Optional[NDArray[np.float64]] = None,
-        dt: float = DT_15M,
-    ) -> dict[str, NDArray[np.float64]]:
-        """Generate correlated price paths.
-
-        Parameters
-        ----------
-        n:
-            Number of steps.
-        corr_matrix:
-            k x k correlation matrix (k = number of assets).
-        mus:
-            Annualised drift vector, shape (k,).
-        sigmas:
-            Annualised vol vector, shape (k,).
-        regime:
-            Current regime -- used to apply contagion boost in VOLATILE.
-        btc_bh_active_bars:
-            List of bar indices where BTC is in BH_ACTIVE; triggers lagged
-            contagion for other crypto assets.
-        initial_prices:
-            Starting prices, shape (k,). Defaults to all 1.0.
-
-        Returns
-        -------
-        dict mapping asset name -> np.ndarray of shape (n+1,)
-        """
-        rng = np.random.default_rng(self.seed)
-        k = len(corr_matrix)
-        if initial_prices is None:
-            initial_prices = np.ones(k)
-
-        # Apply contagion boost in VOLATILE or HIGH_VOL regimes
-        effective_corr = corr_matrix.copy()
-        if regime in (MarketRegime.VOLATILE, MarketRegime.BLACK_HOLE_ACTIVE):
-            boost = np.full_like(effective_corr, self.contagion_boost)
-            np.fill_diagonal(boost, 0.0)
-            effective_corr = np.clip(effective_corr + boost, -0.99, 0.99)
-
-        # Enforce positive-semidefinite
-        effective_corr = self._nearest_psd(effective_corr)
-
-        # Cholesky decomposition
-        try:
-            L = np.linalg.cholesky(effective_corr)
-        except np.linalg.LinAlgError:
-            # Fallback: diagonal (uncorrelated)
-            logger.warning("Cholesky decomposition failed -- using diagonal correlation.")
-            L = np.diag(np.ones(k))
-
-        # Covariance-scaled Cholesky (sigma_i * L_ij)
-        cov_scale = sigmas[:, None] * L  # shape (k, k) broadcast
-
-        # GBM log-return simulation
-        drifts = (mus - 0.5 * sigmas ** 2) * dt
-        z_raw = rng.standard_normal((n, k))   # (n, k) iid normals
-        z_corr = (L @ z_raw.T).T              # (n, k) correlated normals
-
-        log_returns = drifts[None, :] + sigmas[None, :] * math.sqrt(dt) * z_corr  # (n, k)
-
-        # BTC dominance contagion: inject correlated shock with lag
-        btc_set: set[int] = set(btc_bh_active_bars) if btc_bh_active_bars else set()
-        if btc_set and k > 1:
-            lag = self.btc_dominance_lag
-            shock_intensity = 0.015  # per-bar extra return for lagged assets
-            for bar_idx in btc_set:
-                target_bar = bar_idx + lag
-                if 0 <= target_bar < n:
-                    # Other assets (idx 1..k-1) get a shock proportional to BTC move
-                    btc_move = log_returns[bar_idx, 0]
-                    for asset_idx in range(1, k):
-                        log_returns[target_bar, asset_idx] += btc_move * 0.5
-
-        # Build cumulative price paths
-        log_paths = np.vstack([np.zeros((1, k)), np.cumsum(log_returns, axis=0)])  # (n+1, k)
-        prices = initial_prices[None, :] * np.exp(log_paths)  # (n+1, k)
-
-        names = self.asset_names if len(self.asset_names) == k else [f"asset_{i}" for i in range(k)]
-        return {name: prices[:, i] for i, name in enumerate(names)}
-
-    @staticmethod
-    def _nearest_psd(matrix: NDArray[np.float64]) -> NDArray[np.float64]:
-        """Project a symmetric matrix to the nearest positive semidefinite matrix.
-
-        Uses eigenvalue clipping (Higham 2002 simplified version).
-        """
-        # Symmetrize
-        M = (matrix + matrix.T) / 2.0
-        eigvals, eigvecs = np.linalg.eigh(M)
-        eigvals = np.maximum(eigvals, 1e-8)
-        psd = eigvecs @ np.diag(eigvals) @ eigvecs.T
-        # Re-scale to unit diagonal (correlation matrix)
-        d = np.sqrt(np.diag(psd))
-        d = np.where(d < 1e-12, 1.0, d)
-        psd = psd / np.outer(d, d)
-        np.fill_diagonal(psd, 1.0)
-        return psd
+    def simulate_intraday(self, S0: float = 100.0) -> Dict[str, np.ndarray]:
+        volume_profile = self.u_shaped_volume()
+        dt = 1.0 / (self.n_minutes * 252)
+        prices = np.zeros(self.n_minutes + 1)
+        spreads = np.zeros(self.n_minutes + 1)
+        volumes = np.zeros(self.n_minutes + 1)
+        prices[0] = S0
+        t_frac = np.linspace(0, 1, self.n_minutes)
+        for i in range(self.n_minutes):
+            vol_adj = self.base_vol * np.sqrt(volume_profile[i])
+            z = self.rng.standard_normal()
+            prices[i + 1] = prices[i] * np.exp(-0.5 * vol_adj ** 2 * dt + vol_adj * np.sqrt(dt) * z)
+            # Spread: wider at open and close
+            spread_mult = 2.0 * abs(t_frac[i] - 0.5) + 0.5
+            if t_frac[i] < 0.05 or t_frac[i] > 0.95:
+                spread_mult *= 2.0
+            spreads[i + 1] = 0.01 * spread_mult
+            volumes[i + 1] = volume_profile[i] * (1 + 0.2 * self.rng.standard_normal())
+        return {
+            "prices": prices,
+            "spreads": np.maximum(spreads, 0.001),
+            "volumes": np.maximum(volumes, 0.01),
+            "volume_profile": volume_profile,
+        }
 
 
 # ---------------------------------------------------------------------------
-# Convenience factory functions
+# 11. Correlation Regime Shifts
 # ---------------------------------------------------------------------------
 
-def make_trending_bull_config(
-    n_bars: int = 1000,
-    initial_price: float = 100.0,
-    annual_vol: float = 0.20,
-    seed: Optional[int] = 42,
-) -> SimConfig:
-    """Pre-built config: pure trending bull market."""
-    return SimConfig(
-        n_bars=n_bars,
-        regime_sequence=[(MarketRegime.TRENDING_BULL, n_bars)],
-        initial_price=initial_price,
-        annual_vol=annual_vol,
-        seed=seed,
-    )
+class CorrelationRegimeSimulator:
+    """Simulate gradual and sudden correlation regime shifts."""
 
+    def __init__(self, n_assets: int, rng: Optional[np.random.Generator] = None):
+        self.n_assets = n_assets
+        self.rng = rng or np.random.default_rng(42)
 
-def make_mixed_regime_config(
-    n_bars: int = 2000,
-    initial_price: float = 100.0,
-    annual_vol: float = 0.20,
-    seed: Optional[int] = 42,
-) -> SimConfig:
-    """Pre-built config: alternating regimes with BH episode."""
-    return SimConfig(
-        n_bars=n_bars,
-        regime_sequence=[
-            (MarketRegime.TRENDING_BULL, 400),
-            (MarketRegime.MEAN_REVERTING, 300),
-            (MarketRegime.VOLATILE, 200),
-            (MarketRegime.BLACK_HOLE_ACTIVE, 150),
-            (MarketRegime.TRENDING_BEAR, 300),
-            (MarketRegime.MEAN_REVERTING, 650),
-        ],
-        initial_price=initial_price,
-        annual_vol=annual_vol,
-        seed=seed,
-    )
+    def _make_corr(self, base_corr: float) -> np.ndarray:
+        C = np.full((self.n_assets, self.n_assets), base_corr)
+        np.fill_diagonal(C, 1.0)
+        return C
 
+    def gradual_shift(self, n_steps: int, corr_start: float = 0.3,
+                       corr_end: float = 0.8, sigmas: Optional[np.ndarray] = None,
+                       S0: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
+        """Linearly shift correlations over time."""
+        if sigmas is None:
+            sigmas = np.full(self.n_assets, 0.2)
+        if S0 is None:
+            S0 = np.full(self.n_assets, 100.0)
+        prices = np.zeros((n_steps + 1, self.n_assets))
+        corr_path = np.zeros(n_steps + 1)
+        prices[0] = S0
+        dt = 1 / 252
+        for t in range(n_steps):
+            frac = t / max(n_steps - 1, 1)
+            c = corr_start + (corr_end - corr_start) * frac
+            corr_path[t + 1] = c
+            C = self._make_corr(c)
+            L = np.linalg.cholesky(C + np.eye(self.n_assets) * 1e-8)
+            z = L @ self.rng.standard_normal(self.n_assets)
+            ret = -0.5 * sigmas ** 2 * dt + sigmas * np.sqrt(dt) * z
+            prices[t + 1] = prices[t] * np.exp(ret)
+        return prices, corr_path
 
-def simulate_default_crypto(
-    symbol: str = "BTC",
-    n_bars: int = 5000,
-    seed: Optional[int] = None,
-) -> pd.DataFrame:
-    """Quick simulation of a crypto-like asset (high vol, BH events).
-
-    Returns OHLCV DataFrame ready for LARSA backtesting.
-    """
-    vol_map = {"BTC": 0.75, "ETH": 0.90, "SOL": 1.20}
-    vol = vol_map.get(symbol, 0.80)
-    price_map = {"BTC": 40_000.0, "ETH": 2_500.0, "SOL": 80.0}
-    p0 = price_map.get(symbol, 100.0)
-    cfg = SimConfig(n_bars=n_bars, initial_price=p0, annual_vol=vol, seed=seed)
-    return RegimeSwitchingMarket.generate(cfg)
+    def sudden_shift(self, n_steps: int, shift_time: int,
+                      corr_before: float = 0.3, corr_after: float = 0.8,
+                      sigmas: Optional[np.ndarray] = None,
+                      S0: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
+        if sigmas is None:
+            sigmas = np.full(self.n_assets, 0.2)
+        if S0 is None:
+            S0 = np.full(self.n_assets, 100.0)
+        prices = np.zeros((n_steps + 1, self.n_assets))
+        corr_path = np.zeros(n_steps + 1)
+        prices[0] = S0
+        dt = 1 / 252
+        for t in range(n_steps):
+            c = corr_before if t < shift_time else corr_after
+            corr_path[t + 1] = c
+            C = self._make_corr(c)
+            L = np.linalg.cholesky(C + np.eye(self.n_assets) * 1e-8)
+            z = L @ self.rng.standard_normal(self.n_assets)
+            ret = -0.5 * sigmas ** 2 * dt + sigmas * np.sqrt(dt) * z
+            prices[t + 1] = prices[t] * np.exp(ret)
+        return prices, corr_path
 
 
 # ---------------------------------------------------------------------------
-# Module-level validation helpers (for tests / quick sanity checks)
+# 12. Central Bank Intervention
 # ---------------------------------------------------------------------------
 
-def _check_ohlcv_invariants(df: pd.DataFrame) -> list[str]:
-    """Return list of violated OHLCV invariants (empty list = all ok)."""
-    violations = []
-    if (df["high"] < df["open"]).any():
-        violations.append("high < open on some bars")
-    if (df["high"] < df["close"]).any():
-        violations.append("high < close on some bars")
-    if (df["low"] > df["open"]).any():
-        violations.append("low > open on some bars")
-    if (df["low"] > df["close"]).any():
-        violations.append("low > close on some bars")
-    if (df["volume"] <= 0).any():
-        violations.append("non-positive volume on some bars")
-    if (df["close"] <= 0).any():
-        violations.append("non-positive close price on some bars")
-    return violations
+class CentralBankIntervention:
+    """Rate change shock model with market response."""
+
+    def __init__(self, base_rate: float = 0.05, rate_vol: float = 0.0025,
+                 rng: Optional[np.random.Generator] = None):
+        self.base_rate = base_rate
+        self.rate_vol = rate_vol
+        self.rng = rng or np.random.default_rng(42)
+
+    def simulate_rate_path(self, n_steps: int,
+                            meeting_days: List[int],
+                            rate_changes: Optional[List[float]] = None) -> np.ndarray:
+        rates = np.zeros(n_steps + 1)
+        rates[0] = self.base_rate
+        if rate_changes is None:
+            rate_changes = [self.rng.choice([-0.0025, 0, 0.0025], p=[0.2, 0.6, 0.2])
+                            for _ in meeting_days]
+        change_map = dict(zip(meeting_days, rate_changes))
+        for t in range(n_steps):
+            rates[t + 1] = rates[t]
+            if t in change_map:
+                rates[t + 1] += change_map[t]
+            rates[t + 1] += self.rng.normal(0, self.rate_vol * 0.01)
+        return rates
+
+    def rate_shock_impact(self, S0: float, rate_change: float,
+                           duration_sensitivity: float = -5.0,
+                           equity_sensitivity: float = -10.0,
+                           n_days_after: int = 30) -> Dict[str, np.ndarray]:
+        """Simulate price path after a rate shock."""
+        dt = 1 / 252
+        prices = np.zeros(n_days_after + 1)
+        prices[0] = S0
+        initial_shock = equity_sensitivity * rate_change
+        prices[0] *= np.exp(initial_shock)
+        # Gradual adjustment with mean reversion
+        vol = 0.20
+        for t in range(n_days_after):
+            drift = 0.5 * initial_shock * np.exp(-0.1 * t)  # gradual recovery
+            z = self.rng.standard_normal()
+            prices[t + 1] = prices[t] * np.exp(drift * dt + vol * np.sqrt(dt) * z)
+        return {
+            "prices": prices,
+            "initial_shock_pct": float(initial_shock * 100),
+            "rate_change": rate_change,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Full Market Simulation Pipeline
+# ---------------------------------------------------------------------------
+
+def full_market_simulation(n_assets: int = 5, n_days: int = 504,
+                            include_jumps: bool = True,
+                            include_regimes: bool = True,
+                            include_flash_crash: bool = False,
+                            seed: int = 42) -> Dict[str, Any]:
+    """Run comprehensive market simulation."""
+    rng = np.random.default_rng(seed)
+    results: Dict[str, Any] = {}
+
+    # Base GBM
+    mus = rng.uniform(0.02, 0.12, n_assets)
+    sigmas = rng.uniform(0.10, 0.35, n_assets)
+    corr = np.eye(n_assets) * 0.5 + np.ones((n_assets, n_assets)) * 0.5
+    np.fill_diagonal(corr, 1.0)
+    gbm = CorrelatedGBM(n_assets, mus, sigmas, corr, rng=rng)
+    S0 = rng.uniform(50, 200, n_assets)
+    prices = gbm.simulate(S0, n_days)
+    results["gbm_prices"] = prices
+
+    # Heston overlay for first asset
+    heston = HestonModel(rng=rng)
+    h_prices, h_vols = heston.simulate(S0[0], n_days)
+    results["heston_prices"] = h_prices
+    results["heston_vols"] = h_vols
+
+    # Jump diffusion
+    if include_jumps:
+        jd = MertonJumpDiffusion(rng=rng)
+        jd_prices, jd_jumps = jd.simulate(S0[0], n_days)
+        results["jump_prices"] = jd_prices
+        results["jump_indicators"] = jd_jumps
+
+    # Regime switching
+    if include_regimes:
+        params, P = RegimeSwitchingSimulator.default_regimes()
+        rs = RegimeSwitchingSimulator(params, P, rng=rng)
+        rs_prices, rs_regimes = rs.simulate(S0[0], n_days)
+        results["regime_prices"] = rs_prices
+        results["regimes"] = rs_regimes
+
+    # Flash crash
+    if include_flash_crash:
+        fc = FlashCrashSimulator(rng=rng)
+        fc_result = fc.simulate(S0[0], n_days, crash_start=n_days // 2)
+        results["flash_crash"] = fc_result
+
+    # Market impact
+    mi = MarketImpact()
+    results["impact_1M"] = mi.sqrt_model(1e6)
+    results["impact_10M"] = mi.sqrt_model(1e7)
+
+    # Intraday
+    intra = IntradayPatternSimulator(rng=rng)
+    results["intraday"] = intra.simulate_intraday(S0[0])
+
+    return results

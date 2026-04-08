@@ -305,7 +305,7 @@ impl BacktestConfig {
 
 /// Callback trait for strategy
 pub trait StrategyCallback {
-    fn on_bar(&mut self, timestamp: u64, bars: &HashMap<String, &Bar>, portfolio: &Portfolio) -> Vec<Order>;
+    fn on_bar(&mut self, timestamp: u64, bars: &HashMap<&str, &Bar>, portfolio: &Portfolio) -> Vec<Order>;
     fn on_trade(&mut self, _trade: &Trade) {}
     fn on_end_of_day(&mut self, _timestamp: u64, _portfolio: &Portfolio) {}
     fn name(&self) -> &str { "unnamed" }
@@ -366,12 +366,12 @@ impl BacktestEngine {
         for id in ids { self.cancel_order(id); }
     }
 
-    fn process_fills(&mut self, bars: &HashMap<String, &Bar>) {
+    fn process_fills(&mut self, bars: &HashMap<&str, &Bar>) {
         let mut filled = Vec::new();
         let mut remaining = Vec::new();
 
         for mut order in self.pending_orders.drain(..) {
-            if let Some(bar) = bars.get(order.symbol.as_str()) {
+            if let Some(&bar) = bars.get(order.symbol.as_str()) {
                 if let Some(trade) = self.config.fill_sim.try_fill(&mut order, bar) {
                     // Update portfolio
                     self.portfolio.process_trade(&trade);
@@ -412,7 +412,7 @@ impl BacktestEngine {
             self.current_timestamp = bar.timestamp;
             self.bar_count += 1;
 
-            let mut bars_map = HashMap::new();
+            let mut bars_map: HashMap<&str, &Bar> = HashMap::new();
             bars_map.insert(symbol.as_str(), bar);
 
             // Process pending orders
@@ -456,11 +456,7 @@ impl BacktestEngine {
             }
 
             // Process fills
-            let mut bars_owned: HashMap<String, &Bar> = HashMap::new();
-            for (&k, &v) in &bars_map {
-                bars_owned.insert(k.to_string(), v);
-            }
-            self.process_fills(&bars_owned);
+            self.process_fills(&bars_map);
 
             // Update marks
             let mut prices = HashMap::new();
@@ -590,6 +586,210 @@ pub fn monte_carlo_paths(returns: &[f64], num_paths: usize, path_length: usize, 
         paths.push(equity[1..].to_vec());
     }
     paths
+}
+
+/// Multi-asset rebalancer
+pub struct Rebalancer {
+    pub target_weights: HashMap<String, f64>,
+    pub rebalance_threshold: f64,
+    pub last_rebalance_bar: usize,
+    pub min_rebalance_interval: usize,
+}
+
+impl Rebalancer {
+    pub fn new(targets: HashMap<String, f64>, threshold: f64, min_interval: usize) -> Self {
+        Self { target_weights: targets, rebalance_threshold: threshold, last_rebalance_bar: 0, min_rebalance_interval: min_interval }
+    }
+
+    pub fn needs_rebalance(&self, current_weights: &HashMap<String, f64>, bar_count: usize) -> bool {
+        if bar_count < self.last_rebalance_bar + self.min_rebalance_interval { return false; }
+        for (sym, &target) in &self.target_weights {
+            let current = current_weights.get(sym).copied().unwrap_or(0.0);
+            if (current - target).abs() > self.rebalance_threshold { return true; }
+        }
+        // check for positions not in target
+        for (sym, &w) in current_weights {
+            if !self.target_weights.contains_key(sym) && w.abs() > self.rebalance_threshold { return true; }
+        }
+        false
+    }
+
+    pub fn generate_orders(&mut self, portfolio: &Portfolio, bar_count: usize) -> Vec<Order> {
+        let current_weights = portfolio.weights();
+        if !self.needs_rebalance(&current_weights, bar_count) { return vec![]; }
+        self.last_rebalance_bar = bar_count;
+        let trades = portfolio.trades_to_target(&self.target_weights);
+        trades.into_iter().map(|(sym, qty)| {
+            if qty > 0.0 { Order::market(0, &sym, TradeSide::Buy, qty) }
+            else { Order::market(0, &sym, TradeSide::Sell, qty.abs()) }
+        }).collect()
+    }
+}
+
+/// TWAP order slicer
+pub struct TWAPSlicer {
+    pub total_quantity: f64,
+    pub num_slices: usize,
+    pub slices_sent: usize,
+    pub symbol: String,
+    pub side: TradeSide,
+}
+
+impl TWAPSlicer {
+    pub fn new(symbol: &str, side: TradeSide, qty: f64, num_slices: usize) -> Self {
+        Self { total_quantity: qty, num_slices, slices_sent: 0, symbol: symbol.to_string(), side }
+    }
+
+    pub fn next_slice(&mut self) -> Option<Order> {
+        if self.slices_sent >= self.num_slices { return None; }
+        let remaining_slices = self.num_slices - self.slices_sent;
+        let remaining_qty = self.total_quantity - (self.total_quantity / self.num_slices as f64 * self.slices_sent as f64);
+        let slice_qty = remaining_qty / remaining_slices as f64;
+        self.slices_sent += 1;
+        Some(Order::market(0, &self.symbol, self.side, slice_qty))
+    }
+
+    pub fn is_complete(&self) -> bool { self.slices_sent >= self.num_slices }
+    pub fn progress(&self) -> f64 { self.slices_sent as f64 / self.num_slices as f64 }
+}
+
+/// VWAP order slicer (volume-weighted)
+pub struct VWAPSlicer {
+    pub total_quantity: f64,
+    pub volume_profile: Vec<f64>, // expected volume fraction per period
+    pub slices_sent: usize,
+    pub filled_quantity: f64,
+    pub symbol: String,
+    pub side: TradeSide,
+}
+
+impl VWAPSlicer {
+    pub fn new(symbol: &str, side: TradeSide, qty: f64, volume_profile: Vec<f64>) -> Self {
+        let total: f64 = volume_profile.iter().sum();
+        let normalized: Vec<f64> = volume_profile.iter().map(|&v| v / total).collect();
+        Self { total_quantity: qty, volume_profile: normalized, slices_sent: 0, filled_quantity: 0.0, symbol: symbol.to_string(), side }
+    }
+
+    pub fn next_slice(&mut self) -> Option<Order> {
+        if self.slices_sent >= self.volume_profile.len() { return None; }
+        let frac = self.volume_profile[self.slices_sent];
+        let qty = self.total_quantity * frac;
+        self.slices_sent += 1;
+        self.filled_quantity += qty;
+        Some(Order::market(0, &self.symbol, self.side, qty))
+    }
+
+    pub fn is_complete(&self) -> bool { self.slices_sent >= self.volume_profile.len() }
+}
+
+/// Execution quality analysis
+pub struct ExecutionAnalysis {
+    pub orders: Vec<Order>,
+}
+
+impl ExecutionAnalysis {
+    pub fn new(orders: Vec<Order>) -> Self { Self { orders } }
+
+    pub fn total_slippage(&self) -> f64 {
+        self.orders.iter().map(|o| o.slippage).sum()
+    }
+
+    pub fn total_commission(&self) -> f64 {
+        self.orders.iter().map(|o| o.commission).sum()
+    }
+
+    pub fn avg_fill_price(&self) -> f64 {
+        let total_notional: f64 = self.orders.iter()
+            .filter(|o| o.is_filled())
+            .map(|o| o.fill_price.unwrap_or(0.0) * o.filled_quantity)
+            .sum();
+        let total_qty: f64 = self.orders.iter()
+            .filter(|o| o.is_filled())
+            .map(|o| o.filled_quantity)
+            .sum();
+        if total_qty > 1e-10 { total_notional / total_qty } else { 0.0 }
+    }
+
+    pub fn fill_rate(&self) -> f64 {
+        let filled = self.orders.iter().filter(|o| o.is_filled()).count();
+        if self.orders.is_empty() { 0.0 } else { filled as f64 / self.orders.len() as f64 }
+    }
+
+    pub fn implementation_shortfall(&self, arrival_prices: &HashMap<String, f64>) -> f64 {
+        let mut is = 0.0;
+        for order in &self.orders {
+            if !order.is_filled() { continue; }
+            if let Some(&arrival) = arrival_prices.get(&order.symbol) {
+                let fill = order.fill_price.unwrap_or(arrival);
+                let cost = match order.side {
+                    TradeSide::Buy => (fill - arrival) * order.filled_quantity,
+                    TradeSide::Sell => (arrival - fill) * order.filled_quantity,
+                };
+                is += cost + order.commission;
+            }
+        }
+        is
+    }
+
+    pub fn latency_stats(&self) -> (f64, f64, f64) {
+        let latencies: Vec<u64> = self.orders.iter()
+            .filter(|o| o.is_filled() && o.fill_time.is_some())
+            .map(|o| o.fill_time.unwrap() - o.submit_time)
+            .collect();
+        if latencies.is_empty() { return (0.0, 0.0, 0.0); }
+        let n = latencies.len() as f64;
+        let mean = latencies.iter().sum::<u64>() as f64 / n;
+        let max = latencies.iter().max().copied().unwrap_or(0) as f64;
+        let min = latencies.iter().min().copied().unwrap_or(0) as f64;
+        (mean, min, max)
+    }
+}
+
+/// Event logger with structured output
+pub struct EventLogger {
+    pub events: Vec<(u64, String, String)>, // (timestamp, category, message)
+    pub max_events: usize,
+}
+
+impl EventLogger {
+    pub fn new(max: usize) -> Self { Self { events: Vec::new(), max_events: max } }
+
+    pub fn log(&mut self, ts: u64, category: &str, msg: &str) {
+        if self.events.len() < self.max_events {
+            self.events.push((ts, category.to_string(), msg.to_string()));
+        }
+    }
+
+    pub fn filter_category(&self, cat: &str) -> Vec<&(u64, String, String)> {
+        self.events.iter().filter(|(_, c, _)| c == cat).collect()
+    }
+
+    pub fn to_csv(&self) -> String {
+        let mut s = String::from("timestamp,category,message\n");
+        for (ts, cat, msg) in &self.events {
+            s.push_str(&format!("{},{},{}\n", ts, cat, msg));
+        }
+        s
+    }
+
+    pub fn len(&self) -> usize { self.events.len() }
+}
+
+/// Performance attribution over time
+pub fn cumulative_attribution(returns: &[f64], factor_exposures: &[Vec<f64>], factor_returns: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    // returns[t], factor_exposures[t][f], factor_returns[t][f]
+    // Returns cumulative contribution per factor
+    let n = returns.len();
+    if n == 0 { return vec![]; }
+    let nf = factor_exposures[0].len();
+    let mut cum = vec![vec![0.0; n]; nf];
+    for t in 0..n {
+        for f in 0..nf {
+            let contrib = factor_exposures[t][f] * factor_returns[t][f];
+            cum[f][t] = if t > 0 { cum[f][t - 1] + contrib } else { contrib };
+        }
+    }
+    cum
 }
 
 #[cfg(test)]

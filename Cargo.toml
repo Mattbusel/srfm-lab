@@ -27,6 +27,12 @@ members = [
     "crates/alpha-decay",
     "crates/regime-analytics",
     "crates/factor-analytics",
+    "crates/model-inference",
+    "crates/backtest-harness",
+    "crates/options-pricing",
+    "crates/portfolio-rebalancer",
+    "crates/quant-math",
+    "crates/risk-analytics",
 ]
 resolver = "2"
 

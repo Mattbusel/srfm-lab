@@ -648,6 +648,168 @@ pub fn correlation_diversity(preds: &[Vec<f64>]) -> f64 {
     if count > 0 { avg_corr / count as f64 } else { 0.0 }
 }
 
+/// Negative correlation learning ensemble
+#[derive(Clone, Debug)]
+pub struct NCLEnsemble {
+    pub weights: Vec<f64>,
+    pub lambda: f64, // regularization for correlation penalty
+}
+
+impl NCLEnsemble {
+    pub fn new(num_models: usize, lambda: f64) -> Self {
+        let w = 1.0 / num_models as f64;
+        Self { weights: vec![w; num_models], lambda }
+    }
+
+    pub fn combine(&self, predictions: &[f64], errors: &[Vec<f64>]) -> f64 {
+        let n = predictions.len();
+        let weighted: f64 = predictions.iter().zip(self.weights.iter())
+            .map(|(&p, &w)| p * w).sum();
+        weighted
+    }
+
+    pub fn update_weights(&mut self, individual_errors: &[Vec<f64>]) {
+        let n = self.weights.len();
+        let m = individual_errors[0].len();
+        // Compute penalty: correlation between errors
+        let mut penalty = vec![0.0; n];
+        for i in 0..n {
+            let mean_i: f64 = individual_errors[i].iter().sum::<f64>() / m as f64;
+            for j in 0..n {
+                if i == j { continue; }
+                let mean_j: f64 = individual_errors[j].iter().sum::<f64>() / m as f64;
+                let corr: f64 = individual_errors[i].iter().zip(individual_errors[j].iter())
+                    .map(|(&ei, &ej)| (ei - mean_i) * (ej - mean_j)).sum::<f64>() / m as f64;
+                penalty[i] += corr;
+            }
+        }
+        // Update: lower weight for highly correlated models
+        let mse: Vec<f64> = (0..n).map(|i| {
+            individual_errors[i].iter().map(|e| e * e).sum::<f64>() / m as f64
+        }).collect();
+        let inv_scores: Vec<f64> = (0..n).map(|i| {
+            1.0 / (mse[i] + self.lambda * penalty[i]).max(1e-15)
+        }).collect();
+        let total: f64 = inv_scores.iter().sum();
+        for i in 0..n { self.weights[i] = inv_scores[i] / total; }
+    }
+}
+
+/// Snapshot ensemble (cyclic learning rate simulation)
+#[derive(Clone, Debug)]
+pub struct SnapshotEnsemble {
+    pub snapshots: Vec<Vec<f64>>, // stored model predictions
+    pub weights: Vec<f64>,
+}
+
+impl SnapshotEnsemble {
+    pub fn new() -> Self { Self { snapshots: Vec::new(), weights: Vec::new() } }
+
+    pub fn add_snapshot(&mut self, predictions: Vec<f64>) {
+        self.snapshots.push(predictions);
+        let n = self.snapshots.len();
+        self.weights = vec![1.0 / n as f64; n];
+    }
+
+    pub fn combine(&self, sample_idx: usize) -> f64 {
+        self.snapshots.iter().zip(self.weights.iter())
+            .map(|(preds, &w)| preds[sample_idx] * w)
+            .sum()
+    }
+
+    pub fn combine_all(&self) -> Vec<f64> {
+        if self.snapshots.is_empty() { return vec![]; }
+        let n_samples = self.snapshots[0].len();
+        (0..n_samples).map(|i| self.combine(i)).collect()
+    }
+}
+
+/// Model comparison: paired t-test on prediction errors
+pub fn paired_t_test(errors_a: &[f64], errors_b: &[f64]) -> (f64, f64) {
+    let n = errors_a.len().min(errors_b.len());
+    if n < 2 { return (0.0, 1.0); }
+    let diffs: Vec<f64> = (0..n).map(|i| errors_a[i] - errors_b[i]).collect();
+    let mean_d = diffs.iter().sum::<f64>() / n as f64;
+    let var_d = diffs.iter().map(|&d| (d - mean_d).powi(2)).sum::<f64>() / (n - 1) as f64;
+    let se = (var_d / n as f64).sqrt();
+    if se < 1e-15 { return (0.0, 1.0); }
+    let t_stat = mean_d / se;
+    // approximate p-value using normal CDF
+    let p = 2.0 * (1.0 - normal_cdf(t_stat.abs()));
+    (t_stat, p)
+}
+
+fn normal_cdf(x: f64) -> f64 {
+    0.5 * (1.0 + erf_approx(x / std::f64::consts::SQRT_2))
+}
+
+fn erf_approx(x: f64) -> f64 {
+    let a1 = 0.254829592;
+    let a2 = -0.284496736;
+    let a3 = 1.421413741;
+    let a4 = -1.453152027;
+    let a5 = 1.061405429;
+    let p = 0.3275911;
+    let sign = if x >= 0.0 { 1.0 } else { -1.0 };
+    let t = 1.0 / (1.0 + p * x.abs());
+    let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-x * x).exp();
+    sign * y
+}
+
+/// Diebold-Mariano test for comparing forecast accuracy
+pub fn diebold_mariano_test(errors_a: &[f64], errors_b: &[f64], loss_power: f64) -> (f64, f64) {
+    let n = errors_a.len().min(errors_b.len());
+    if n < 10 { return (0.0, 1.0); }
+    let d: Vec<f64> = (0..n).map(|i| {
+        errors_a[i].abs().powf(loss_power) - errors_b[i].abs().powf(loss_power)
+    }).collect();
+    let mean_d = d.iter().sum::<f64>() / n as f64;
+    // Newey-West variance (simplified, lag 0 only)
+    let var_d = d.iter().map(|&di| (di - mean_d).powi(2)).sum::<f64>() / ((n - 1) * n) as f64;
+    let se = var_d.sqrt();
+    if se < 1e-15 { return (0.0, 1.0); }
+    let dm_stat = mean_d / se;
+    let p = 2.0 * (1.0 - normal_cdf(dm_stat.abs()));
+    (dm_stat, p)
+}
+
+/// Model averaging with BIC weights
+pub fn bic_model_averaging(log_likelihoods: &[f64], num_params: &[usize], num_samples: usize) -> Vec<f64> {
+    let bics: Vec<f64> = log_likelihoods.iter().zip(num_params.iter())
+        .map(|(&ll, &k)| bic(ll, k, num_samples)).collect();
+    let min_bic = bics.iter().cloned().fold(f64::INFINITY, f64::min);
+    let delta_bics: Vec<f64> = bics.iter().map(|&b| b - min_bic).collect();
+    let weights_raw: Vec<f64> = delta_bics.iter().map(|&d| (-0.5 * d).exp()).collect();
+    let total: f64 = weights_raw.iter().sum();
+    weights_raw.iter().map(|&w| w / total).collect()
+}
+
+/// Cross-validation model selection
+pub fn cross_validate(
+    data: &[Vec<f64>],
+    targets: &[f64],
+    k_folds: usize,
+    eval_fn: &dyn Fn(&[Vec<f64>], &[f64], &[Vec<f64>], &[f64]) -> f64,
+) -> f64 {
+    let n = data.len();
+    let fold_size = n / k_folds;
+    let mut total_score = 0.0;
+    for fold in 0..k_folds {
+        let test_start = fold * fold_size;
+        let test_end = if fold == k_folds - 1 { n } else { test_start + fold_size };
+        let train_data: Vec<Vec<f64>> = data.iter().enumerate()
+            .filter(|&(i, _)| i < test_start || i >= test_end)
+            .map(|(_, d)| d.clone()).collect();
+        let train_targets: Vec<f64> = targets.iter().enumerate()
+            .filter(|&(i, _)| i < test_start || i >= test_end)
+            .map(|(_, &t)| t).collect();
+        let test_data: Vec<Vec<f64>> = data[test_start..test_end].to_vec();
+        let test_targets: Vec<f64> = targets[test_start..test_end].to_vec();
+        total_score += eval_fn(&train_data, &train_targets, &test_data, &test_targets);
+    }
+    total_score / k_folds as f64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

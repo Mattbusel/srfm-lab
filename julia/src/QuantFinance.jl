@@ -1771,4 +1771,622 @@ function mirr(cashflows::AbstractVector{T}, finance_rate::T,
     (pos_fv / neg_pv)^(one(T) / (n - 1)) - one(T)
 end
 
+# ─────────────────────────────────────────────────────────────────────────────
+# §13  Exotic Options
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Barrier option pricing (down-and-out call, analytical)."""
+function barrier_down_out_call(S::T, K::T, H::T, r::T, sigma::T, tau::T;
+                                rebate::T=T(0.0)) where T<:Real
+    if S <= H
+        return rebate
+    end
+    lambda = (r + sigma^2 / 2) / sigma^2
+    y = log(H^2 / (S * K)) / (sigma * sqrt(tau)) + lambda * sigma * sqrt(tau)
+    x1 = log(S / H) / (sigma * sqrt(tau)) + lambda * sigma * sqrt(tau)
+    y1 = log(H / S) / (sigma * sqrt(tau)) + lambda * sigma * sqrt(tau)
+    vanilla = bs_call(S, K, r, sigma, tau)
+    di_part = (H / S)^(T(2) * lambda) * bs_call(H^2/S, K, r, sigma, tau)
+    max(vanilla - di_part, zero(T))
+end
+
+"""Barrier option: up-and-out call."""
+function barrier_up_out_call(S::T, K::T, H::T, r::T, sigma::T, tau::T) where T<:Real
+    if S >= H
+        return zero(T)
+    end
+    vanilla = bs_call(S, K, r, sigma, tau)
+    lambda = (r + sigma^2 / 2) / sigma^2
+    ui_part = (H / S)^(T(2) * lambda) * bs_call(H^2/S, K, r, sigma, tau)
+    max(vanilla - ui_part, zero(T))
+end
+
+"""Asian option (arithmetic average, Monte Carlo)."""
+function asian_option_mc(S::T, K::T, r::T, sigma::T, tau::T;
+                          n_steps::Int=252, n_paths::Int=10000,
+                          is_call::Bool=true,
+                          rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    dt = tau / n_steps
+    sqrt_dt = sqrt(dt)
+    payoffs = Vector{T}(undef, n_paths)
+    for p in 1:n_paths
+        S_t = S
+        avg = zero(T)
+        for t in 1:n_steps
+            S_t *= exp((r - sigma^2/2) * dt + sigma * sqrt_dt * randn(rng, T))
+            avg += S_t
+        end
+        avg /= n_steps
+        if is_call
+            payoffs[p] = max(avg - K, zero(T))
+        else
+            payoffs[p] = max(K - avg, zero(T))
+        end
+    end
+    exp(-r * tau) * mean(payoffs)
+end
+
+"""Lookback option (floating strike, analytical for call)."""
+function lookback_floating_call(S::T, S_min::T, r::T, sigma::T, tau::T) where T<:Real
+    a1 = (log(S / S_min) + (r + sigma^2 / 2) * tau) / (sigma * sqrt(tau))
+    a2 = a1 - sigma * sqrt(tau)
+    a3 = (log(S / S_min) + (-r + sigma^2 / 2) * tau) / (sigma * sqrt(tau))
+    y1 = -T(2) * (r - sigma^2 / 2) * log(S / S_min) / sigma^2
+    S * _normal_cdf(a1) - S_min * exp(-r * tau) * _normal_cdf(a2) -
+    S * sigma^2 / (T(2) * r) * (-_normal_cdf(-a1) + exp(y1) * _normal_cdf(-a3))
+end
+
+"""Digital (binary) option pricing."""
+function digital_option(S::T, K::T, r::T, sigma::T, tau::T;
+                        is_call::Bool=true, payout::T=T(1.0)) where T<:Real
+    d2 = (log(S / K) + (r - sigma^2 / 2) * tau) / (sigma * sqrt(tau))
+    if is_call
+        payout * exp(-r * tau) * _normal_cdf(d2)
+    else
+        payout * exp(-r * tau) * _normal_cdf(-d2)
+    end
+end
+
+"""Chooser option: right to choose call or put at choice_date."""
+function chooser_option(S::T, K::T, r::T, sigma::T, tau::T,
+                        choice_time::T) where T<:Real
+    # At choice_time, holder picks max(call, put) = call + max(put - call, 0) = call + put_on_forward
+    d1 = (log(S / K) + (r + sigma^2 / 2) * tau) / (sigma * sqrt(tau))
+    d2 = d1 - sigma * sqrt(tau)
+    d1_c = (log(S / K) + (r + sigma^2 / 2) * choice_time) / (sigma * sqrt(choice_time))
+    d2_c = d1_c - sigma * sqrt(choice_time)
+    # Simple chooser formula
+    call = bs_call(S, K, r, sigma, tau)
+    put_early = K * exp(-r * tau) * _normal_cdf(-d2_c) - S * exp(-r * (tau - choice_time)) * _normal_cdf(-d1_c)
+    call + max(put_early, zero(T))
+end
+
+"""Compound option: option on an option (call on call via binomial)."""
+function compound_option(S::T, K_outer::T, K_inner::T, r::T, sigma::T,
+                          tau_outer::T, tau_inner::T;
+                          n_steps::Int=100) where T<:Real
+    # Price inner option at expiry of outer option, then work backwards
+    dt = tau_inner / n_steps
+    n_outer_steps = max(1, round(Int, tau_outer / dt))
+    total_steps = n_steps
+    u = exp(sigma * sqrt(dt))
+    d = one(T) / u
+    p = (exp(r * dt) - d) / (u - d)
+    p = clamp(p, T(0.001), T(0.999))
+    df = exp(-r * dt)
+    # Terminal payoffs for inner call
+    prices = Vector{T}(undef, total_steps + 1)
+    for i in 0:total_steps
+        S_T = S * u^(total_steps - i) * d^i
+        prices[i+1] = max(S_T - K_inner, zero(T))
+    end
+    # Backward induction for inner option
+    for step in total_steps-1:-1:n_outer_steps
+        for i in 0:step
+            prices[i+1] = df * (p * prices[i+1] + (one(T) - p) * prices[i+2])
+        end
+    end
+    # At outer expiry, the compound option payoff is max(inner_price - K_outer, 0)
+    for i in 0:n_outer_steps
+        prices[i+1] = max(prices[i+1] - K_outer, zero(T))
+    end
+    # Continue backward for outer option
+    for step in n_outer_steps-1:-1:0
+        for i in 0:step
+            prices[i+1] = df * (p * prices[i+1] + (one(T) - p) * prices[i+2])
+        end
+    end
+    prices[1]
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §14  Monte Carlo Simulation Framework
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Geometric Brownian Motion simulation."""
+function gbm_simulate(S0::T, mu::T, sigma::T, dt::T, n_steps::Int;
+                      n_paths::Int=1000,
+                      rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    paths = Matrix{T}(undef, n_steps + 1, n_paths)
+    paths[1, :] .= S0
+    sqrt_dt = sqrt(dt)
+    for p in 1:n_paths
+        for t in 1:n_steps
+            z = randn(rng, T)
+            paths[t+1, p] = paths[t, p] * exp((mu - sigma^2/2) * dt + sigma * sqrt_dt * z)
+        end
+    end
+    paths
+end
+
+"""Correlated multi-asset GBM simulation."""
+function correlated_gbm(S0::AbstractVector{T}, mu::AbstractVector{T},
+                         sigma::AbstractVector{T}, corr::AbstractMatrix{T},
+                         dt::T, n_steps::Int;
+                         n_paths::Int=1000,
+                         rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n_assets = length(S0)
+    L = cholesky(Symmetric(corr)).L
+    paths = Array{T}(undef, n_steps + 1, n_assets, n_paths)
+    for p in 1:n_paths
+        paths[1, :, p] = S0
+    end
+    sqrt_dt = sqrt(dt)
+    for p in 1:n_paths
+        for t in 1:n_steps
+            z = L * randn(rng, T, n_assets)
+            for i in 1:n_assets
+                paths[t+1, i, p] = paths[t, i, p] *
+                    exp((mu[i] - sigma[i]^2/2) * dt + sigma[i] * sqrt_dt * z[i])
+            end
+        end
+    end
+    paths
+end
+
+"""Control variate Monte Carlo for variance reduction."""
+function control_variate_mc(S::T, K::T, r::T, sigma::T, tau::T;
+                            n_paths::Int=50000,
+                            rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    dt = tau
+    Z = randn(rng, T, n_paths)
+    S_T = S .* exp.((r - sigma^2/2) * tau .+ sigma * sqrt(tau) .* Z)
+    payoffs = max.(S_T .- K, zero(T)) .* exp(-r * tau)
+    # Control variate: geometric mean price as control
+    # Use S_T as control (known expectation = S * exp(r * tau))
+    control = S_T
+    expected_control = S * exp(r * tau)
+    cov_pc = cov(payoffs, control)
+    var_c = var(control)
+    c_star = cov_pc / max(var_c, T(1e-16))
+    adjusted = payoffs .- c_star .* (control .- expected_control)
+    mean(adjusted)
+end
+
+"""Antithetic variates Monte Carlo."""
+function antithetic_mc(S::T, K::T, r::T, sigma::T, tau::T;
+                       n_paths::Int=50000, is_call::Bool=true,
+                       rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    Z = randn(rng, T, n_paths)
+    S_T_pos = S .* exp.((r - sigma^2/2) * tau .+ sigma * sqrt(tau) .* Z)
+    S_T_neg = S .* exp.((r - sigma^2/2) * tau .- sigma * sqrt(tau) .* Z)
+    if is_call
+        payoffs_pos = max.(S_T_pos .- K, zero(T))
+        payoffs_neg = max.(S_T_neg .- K, zero(T))
+    else
+        payoffs_pos = max.(K .- S_T_pos, zero(T))
+        payoffs_neg = max.(K .- S_T_neg, zero(T))
+    end
+    exp(-r * tau) * mean((payoffs_pos .+ payoffs_neg) ./ 2)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §15  Term Structure Models (Additional)
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""G2++ two-factor model simulation."""
+function g2pp_simulate(x0::T, y0::T, a::T, b::T, sigma_x::T, sigma_y::T,
+                       rho::T, phi::AbstractVector{T},
+                       dt::T, n_steps::Int;
+                       n_paths::Int=100,
+                       rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    paths = Matrix{T}(undef, n_steps + 1, n_paths)
+    sqrt_dt = sqrt(dt)
+    for p in 1:n_paths
+        x = x0
+        y = y0
+        for t in 1:n_steps
+            z1 = randn(rng, T)
+            z2 = rho * z1 + sqrt(one(T) - rho^2) * randn(rng, T)
+            x += -a * x * dt + sigma_x * sqrt_dt * z1
+            y += -b * y * dt + sigma_y * sqrt_dt * z2
+            phi_t = t <= length(phi) ? phi[t] : phi[end]
+            paths[t+1, p] = x + y + phi_t
+        end
+        paths[1, p] = x0 + y0 + (isempty(phi) ? zero(T) : phi[1])
+    end
+    paths
+end
+
+"""Black-Karasinski model: d(ln r) = kappa(theta(t) - ln r)dt + sigma dW."""
+function bk_simulate(r0::T, kappa::T, theta::T, sigma::T,
+                     dt::T, n_steps::Int;
+                     n_paths::Int=100,
+                     rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    paths = Matrix{T}(undef, n_steps + 1, n_paths)
+    paths[1, :] .= r0
+    sqrt_dt = sqrt(dt)
+    for p in 1:n_paths
+        log_r = log(max(r0, T(1e-10)))
+        for t in 1:n_steps
+            dlog_r = kappa * (theta - log_r) * dt + sigma * sqrt_dt * randn(rng, T)
+            log_r += dlog_r
+            paths[t+1, p] = exp(log_r)
+        end
+    end
+    paths
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §16  Credit Portfolio Models
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Vasicek portfolio loss distribution (single-factor Gaussian copula)."""
+function vasicek_portfolio_loss(pd::T, lgd::T, rho::T, n_obligors::Int;
+                                 confidence::T=T(0.999)) where T<:Real
+    # Vasicek asymptotic formula
+    z = _normal_quantile(pd)
+    z_alpha = _normal_quantile(confidence)
+    conditional_pd = _normal_cdf((z + sqrt(rho) * z_alpha) / sqrt(one(T) - rho))
+    expected_loss = lgd * conditional_pd
+    return expected_loss, lgd * pd  # unexpected loss, expected loss
+end
+
+"""Monte Carlo credit portfolio loss simulation."""
+function credit_portfolio_mc(pds::AbstractVector{T}, lgds::AbstractVector{T},
+                              exposures::AbstractVector{T}, corr_matrix::AbstractMatrix{T};
+                              n_sim::Int=10000,
+                              rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n = length(pds)
+    L = cholesky(Symmetric(corr_matrix)).L
+    losses = Vector{T}(undef, n_sim)
+    for s in 1:n_sim
+        z = L * randn(rng, T, n)
+        loss = zero(T)
+        for i in 1:n
+            threshold = _normal_quantile(pds[i])
+            if z[i] < threshold
+                loss += exposures[i] * lgds[i]
+            end
+        end
+        losses[s] = loss
+    end
+    sorted = sort(losses)
+    expected = mean(losses)
+    var_99 = sorted[min(n_sim, ceil(Int, 0.99 * n_sim))]
+    cvar_99 = mean(sorted[ceil(Int, 0.99 * n_sim):end])
+    return (expected_loss=expected, var_99=var_99, cvar_99=cvar_99, loss_distribution=sorted)
+end
+
+"""CDO tranche pricing (simplified, Gaussian copula)."""
+function cdo_tranche_price(pds::AbstractVector{T}, lgds::AbstractVector{T},
+                           attachment::T, detachment::T, corr::T;
+                           n_sim::Int=10000,
+                           rng::AbstractRNG=Random.GLOBAL_RNG) where T<:Real
+    n = length(pds)
+    # Single-factor model
+    losses = Vector{T}(undef, n_sim)
+    for s in 1:n_sim
+        m = randn(rng, T)  # market factor
+        loss_pct = zero(T)
+        for i in 1:n
+            z = sqrt(corr) * m + sqrt(one(T) - corr) * randn(rng, T)
+            threshold = _normal_quantile(pds[i])
+            if z < threshold
+                loss_pct += lgds[i] / n
+            end
+        end
+        # Tranche loss
+        tranche_loss = min(max(loss_pct - attachment, zero(T)), detachment - attachment)
+        losses[s] = tranche_loss / (detachment - attachment)
+    end
+    expected_tranche_loss = mean(losses)
+    return expected_tranche_loss
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §17  Market Microstructure
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Realized variance from high-frequency returns."""
+function realized_variance(returns::AbstractVector{T}) where T<:Real
+    sum(returns .^ 2)
+end
+
+"""Realized volatility with subsampling for noise reduction."""
+function realized_volatility_subsample(returns::AbstractVector{T};
+                                        n_grids::Int=5) where T<:Real
+    n = length(returns)
+    rv_sum = zero(T)
+    for offset in 0:n_grids-1
+        sub = returns[offset+1:n_grids:end]
+        rv_sum += sum(sub .^ 2)
+    end
+    sqrt(rv_sum / n_grids * T(252))
+end
+
+"""Bi-power variation (robust to jumps)."""
+function bipower_variation(returns::AbstractVector{T}) where T<:Real
+    n = length(returns)
+    if n < 2
+        return zero(T)
+    end
+    mu1 = sqrt(T(2) / T(π))  # E[|Z|] for standard normal
+    bpv = zero(T)
+    for t in 2:n
+        bpv += abs(returns[t]) * abs(returns[t-1])
+    end
+    bpv * T(π) / 2 / (n - 1)
+end
+
+"""Jump test: ratio of realized variance to bipower variation."""
+function jump_test(returns::AbstractVector{T}; alpha::T=T(0.05)) where T<:Real
+    rv = realized_variance(returns)
+    bpv = bipower_variation(returns)
+    n = length(returns)
+    # Under no-jump null, (RV - BPV) / sqrt(var_J) ~ N(0,1)
+    # Simplified variance estimate
+    mu1 = sqrt(T(2) / T(π))
+    tp = zero(T)  # tri-power quarticity
+    for t in 3:n
+        tp += abs(returns[t])^(T(4)/3) * abs(returns[t-1])^(T(4)/3) * abs(returns[t-2])^(T(4)/3)
+    end
+    tp *= n * mu1^(-T(4)) / (n - 2)
+    var_j = (T(π)^2 / 4 + T(π) - T(5)) * tp
+    z_stat = (rv - bpv) / sqrt(max(var_j, T(1e-16)) / T(n))
+    z_critical = T(1.96)
+    has_jump = z_stat > z_critical
+    return z_stat, has_jump, max(rv - bpv, zero(T))
+end
+
+"""Noise variance estimation (Roll model)."""
+function noise_variance(returns::AbstractVector{T}) where T<:Real
+    n = length(returns)
+    if n < 2
+        return zero(T)
+    end
+    autocov = zero(T)
+    for t in 2:n
+        autocov += returns[t] * returns[t-1]
+    end
+    autocov /= (n - 1)
+    max(-autocov, zero(T))
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §18  Swap Pricing
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Interest rate swap valuation."""
+function irs_value(notional::T, fixed_rate::T, floating_rates::AbstractVector{T},
+                   zero_rates::AbstractVector{T}, times::AbstractVector{T};
+                   pay_fixed::Bool=true) where T<:Real
+    n = length(times)
+    fixed_leg = zero(T)
+    float_leg = zero(T)
+    for i in 1:n
+        dt = i == 1 ? times[1] : times[i] - times[i-1]
+        df = exp(-zero_rates[i] * times[i])
+        fixed_leg += fixed_rate * dt * df * notional
+        float_leg += floating_rates[i] * dt * df * notional
+    end
+    if pay_fixed
+        return float_leg - fixed_leg
+    else
+        return fixed_leg - float_leg
+    end
+end
+
+"""Par swap rate."""
+function par_swap_rate(zero_rates::AbstractVector{T},
+                       times::AbstractVector{T}) where T<:Real
+    n = length(times)
+    annuity = zero(T)
+    for i in 1:n
+        dt = i == 1 ? times[1] : times[i] - times[i-1]
+        df = exp(-zero_rates[i] * times[i])
+        annuity += dt * df
+    end
+    df_0 = one(T)
+    df_n = exp(-zero_rates[end] * times[end])
+    (df_0 - df_n) / max(annuity, T(1e-16))
+end
+
+"""Swap DV01."""
+function swap_dv01(notional::T, fixed_rate::T, zero_rates::AbstractVector{T},
+                   times::AbstractVector{T}; dy::T=T(0.0001)) where T<:Real
+    float_rates = zero_rates  # approximate
+    v0 = irs_value(notional, fixed_rate, float_rates, zero_rates, times)
+    v_up = irs_value(notional, fixed_rate, float_rates .+ dy, zero_rates .+ dy, times)
+    abs(v_up - v0)
+end
+
+"""Currency swap pricing."""
+function currency_swap_value(notional_d::T, notional_f::T,
+                              fixed_d::T, fixed_f::T,
+                              zero_d::AbstractVector{T},
+                              zero_f::AbstractVector{T},
+                              times::AbstractVector{T},
+                              spot_fx::T) where T<:Real
+    n = length(times)
+    # Domestic fixed leg
+    pv_d = zero(T)
+    for i in 1:n
+        dt = i == 1 ? times[1] : times[i] - times[i-1]
+        df = exp(-zero_d[i] * times[i])
+        pv_d += fixed_d * dt * df * notional_d
+    end
+    pv_d += notional_d * exp(-zero_d[end] * times[end])
+    # Foreign fixed leg (converted to domestic)
+    pv_f = zero(T)
+    for i in 1:n
+        dt = i == 1 ? times[1] : times[i] - times[i-1]
+        df = exp(-zero_f[i] * times[i])
+        pv_f += fixed_f * dt * df * notional_f
+    end
+    pv_f += notional_f * exp(-zero_f[end] * times[end])
+    pv_d - spot_fx * pv_f
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §19  Inflation-Linked Instruments
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""TIPS (Treasury Inflation-Protected Securities) pricing."""
+function tips_price(face::T, coupon_rate::T, real_yield::T,
+                    inflation_index_ratio::T, n_periods::Int;
+                    freq::Int=2) where T<:Real
+    adj_face = face * inflation_index_ratio
+    c = adj_face * coupon_rate / freq
+    r = real_yield / freq
+    pv_coupons = c * (one(T) - (one(T) + r)^(-n_periods)) / max(r, T(1e-16))
+    pv_face = adj_face / (one(T) + r)^n_periods
+    pv_coupons + pv_face
+end
+
+"""Breakeven inflation rate."""
+function breakeven_inflation(nominal_yield::T, real_yield::T) where T<:Real
+    nominal_yield - real_yield
+end
+
+"""Inflation swap pricing."""
+function inflation_swap_value(notional::T, fixed_inflation::T,
+                              realized_cpi::AbstractVector{T},
+                              zero_rates::AbstractVector{T},
+                              times::AbstractVector{T}) where T<:Real
+    n = length(times)
+    fixed_leg = zero(T)
+    float_leg = zero(T)
+    for i in 1:n
+        df = exp(-zero_rates[i] * times[i])
+        fixed_leg += fixed_inflation * df * notional
+        if i <= length(realized_cpi) && i > 1
+            float_cpi = (realized_cpi[i] / realized_cpi[1] - one(T))
+            float_leg += float_cpi * df * notional
+        end
+    end
+    float_leg - fixed_leg
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §20  Mortgage-Backed Securities
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Prepayment model (PSA standard)."""
+function psa_prepayment(month::Int; psa_speed::T=T(1.0)) where T<:Real
+    # PSA: CPR increases linearly from 0 to 6% over first 30 months
+    if month <= 30
+        cpr = T(0.06) * month / T(30) * psa_speed
+    else
+        cpr = T(0.06) * psa_speed
+    end
+    # Convert CPR to SMM
+    smm = one(T) - (one(T) - cpr)^(one(T)/T(12))
+    return smm, cpr
+end
+
+"""MBS cashflow generation."""
+function mbs_cashflows(balance::T, coupon_rate::T, n_months::Int;
+                        psa_speed::T=T(1.0)) where T<:Real
+    monthly_rate = coupon_rate / T(12)
+    remaining = balance
+    cashflows = Vector{T}(undef, n_months)
+    for m in 1:n_months
+        if remaining < T(0.01)
+            cashflows[m] = zero(T)
+            continue
+        end
+        # Scheduled payment (amortizing)
+        scheduled = remaining * monthly_rate / (one(T) - (one(T) + monthly_rate)^(-(n_months - m + 1)))
+        interest = remaining * monthly_rate
+        principal = scheduled - interest
+        # Prepayment
+        smm, _ = psa_prepayment(m; psa_speed=psa_speed)
+        prepay = (remaining - principal) * smm
+        total_principal = principal + prepay
+        cashflows[m] = interest + total_principal
+        remaining -= total_principal
+        remaining = max(remaining, zero(T))
+    end
+    cashflows
+end
+
+"""MBS OAS calculation."""
+function mbs_oas(price::T, balance::T, coupon_rate::T, n_months::Int,
+                 zero_rates::AbstractVector{T};
+                 psa_speed::T=T(1.0)) where T<:Real
+    cf = mbs_cashflows(balance, coupon_rate, n_months; psa_speed=psa_speed)
+    # Binary search for OAS
+    lo, hi = T(-0.05), T(0.20)
+    for _ in 1:100
+        mid = (lo + hi) / 2
+        pv = zero(T)
+        for m in 1:n_months
+            t = T(m) / T(12)
+            r = m <= length(zero_rates) ? zero_rates[m] : zero_rates[end]
+            pv += cf[m] / (one(T) + (r + mid) / T(12))^m
+        end
+        if pv > price
+            lo = mid
+        else
+            hi = mid
+        end
+        if abs(pv - price) < T(0.001)
+            break
+        end
+    end
+    (lo + hi) / 2
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §21  Risk-Neutral Density
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Extract risk-neutral density from option prices (Breeden-Litzenberger)."""
+function risk_neutral_density(strikes::AbstractVector{T},
+                               call_prices::AbstractVector{T},
+                               r::T, tau::T;
+                               dk::T=T(0.01)) where T<:Real
+    n = length(strikes)
+    density = Vector{T}(undef, n)
+    for i in 1:n
+        if i == 1
+            # Forward difference
+            d2C = (call_prices[min(i+2,n)] - T(2)*call_prices[min(i+1,n)] + call_prices[i]) / dk^2
+        elseif i == n
+            d2C = (call_prices[i] - T(2)*call_prices[i-1] + call_prices[max(i-2,1)]) / dk^2
+        else
+            d2C = (call_prices[i+1] - T(2)*call_prices[i] + call_prices[i-1]) / dk^2
+        end
+        density[i] = exp(r * tau) * d2C
+        density[i] = max(density[i], zero(T))
+    end
+    # Normalize
+    total = sum(density) * dk
+    if total > T(1e-16)
+        density ./= total
+    end
+    density
+end
+
+"""Risk-neutral moments from density."""
+function rn_moments(strikes::AbstractVector{T}, density::AbstractVector{T}) where T<:Real
+    dk = length(strikes) > 1 ? strikes[2] - strikes[1] : one(T)
+    mean_rn = sum(strikes .* density) * dk
+    var_rn = sum((strikes .- mean_rn).^2 .* density) * dk
+    skew_rn = sum((strikes .- mean_rn).^3 .* density) * dk / max(var_rn^T(1.5), T(1e-16))
+    kurt_rn = sum((strikes .- mean_rn).^4 .* density) * dk / max(var_rn^2, T(1e-16)) - T(3)
+    return (mean=mean_rn, variance=var_rn, skewness=skew_rn, kurtosis=kurt_rn)
+end
+
 end # module QuantFinance

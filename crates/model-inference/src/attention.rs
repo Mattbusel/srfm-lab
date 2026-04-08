@@ -861,8 +861,6 @@ pub fn linear_attention(q: &Tensor, k: &Tensor, v: &Tensor) -> Tensor {
             }
         }
     }
-    let s = Tensor::from_vec(s_data, &[d_k, d_v]);
-
     // z = sum_j phi(k_j) : [d_k]
     let mut z_data = vec![0.0; d_k];
     for j in 0..seq_k {

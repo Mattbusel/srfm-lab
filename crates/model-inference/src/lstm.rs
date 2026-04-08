@@ -22,7 +22,7 @@ impl LSTMWeights {
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let scale = 1.0 / (hidden_size as f64).sqrt();
         let mut rng = SimpleRng::new(42);
-        let mk = |rows: usize, cols: usize| -> Tensor {
+        let mut mk = |rows: usize, cols: usize| -> Tensor {
             let data: Vec<f64> = (0..rows * cols).map(|_| rng.uniform(-scale, scale)).collect();
             Tensor::from_vec(data, &[rows, cols])
         };
@@ -119,7 +119,7 @@ impl GRUWeights {
     pub fn new(input_size: usize, hidden_size: usize) -> Self {
         let scale = 1.0 / (hidden_size as f64).sqrt();
         let mut rng = SimpleRng::new(123);
-        let mk = |r: usize, c: usize| -> Tensor {
+        let mut mk = |r: usize, c: usize| -> Tensor {
             let data: Vec<f64> = (0..r * c).map(|_| rng.uniform(-scale, scale)).collect();
             Tensor::from_vec(data, &[r, c])
         };
@@ -178,7 +178,7 @@ impl PeepholeLSTMWeights {
         let base = LSTMWeights::new(input_size, hidden_size);
         let mut rng = SimpleRng::new(777);
         let scale = 0.1;
-        let mk = |s: usize| -> Tensor {
+        let mut mk = |s: usize| -> Tensor {
             let data: Vec<f64> = (0..s).map(|_| rng.uniform(-scale, scale)).collect();
             Tensor::from_vec(data, &[s])
         };

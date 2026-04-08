@@ -727,12 +727,13 @@ impl FeatureCross {
     pub fn forward(&self, x: &Tensor) -> Tensor {
         assert_eq!(x.ndim(), 1);
         let n = self.pairs.len();
-        let mut data = vec![0.0; x.shape[0] + n];
+        let total = x.shape[0] + n;
+        let mut data = vec![0.0; total];
         data[..x.shape[0]].copy_from_slice(&x.data);
         for (i, &(a, b)) in self.pairs.iter().enumerate() {
             data[x.shape[0] + i] = x.data[a] * x.data[b];
         }
-        Tensor::from_vec(data, &[data.len()])
+        Tensor::from_vec(data, &[total])
     }
 
     pub fn forward_batch(&self, x: &Tensor) -> Tensor {
@@ -900,6 +901,301 @@ impl CheckpointSequential {
         for layer in &self.layers { h = layer.forward_single(&h); }
         h
     }
+}
+
+/// Grouped linear layer: split input into groups, apply separate linear to each
+#[derive(Clone, Debug)]
+pub struct GroupedLinear {
+    pub num_groups: usize,
+    pub group_layers: Vec<DenseLayer>,
+}
+
+impl GroupedLinear {
+    pub fn new(in_features: usize, out_features: usize, num_groups: usize, activation: Activation) -> Self {
+        assert!(in_features % num_groups == 0);
+        assert!(out_features % num_groups == 0);
+        let in_per = in_features / num_groups;
+        let out_per = out_features / num_groups;
+        let layers: Vec<DenseLayer> = (0..num_groups)
+            .map(|_| DenseLayer::new(in_per, out_per, activation, true))
+            .collect();
+        Self { num_groups, group_layers: layers }
+    }
+
+    pub fn forward_single(&self, x: &Tensor) -> Tensor {
+        assert_eq!(x.ndim(), 1);
+        let in_per = x.shape[0] / self.num_groups;
+        let out_per = self.group_layers[0].out_features();
+        let mut result = Vec::with_capacity(self.num_groups * out_per);
+        for (g, layer) in self.group_layers.iter().enumerate() {
+            let start = g * in_per;
+            let group_input = Tensor::from_slice(&x.data[start..start + in_per], &[in_per]);
+            let group_out = layer.forward_single(&group_input);
+            result.extend_from_slice(&group_out.data);
+        }
+        Tensor::from_vec(result, &[self.num_groups * out_per])
+    }
+}
+
+/// Multi-head linear projection (used in attention-like patterns)
+#[derive(Clone, Debug)]
+pub struct MultiHeadLinear {
+    pub num_heads: usize,
+    pub head_layers: Vec<DenseLayer>,
+    pub output_proj: DenseLayer,
+}
+
+impl MultiHeadLinear {
+    pub fn new(in_features: usize, head_dim: usize, num_heads: usize, out_features: usize) -> Self {
+        let head_layers: Vec<DenseLayer> = (0..num_heads)
+            .map(|_| DenseLayer::new(in_features, head_dim, Activation::None, true))
+            .collect();
+        let output_proj = DenseLayer::new(num_heads * head_dim, out_features, Activation::None, true);
+        Self { num_heads, head_layers, output_proj }
+    }
+
+    pub fn forward_single(&self, x: &Tensor) -> Tensor {
+        let mut heads = Vec::new();
+        for layer in &self.head_layers {
+            let h = layer.forward_single(x);
+            heads.extend_from_slice(&h.data);
+        }
+        let concat = Tensor::from_vec(heads, &[self.num_heads * self.head_layers[0].out_features()]);
+        self.output_proj.forward_single(&concat)
+    }
+}
+
+/// Depthwise separable linear: depthwise (per-feature) then pointwise
+#[derive(Clone, Debug)]
+pub struct DepthwiseSeparableLinear {
+    pub depthwise_scales: Vec<f64>,
+    pub depthwise_biases: Vec<f64>,
+    pub pointwise: DenseLayer,
+}
+
+impl DepthwiseSeparableLinear {
+    pub fn new(features: usize, out_features: usize, activation: Activation) -> Self {
+        let mut rng_state = 54321u64;
+        let scales: Vec<f64> = (0..features).map(|_| {
+            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (rng_state >> 32) as f64 / u32::MAX as f64 * 0.2 + 0.9
+        }).collect();
+        Self {
+            depthwise_scales: scales,
+            depthwise_biases: vec![0.0; features],
+            pointwise: DenseLayer::new(features, out_features, activation, true),
+        }
+    }
+
+    pub fn forward_single(&self, x: &Tensor) -> Tensor {
+        let n = x.shape[0];
+        let mut dw = vec![0.0; n];
+        for i in 0..n {
+            dw[i] = x.data[i] * self.depthwise_scales[i] + self.depthwise_biases[i];
+        }
+        let dw_t = Tensor::from_vec(dw, &[n]);
+        self.pointwise.forward_single(&dw_t)
+    }
+}
+
+/// Bilinear layer: f(x, y) = x^T W y + b
+#[derive(Clone, Debug)]
+pub struct BilinearLayer {
+    pub weight: Tensor, // [in1, in2, out]
+    pub bias: Tensor,   // [out]
+    pub in1_features: usize,
+    pub in2_features: usize,
+    pub out_features: usize,
+}
+
+impl BilinearLayer {
+    pub fn new(in1: usize, in2: usize, out: usize) -> Self {
+        let scale = 1.0 / ((in1 * in2) as f64).sqrt();
+        let mut state = 777u64;
+        let data: Vec<f64> = (0..in1 * in2 * out).map(|_| {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((state >> 32) as f64 / u32::MAX as f64 * 2.0 - 1.0) * scale
+        }).collect();
+        Self {
+            weight: Tensor::from_vec(data, &[in1, in2 * out]),
+            bias: Tensor::zeros(&[out]),
+            in1_features: in1, in2_features: in2, out_features: out,
+        }
+    }
+
+    pub fn forward(&self, x: &Tensor, y: &Tensor) -> Tensor {
+        assert_eq!(x.shape[0], self.in1_features);
+        assert_eq!(y.shape[0], self.in2_features);
+        let mut result = vec![0.0; self.out_features];
+        for o in 0..self.out_features {
+            let mut val = 0.0;
+            for i in 0..self.in1_features {
+                for j in 0..self.in2_features {
+                    val += x.data[i] * self.weight.data[i * (self.in2_features * self.out_features) + j * self.out_features + o] * y.data[j];
+                }
+            }
+            result[o] = val + self.bias.data[o];
+        }
+        Tensor::from_vec(result, &[self.out_features])
+    }
+}
+
+/// Polynomial feature expansion
+#[derive(Clone, Debug)]
+pub struct PolynomialFeatures {
+    pub degree: usize,
+    pub include_bias: bool,
+}
+
+impl PolynomialFeatures {
+    pub fn new(degree: usize) -> Self { Self { degree, include_bias: true } }
+
+    pub fn transform(&self, x: &Tensor) -> Tensor {
+        assert_eq!(x.ndim(), 1);
+        let n = x.shape[0];
+        let mut features = Vec::new();
+        if self.include_bias { features.push(1.0); }
+        // degree 1
+        features.extend_from_slice(&x.data);
+        // degree 2+
+        for d in 2..=self.degree {
+            for i in 0..n {
+                features.push(x.data[i].powi(d as i32));
+            }
+            // cross terms for degree 2
+            if d == 2 {
+                for i in 0..n {
+                    for j in i + 1..n {
+                        features.push(x.data[i] * x.data[j]);
+                    }
+                }
+            }
+        }
+        let len = features.len();
+        Tensor::from_vec(features, &[len])
+    }
+
+    pub fn output_size(&self, input_size: usize) -> usize {
+        let mut size = if self.include_bias { 1 } else { 0 };
+        size += input_size; // degree 1
+        for d in 2..=self.degree {
+            size += input_size; // pure powers
+            if d == 2 { size += input_size * (input_size - 1) / 2; } // cross terms
+        }
+        size
+    }
+}
+
+/// Learnable positional bias for 1D sequences
+#[derive(Clone, Debug)]
+pub struct PositionalBias {
+    pub max_len: usize,
+    pub bias: Vec<f64>,
+}
+
+impl PositionalBias {
+    pub fn new(max_len: usize) -> Self {
+        Self { max_len, bias: vec![0.0; max_len] }
+    }
+
+    pub fn apply(&self, x: &Tensor) -> Tensor {
+        assert_eq!(x.ndim(), 1);
+        let n = x.shape[0].min(self.max_len);
+        let mut out = x.clone();
+        for i in 0..n {
+            out.data[i] += self.bias[i];
+        }
+        out
+    }
+}
+
+/// Hinge loss computation
+pub fn hinge_loss(predictions: &[f64], labels: &[f64]) -> f64 {
+    assert_eq!(predictions.len(), labels.len());
+    predictions.iter().zip(labels.iter())
+        .map(|(&p, &l)| (1.0 - l * p).max(0.0))
+        .sum::<f64>() / predictions.len() as f64
+}
+
+/// Huber loss
+pub fn huber_loss(predictions: &[f64], targets: &[f64], delta: f64) -> f64 {
+    predictions.iter().zip(targets.iter())
+        .map(|(&p, &t)| {
+            let diff = (p - t).abs();
+            if diff <= delta { 0.5 * diff * diff } else { delta * (diff - 0.5 * delta) }
+        })
+        .sum::<f64>() / predictions.len() as f64
+}
+
+/// Quantile loss
+pub fn quantile_loss(predictions: &[f64], targets: &[f64], quantile: f64) -> f64 {
+    predictions.iter().zip(targets.iter())
+        .map(|(&p, &t)| {
+            let diff = t - p;
+            if diff >= 0.0 { quantile * diff } else { (quantile - 1.0) * diff }
+        })
+        .sum::<f64>() / predictions.len() as f64
+}
+
+/// Cross-entropy loss for binary classification
+pub fn binary_cross_entropy(predictions: &[f64], targets: &[f64]) -> f64 {
+    let eps = 1e-15;
+    -predictions.iter().zip(targets.iter())
+        .map(|(&p, &t)| {
+            let p = p.max(eps).min(1.0 - eps);
+            t * p.ln() + (1.0 - t) * (1.0 - p).ln()
+        })
+        .sum::<f64>() / predictions.len() as f64
+}
+
+/// MSE loss
+pub fn mse_loss(predictions: &[f64], targets: &[f64]) -> f64 {
+    predictions.iter().zip(targets.iter())
+        .map(|(&p, &t)| (p - t) * (p - t))
+        .sum::<f64>() / predictions.len() as f64
+}
+
+/// MAE loss
+pub fn mae_loss(predictions: &[f64], targets: &[f64]) -> f64 {
+    predictions.iter().zip(targets.iter())
+        .map(|(&p, &t)| (p - t).abs())
+        .sum::<f64>() / predictions.len() as f64
+}
+
+/// R-squared metric
+pub fn r_squared(predictions: &[f64], targets: &[f64]) -> f64 {
+    let mean_t = targets.iter().sum::<f64>() / targets.len() as f64;
+    let ss_res: f64 = predictions.iter().zip(targets.iter()).map(|(&p, &t)| (t - p).powi(2)).sum();
+    let ss_tot: f64 = targets.iter().map(|&t| (t - mean_t).powi(2)).sum();
+    if ss_tot < 1e-15 { 0.0 } else { 1.0 - ss_res / ss_tot }
+}
+
+/// Explained variance score
+pub fn explained_variance(predictions: &[f64], targets: &[f64]) -> f64 {
+    let n = predictions.len() as f64;
+    let errors: Vec<f64> = predictions.iter().zip(targets.iter()).map(|(&p, &t)| t - p).collect();
+    let mean_err = errors.iter().sum::<f64>() / n;
+    let var_err = errors.iter().map(|&e| (e - mean_err).powi(2)).sum::<f64>() / n;
+    let mean_t = targets.iter().sum::<f64>() / n;
+    let var_t = targets.iter().map(|&t| (t - mean_t).powi(2)).sum::<f64>() / n;
+    if var_t < 1e-15 { 0.0 } else { 1.0 - var_err / var_t }
+}
+
+/// Max error
+pub fn max_error(predictions: &[f64], targets: &[f64]) -> f64 {
+    predictions.iter().zip(targets.iter())
+        .map(|(&p, &t)| (p - t).abs())
+        .fold(0.0f64, f64::max)
+}
+
+/// Median absolute error
+pub fn median_absolute_error(predictions: &[f64], targets: &[f64]) -> f64 {
+    let mut errors: Vec<f64> = predictions.iter().zip(targets.iter())
+        .map(|(&p, &t)| (p - t).abs()).collect();
+    errors.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    if errors.is_empty() { 0.0 }
+    else if errors.len() % 2 == 0 { (errors[errors.len() / 2 - 1] + errors[errors.len() / 2]) / 2.0 }
+    else { errors[errors.len() / 2] }
 }
 
 #[cfg(test)]
