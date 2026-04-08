@@ -2476,4 +2476,408 @@ function market_quality_metrics(prices::Vector{Float64}, volumes::Vector{Float64
             noise_to_signal=noise_var / max(rv, 1e-15))
 end
 
+# ============================================================================
+# SECTION 14: Additional HF Analytics
+# ============================================================================
+
+"""
+    multi_scale_realized_variance(prices, scales)
+
+Multi-scale realized variance across different sampling frequencies.
+"""
+function multi_scale_realized_variance(prices::Vector{Float64},
+                                        scales::Vector{Int})
+    rvs = [realized_variance_subsampled(prices, s) for s in scales]
+    return (scales=scales, realized_variances=rvs,
+            annualized_vols=sqrt.(rvs * 252.0))
+end
+
+"""
+    pre_averaging_estimator(prices, theta)
+
+Pre-averaging estimator for integrated variance (Jacod et al. 2009).
+Handles microstructure noise by pre-averaging returns.
+"""
+function pre_averaging_estimator(prices::Vector{Float64}, theta::Float64)::Float64
+    n = length(prices) - 1
+    kn = max(2, round(Int, theta * sqrt(n)))
+
+    log_prices = log.(max.(prices, 1e-10))
+
+    # Pre-averaging weights: g(x) = min(x, 1-x) for x in [0,1]
+    function g(x::Float64)::Float64
+        return min(x, 1.0 - x)
+    end
+
+    # Pre-averaged returns
+    y_bar = Vector{Float64}(undef, max(n - kn + 1, 0))
+    for i in 1:length(y_bar)
+        s = 0.0
+        for j in 1:kn
+            w = g(j / kn)
+            if i + j <= n + 1
+                s += w * (log_prices[i + j] - log_prices[i + j - 1])
+            end
+        end
+        y_bar[i] = s
+    end
+
+    # Estimator
+    psi1 = 1.0  # integral g(x)^2 dx for min(x,1-x)
+    psi2 = 1.0 / 12.0  # integral g'(x)^2 dx
+
+    pa_sum = sum(y_bar[i]^2 for i in 1:length(y_bar))
+
+    # Bias correction
+    noise_est = noise_variance_estimation(prices)
+    bias = psi2 * kn * noise_est
+
+    iv = (pa_sum / (psi1 * kn)) - bias
+    return max(iv, 0.0)
+end
+
+"""
+    flat_top_realized_kernel(prices; bandwidth=0)
+
+Flat-top realized kernel: improved noise robustness.
+"""
+function flat_top_realized_kernel(prices::Vector{Float64}; bandwidth::Int=0)::Float64
+    return realized_kernel(prices; kernel_type=:flat_top, bandwidth=bandwidth)
+end
+
+"""
+    jump_variation_decomposition(prices)
+
+Decompose total variation into continuous and jump components.
+"""
+function jump_variation_decomposition(prices::Vector{Float64})
+    rv = realized_variance(prices)
+    bpv = bipower_variation(prices)
+    mrv = medRV(prices)
+
+    # Jump variation estimates
+    jump_bpv = max(rv - bpv, 0.0)
+    jump_mrv = max(rv - mrv, 0.0)
+
+    # Average estimate
+    jump_avg = 0.5 * (jump_bpv + jump_mrv)
+    continuous = rv - jump_avg
+
+    return (total_variance=rv, continuous_variance=continuous,
+            jump_variance=jump_avg, jump_fraction=jump_avg / max(rv, 1e-15),
+            bpv_jump=jump_bpv, mrv_jump=jump_mrv)
+end
+
+"""
+    intraday_leverage_effect(prices, block_size)
+
+Leverage effect: correlation between returns and future volatility.
+"""
+function intraday_leverage_effect(prices::Vector{Float64}, block_size::Int)::Float64
+    n = length(prices)
+    log_prices = log.(max.(prices, 1e-10))
+    returns = diff(log_prices)
+    m = length(returns)
+
+    num_blocks = m ÷ block_size
+    if num_blocks < 3
+        return 0.0
+    end
+
+    block_returns = Vector{Float64}(undef, num_blocks)
+    block_rvs = Vector{Float64}(undef, num_blocks)
+
+    for b in 1:num_blocks
+        start_idx = (b - 1) * block_size + 1
+        end_idx = b * block_size
+        block_r = returns[start_idx:end_idx]
+        block_returns[b] = sum(block_r)
+        block_rvs[b] = sum(r^2 for r in block_r)
+    end
+
+    # Leverage = corr(r_t, rv_{t+1})
+    if num_blocks < 3
+        return 0.0
+    end
+    return cor(block_returns[1:end-1], block_rvs[2:end])
+end
+
+"""
+    trade_duration_analysis(timestamps)
+
+Analyze inter-trade durations.
+"""
+function trade_duration_analysis(timestamps::Vector{Float64})
+    n = length(timestamps)
+    if n < 2
+        return (mean_duration=0.0, std_duration=0.0, overdispersion=0.0)
+    end
+
+    durations = diff(timestamps)
+    durations = filter(d -> d > 0, durations)
+
+    if isempty(durations)
+        return (mean_duration=0.0, std_duration=0.0, overdispersion=0.0)
+    end
+
+    mu = mean(durations)
+    sigma = std(durations)
+
+    # Overdispersion: var/mean (>1 = clustered, <1 = regular)
+    overdispersion = mu > 0 ? sigma^2 / mu : 0.0
+
+    # Hazard rate (assuming exponential baseline)
+    hazard = mu > 0 ? 1.0 / mu : 0.0
+
+    # Autocorrelation of durations
+    n_d = length(durations)
+    if n_d > 2
+        ac1 = cor(durations[1:end-1], durations[2:end])
+    else
+        ac1 = 0.0
+    end
+
+    return (mean_duration=mu, std_duration=sigma, overdispersion=overdispersion,
+            hazard_rate=hazard, autocorrelation=ac1,
+            num_trades=n, median_duration=median(durations))
+end
+
+"""
+    realized_covariance_matrix(prices_matrix, timestamps; freq=300)
+
+Multi-asset realized covariance matrix.
+"""
+function realized_covariance_matrix(prices_matrix::Matrix{Float64};
+                                     freq::Int=1)::Matrix{Float64}
+    T, N = size(prices_matrix)
+    log_prices = log.(max.(prices_matrix, 1e-10))
+    returns = diff(log_prices, dims=1)
+
+    # Subsample
+    sub_returns = returns[1:freq:end, :]
+    m = size(sub_returns, 1)
+
+    rcov = zeros(N, N)
+    for i in 1:N
+        for j in i:N
+            for t in 1:m
+                rcov[i, j] += sub_returns[t, i] * sub_returns[t, j]
+            end
+            rcov[j, i] = rcov[i, j]
+        end
+    end
+
+    return rcov
+end
+
+"""
+    tick_imbalance_bars(prices, volumes, directions, initial_theta)
+
+Tick imbalance bars (Lopez de Prado 2018).
+Form bars when cumulative tick imbalance exceeds threshold.
+"""
+function tick_imbalance_bars(prices::Vector{Float64}, volumes::Vector{Float64},
+                              directions::Vector{Int}, initial_theta::Float64)
+    n = length(prices)
+    theta = initial_theta
+    cum_imbalance = 0.0
+
+    bar_indices = Int[1]
+    bar_prices = Float64[prices[1]]
+    bar_volumes = Float64[0.0]
+
+    bar_vol_accum = 0.0
+
+    for i in 2:n
+        cum_imbalance += directions[i]
+        bar_vol_accum += volumes[i]
+
+        if abs(cum_imbalance) >= theta
+            push!(bar_indices, i)
+            push!(bar_prices, prices[i])
+            push!(bar_volumes, bar_vol_accum)
+
+            # Update theta using EWMA of bar sizes
+            if length(bar_indices) > 2
+                recent_sizes = diff(bar_indices[max(1, end-10):end])
+                theta = mean(recent_sizes) * 0.5
+                theta = max(theta, 1.0)
+            end
+
+            cum_imbalance = 0.0
+            bar_vol_accum = 0.0
+        end
+    end
+
+    return (indices=bar_indices, prices=bar_prices, volumes=bar_volumes)
+end
+
+"""
+    volume_imbalance_bars(prices, volumes, directions, initial_theta)
+
+Volume imbalance bars.
+"""
+function volume_imbalance_bars(prices::Vector{Float64}, volumes::Vector{Float64},
+                                directions::Vector{Int}, initial_theta::Float64)
+    n = length(prices)
+    theta = initial_theta
+    cum_vol_imbalance = 0.0
+
+    bar_indices = Int[1]
+    bar_prices = Float64[prices[1]]
+
+    for i in 2:n
+        signed_vol = directions[i] * volumes[i]
+        cum_vol_imbalance += signed_vol
+
+        if abs(cum_vol_imbalance) >= theta
+            push!(bar_indices, i)
+            push!(bar_prices, prices[i])
+
+            # Update theta
+            if length(bar_indices) > 5
+                recent_sizes = diff(bar_indices[max(1, end-10):end])
+                avg_size = mean(recent_sizes)
+                avg_vol = mean(volumes[max(1, i-100):i])
+                theta = avg_size * avg_vol * 0.5
+                theta = max(theta, volumes[i])
+            end
+
+            cum_vol_imbalance = 0.0
+        end
+    end
+
+    return (indices=bar_indices, prices=bar_prices)
+end
+
+"""
+    dollar_bars(prices, volumes, dollar_threshold)
+
+Dollar bars: sample when cumulative dollar volume exceeds threshold.
+"""
+function dollar_bars(prices::Vector{Float64}, volumes::Vector{Float64},
+                      dollar_threshold::Float64)
+    n = length(prices)
+    cum_dollar = 0.0
+
+    bar_indices = Int[1]
+    bar_ohlc = Vector{NTuple{4, Float64}}()
+    bar_open = prices[1]
+    bar_high = prices[1]
+    bar_low = prices[1]
+
+    for i in 1:n
+        dollar_vol = prices[i] * volumes[i]
+        cum_dollar += dollar_vol
+        bar_high = max(bar_high, prices[i])
+        bar_low = min(bar_low, prices[i])
+
+        if cum_dollar >= dollar_threshold
+            push!(bar_indices, i)
+            push!(bar_ohlc, (bar_open, bar_high, bar_low, prices[i]))
+
+            cum_dollar = 0.0
+            bar_open = prices[i]
+            bar_high = prices[i]
+            bar_low = prices[i]
+        end
+    end
+
+    return (indices=bar_indices, ohlc=bar_ohlc)
+end
+
+"""
+    entropy_of_order_flow(directions, window)
+
+Shannon entropy of order flow direction distribution over rolling window.
+Low entropy = one-sided flow (toxic), High entropy = balanced.
+"""
+function entropy_of_order_flow(directions::Vector{Int}, window::Int)::Vector{Float64}
+    n = length(directions)
+    if n < window
+        return Float64[]
+    end
+
+    entropies = Vector{Float64}(undef, n - window + 1)
+
+    for i in window:n
+        sub = directions[(i-window+1):i]
+        n_buy = count(x -> x > 0, sub)
+        n_sell = count(x -> x < 0, sub)
+        total = n_buy + n_sell
+        if total == 0
+            entropies[i - window + 1] = 0.0
+            continue
+        end
+
+        p_buy = n_buy / total
+        p_sell = n_sell / total
+
+        H = 0.0
+        if p_buy > 0
+            H -= p_buy * log2(p_buy)
+        end
+        if p_sell > 0
+            H -= p_sell * log2(p_sell)
+        end
+
+        entropies[i - window + 1] = H
+    end
+
+    return entropies
+end
+
+"""
+    market_impact_model(trade_sizes, price_changes, participation_rates)
+
+Estimate market impact model: dp = alpha * (v/V)^beta * sigma.
+"""
+function market_impact_model(trade_sizes::Vector{Float64},
+                              price_changes::Vector{Float64},
+                              participation_rates::Vector{Float64})
+    n = min(length(trade_sizes), length(price_changes), length(participation_rates))
+
+    # Log-linear model: log|dp| = log(alpha) + beta*log(v/V) + gamma*log(sigma) + eps
+    # Simplified: log|dp| = a + b*log(participation) + eps
+    y = [log(max(abs(price_changes[i]), 1e-15)) for i in 1:n]
+    x = [log(max(participation_rates[i], 1e-15)) for i in 1:n]
+
+    X = hcat(ones(n), x)
+    beta = (X' * X) \ (X' * y)
+
+    alpha = exp(beta[1])
+    exponent = beta[2]
+
+    residuals = y - X * beta
+    r_sq = 1.0 - sum(residuals.^2) / max(sum((y .- mean(y)).^2), 1e-15)
+
+    return (alpha=alpha, exponent=exponent, r_squared=r_sq)
+end
+
+"""
+    hf_portfolio_risk(weights, realized_cov)
+
+High-frequency portfolio risk from realized covariance.
+"""
+function hf_portfolio_risk(weights::Vector{Float64},
+                            realized_cov::Matrix{Float64})
+    port_var = dot(weights, realized_cov * weights)
+    port_vol = sqrt(max(port_var, 0.0))
+
+    # Marginal risk contribution
+    N = length(weights)
+    mrc = realized_cov * weights
+    if port_vol > 1e-15
+        mrc ./= port_vol
+    end
+
+    # Component risk
+    component_risk = weights .* mrc
+    total_risk = sum(component_risk)
+
+    return (portfolio_variance=port_var, portfolio_vol=port_vol,
+            marginal_risk=mrc, component_risk=component_risk,
+            annualized_vol=port_vol * sqrt(252.0))
+end
+
 end # module HighFrequencyAnalytics

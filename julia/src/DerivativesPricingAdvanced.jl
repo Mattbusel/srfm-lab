@@ -2133,4 +2133,543 @@ function vol_surface_svi(k::Float64, a::Float64, b::Float64, rho_svi::Float64,
     return max(w, 1e-6)
 end
 
+# ============================================================================
+# SECTION 15: Additional Exotic and Utility Functions
+# ============================================================================
+
+"""
+    double_barrier_option_mc(S, K, H_upper, H_lower, r, q, sigma, T,
+                              num_paths, num_steps; seed=42, is_call=true)
+
+Double barrier knock-out option via Monte Carlo.
+"""
+function double_barrier_option_mc(S::Float64, K::Float64, H_upper::Float64,
+                                   H_lower::Float64, r::Float64, q::Float64,
+                                   sigma::Float64, T::Float64,
+                                   num_paths::Int, num_steps::Int;
+                                   seed::Int=42, is_call::Bool=true)::Float64
+    rng = Random.MersenneTwister(seed)
+    dt = T / num_steps
+    drift = (r - q - 0.5 * sigma^2) * dt
+
+    payoffs = Vector{Float64}(undef, num_paths)
+
+    for path in 1:num_paths
+        S_curr = S
+        knocked_out = false
+
+        for step in 1:num_steps
+            z = randn(rng)
+            S_curr *= exp(drift + sigma * sqrt(dt) * z)
+
+            if S_curr >= H_upper || S_curr <= H_lower
+                knocked_out = true
+                break
+            end
+        end
+
+        if knocked_out
+            payoffs[path] = 0.0
+        else
+            if is_call
+                payoffs[path] = max(S_curr - K, 0.0)
+            else
+                payoffs[path] = max(K - S_curr, 0.0)
+            end
+        end
+    end
+
+    return exp(-r * T) * mean(payoffs)
+end
+
+"""
+    parisian_barrier_mc(S, K, H, r, q, sigma, T, window, num_paths, num_steps;
+                         seed=42, is_down=true, is_out=true, is_call=true)
+
+Parisian barrier option: barrier must be breached for a continuous period.
+"""
+function parisian_barrier_mc(S::Float64, K::Float64, H::Float64,
+                              r::Float64, q::Float64, sigma::Float64, T::Float64,
+                              window::Float64, num_paths::Int, num_steps::Int;
+                              seed::Int=42, is_down::Bool=true,
+                              is_out::Bool=true, is_call::Bool=true)::Float64
+    rng = Random.MersenneTwister(seed)
+    dt = T / num_steps
+    drift = (r - q - 0.5 * sigma^2) * dt
+    window_steps = max(1, round(Int, window / dt))
+
+    payoffs = Vector{Float64}(undef, num_paths)
+
+    for path in 1:num_paths
+        S_curr = S
+        consecutive_breach = 0
+        parisian_triggered = false
+
+        for step in 1:num_steps
+            z = randn(rng)
+            S_curr *= exp(drift + sigma * sqrt(dt) * z)
+
+            breaching = is_down ? (S_curr <= H) : (S_curr >= H)
+
+            if breaching
+                consecutive_breach += 1
+                if consecutive_breach >= window_steps
+                    parisian_triggered = true
+                    break
+                end
+            else
+                consecutive_breach = 0
+            end
+        end
+
+        intrinsic = is_call ? max(S_curr - K, 0.0) : max(K - S_curr, 0.0)
+
+        if is_out
+            payoffs[path] = parisian_triggered ? 0.0 : intrinsic
+        else
+            payoffs[path] = parisian_triggered ? intrinsic : 0.0
+        end
+    end
+
+    return exp(-r * T) * mean(payoffs)
+end
+
+"""
+    timer_option_mc(S, K, r, q, sigma, variance_budget, max_T, num_paths, num_steps;
+                     seed=42, is_call=true)
+
+Timer option: expires when realized variance reaches budget.
+"""
+function timer_option_mc(S::Float64, K::Float64, r::Float64, q::Float64,
+                          sigma::Float64, variance_budget::Float64,
+                          max_T::Float64, num_paths::Int, num_steps::Int;
+                          seed::Int=42, is_call::Bool=true)::Float64
+    rng = Random.MersenneTwister(seed)
+    dt = max_T / num_steps
+    drift = (r - q - 0.5 * sigma^2) * dt
+
+    payoffs = Vector{Float64}(undef, num_paths)
+
+    for path in 1:num_paths
+        S_curr = S
+        cum_var = 0.0
+        exercise_time = max_T
+
+        for step in 1:num_steps
+            z = randn(rng)
+            log_return = drift + sigma * sqrt(dt) * z
+            S_curr *= exp(log_return)
+            cum_var += log_return^2
+
+            if cum_var >= variance_budget
+                exercise_time = step * dt
+                break
+            end
+        end
+
+        df = exp(-r * exercise_time)
+        if is_call
+            payoffs[path] = df * max(S_curr - K, 0.0)
+        else
+            payoffs[path] = df * max(K - S_curr, 0.0)
+        end
+    end
+
+    return mean(payoffs)
+end
+
+"""
+    corridor_variance_swap(prices, upper_barrier, lower_barrier, T)
+
+Corridor variance swap: realized variance only when price is in corridor.
+"""
+function corridor_variance_swap(prices::Vector{Float64}, upper_barrier::Float64,
+                                 lower_barrier::Float64, T::Float64)::Float64
+    n = length(prices) - 1
+    if n <= 0
+        return 0.0
+    end
+
+    corridor_var = 0.0
+    in_corridor_count = 0
+
+    for i in 2:length(prices)
+        if prices[i-1] >= lower_barrier && prices[i-1] <= upper_barrier
+            r = log(prices[i] / prices[i-1])
+            corridor_var += r^2
+            in_corridor_count += 1
+        end
+    end
+
+    if in_corridor_count == 0
+        return 0.0
+    end
+
+    return corridor_var / T * 252.0
+end
+
+"""
+    gamma_swap_fair_strike(strikes, implied_vols, S, r, q, T)
+
+Gamma swap fair strike (variance swap weighted by price level).
+"""
+function gamma_swap_fair_strike(strikes::Vector{Float64}, implied_vols::Vector{Float64},
+                                 S::Float64, r::Float64, q::Float64, T::Float64)::Float64
+    F = S * exp((r - q) * T)
+    n = length(strikes)
+
+    integral = 0.0
+    for i in 2:n
+        K = strikes[i]
+        K_prev = strikes[i-1]
+        dK = K - K_prev
+        K_mid = 0.5 * (K + K_prev)
+        sigma = 0.5 * (implied_vols[i] + implied_vols[i-1])
+
+        if K_mid < F
+            price = bs_put_full(S, K_mid, r, q, sigma, T).price
+        else
+            price = bs_call_full(S, K_mid, r, q, sigma, T).price
+        end
+
+        # Weight by 1/K instead of 1/K^2 for gamma swap
+        integral += price * dK / K_mid
+    end
+
+    return (2.0 * exp(r * T) / (T * F)) * integral
+end
+
+"""
+    volatility_swap_fair_strike(var_swap_strike, T, kurtosis_adjustment)
+
+Volatility swap fair strike from variance swap strike.
+E[vol] ~ sqrt(K_var) * (1 - kurtosis_adj / (8 * K_var * T))
+"""
+function volatility_swap_fair_strike(var_swap_strike::Float64, T::Float64,
+                                      kurtosis_adjustment::Float64)::Float64
+    if var_swap_strike <= 0
+        return 0.0
+    end
+    return sqrt(var_swap_strike) * (1.0 - kurtosis_adjustment / (8.0 * var_swap_strike * T))
+end
+
+"""
+    discrete_barrier_adjustment(continuous_price, S, H, sigma, num_obs, T)
+
+Broadie-Glasserman-Kou (1997) continuity correction for discrete barriers.
+"""
+function discrete_barrier_adjustment(H::Float64, sigma::Float64,
+                                      num_obs::Int, T::Float64,
+                                      is_down::Bool)::Float64
+    dt = T / num_obs
+    beta = 0.5826  # Zeta(1/2) / sqrt(2*pi)
+    adjustment = exp(beta * sigma * sqrt(dt))
+
+    if is_down
+        return H / adjustment
+    else
+        return H * adjustment
+    end
+end
+
+"""
+    local_vol_from_dupire_mc(S, K, r, q, T, local_vol_grid, K_grid, T_grid,
+                              num_paths, num_steps; seed=42, is_call=true)
+
+Monte Carlo pricing with interpolated local vol surface.
+"""
+function local_vol_from_dupire_mc(S::Float64, K::Float64, r::Float64, q::Float64,
+                                   T::Float64, local_vol_grid::Matrix{Float64},
+                                   K_grid::Vector{Float64}, T_grid::Vector{Float64},
+                                   num_paths::Int, num_steps::Int;
+                                   seed::Int=42, is_call::Bool=true)::Float64
+    rng = Random.MersenneTwister(seed)
+    dt = T / num_steps
+    nK = length(K_grid)
+    nT = length(T_grid)
+
+    function interp_local_vol(s_val::Float64, t_val::Float64)::Float64
+        # Bilinear interpolation
+        ki = 1
+        for k in 1:(nK-1)
+            if s_val >= K_grid[k] && s_val <= K_grid[k+1]
+                ki = k
+                break
+            end
+        end
+        ki = clamp(ki, 1, nK - 1)
+
+        ti = 1
+        for t in 1:(nT-1)
+            if t_val >= T_grid[t] && t_val <= T_grid[t+1]
+                ti = t
+                break
+            end
+        end
+        ti = clamp(ti, 1, nT - 1)
+
+        wk = (s_val - K_grid[ki]) / max(K_grid[ki+1] - K_grid[ki], 1e-10)
+        wk = clamp(wk, 0.0, 1.0)
+        wt = (t_val - T_grid[ti]) / max(T_grid[ti+1] - T_grid[ti], 1e-10)
+        wt = clamp(wt, 0.0, 1.0)
+
+        v00 = local_vol_grid[ki, ti]
+        v10 = local_vol_grid[ki+1, ti]
+        v01 = local_vol_grid[ki, ti+1]
+        v11 = local_vol_grid[ki+1, ti+1]
+
+        return (1-wk)*(1-wt)*v00 + wk*(1-wt)*v10 + (1-wk)*wt*v01 + wk*wt*v11
+    end
+
+    payoffs = Vector{Float64}(undef, num_paths)
+
+    for path in 1:num_paths
+        s = S
+        for step in 1:num_steps
+            t = (step - 1) * dt
+            sigma_local = interp_local_vol(s, t)
+            sigma_local = max(sigma_local, 0.001)
+
+            z = randn(rng)
+            s *= exp((r - q - 0.5 * sigma_local^2) * dt + sigma_local * sqrt(dt) * z)
+            s = max(s, 1e-10)
+        end
+
+        if is_call
+            payoffs[path] = max(s - K, 0.0)
+        else
+            payoffs[path] = max(K - s, 0.0)
+        end
+    end
+
+    return exp(-r * T) * mean(payoffs)
+end
+
+"""
+    straddle_price(S, K, r, q, sigma, T)
+
+Straddle = Call + Put at same strike.
+"""
+function straddle_price(S::Float64, K::Float64, r::Float64, q::Float64,
+                         sigma::Float64, T::Float64)::Float64
+    return bs_call_full(S, K, r, q, sigma, T).price + bs_put_full(S, K, r, q, sigma, T).price
+end
+
+"""
+    strangle_price(S, K_call, K_put, r, q, sigma, T)
+
+Strangle = OTM Call + OTM Put.
+"""
+function strangle_price(S::Float64, K_call::Float64, K_put::Float64,
+                         r::Float64, q::Float64, sigma::Float64, T::Float64)::Float64
+    return bs_call_full(S, K_call, r, q, sigma, T).price +
+           bs_put_full(S, K_put, r, q, sigma, T).price
+end
+
+"""
+    butterfly_price(S, K_low, K_mid, K_high, r, q, sigma, T)
+
+Butterfly spread: long K_low call + long K_high call + 2 short K_mid call.
+"""
+function butterfly_price(S::Float64, K_low::Float64, K_mid::Float64,
+                          K_high::Float64, r::Float64, q::Float64,
+                          sigma::Float64, T::Float64)::Float64
+    return bs_call_full(S, K_low, r, q, sigma, T).price +
+           bs_call_full(S, K_high, r, q, sigma, T).price -
+           2.0 * bs_call_full(S, K_mid, r, q, sigma, T).price
+end
+
+"""
+    risk_reversal_price(S, K_call, K_put, r, q, sigma_call, sigma_put, T)
+
+Risk reversal: long OTM call + short OTM put.
+"""
+function risk_reversal_price(S::Float64, K_call::Float64, K_put::Float64,
+                              r::Float64, q::Float64, sigma_call::Float64,
+                              sigma_put::Float64, T::Float64)::Float64
+    return bs_call_full(S, K_call, r, q, sigma_call, T).price -
+           bs_put_full(S, K_put, r, q, sigma_put, T).price
+end
+
+"""
+    calendar_spread_price(S, K, r, q, sigma_near, sigma_far, T_near, T_far)
+
+Calendar spread: long far-dated, short near-dated.
+"""
+function calendar_spread_price(S::Float64, K::Float64, r::Float64, q::Float64,
+                                sigma_near::Float64, sigma_far::Float64,
+                                T_near::Float64, T_far::Float64)::Float64
+    return bs_call_full(S, K, r, q, sigma_far, T_far).price -
+           bs_call_full(S, K, r, q, sigma_near, T_near).price
+end
+
+"""
+    iron_condor_price(S, K1, K2, K3, K4, r, q, sigma, T)
+
+Iron condor: bear call spread (K3, K4) + bull put spread (K1, K2).
+K1 < K2 < K3 < K4.
+"""
+function iron_condor_price(S::Float64, K1::Float64, K2::Float64,
+                            K3::Float64, K4::Float64, r::Float64, q::Float64,
+                            sigma::Float64, T::Float64)::Float64
+    # Bull put spread
+    bull_put = bs_put_full(S, K2, r, q, sigma, T).price -
+               bs_put_full(S, K1, r, q, sigma, T).price
+    # Bear call spread
+    bear_call = bs_call_full(S, K3, r, q, sigma, T).price -
+                bs_call_full(S, K4, r, q, sigma, T).price
+
+    return bull_put + bear_call
+end
+
+"""
+    vega_notional_to_variance_notional(vega_notional, fair_strike)
+
+Convert vega notional to variance notional.
+Var_notional = Vega_notional / (2 * sqrt(K_var))
+"""
+function vega_notional_to_variance_notional(vega_notional::Float64,
+                                             fair_strike::Float64)::Float64
+    if fair_strike <= 0
+        return 0.0
+    end
+    return vega_notional / (2.0 * sqrt(fair_strike))
+end
+
+"""
+    delta_hedging_pnl(S_path, K, r, sigma, T, num_rebalances)
+
+Simulate delta hedging P&L for a short call position.
+"""
+function delta_hedging_pnl(S_path::Vector{Float64}, K::Float64, r::Float64,
+                            sigma::Float64, T::Float64, num_rebalances::Int)
+    n = length(S_path) - 1
+    dt = T / n
+    rebalance_freq = max(1, n ÷ num_rebalances)
+
+    # Initial position
+    S0 = S_path[1]
+    call_price = bs_call_full(S0, K, r, 0.0, sigma, T).price
+    delta = bs_call_full(S0, K, r, 0.0, sigma, T).delta
+
+    cash = call_price - delta * S0
+    shares = delta
+    hedge_pnl_series = Vector{Float64}(undef, n)
+
+    for i in 1:n
+        t = i * dt
+        remaining = T - t
+        S_curr = S_path[i + 1]
+
+        # Portfolio value before rebalance
+        portfolio_value = shares * S_curr + cash * exp(r * dt)
+
+        if remaining > 0.001 && i % rebalance_freq == 0
+            new_delta = bs_call_full(S_curr, K, r, 0.0, sigma, remaining).delta
+            trade = new_delta - shares
+            cash = cash * exp(r * dt) - trade * S_curr
+            shares = new_delta
+        else
+            cash *= exp(r * dt)
+        end
+
+        # Current option value
+        if remaining > 0.001
+            option_value = bs_call_full(S_curr, K, r, 0.0, sigma, remaining).price
+        else
+            option_value = max(S_curr - K, 0.0)
+        end
+
+        hedge_pnl_series[i] = shares * S_curr + cash - option_value
+    end
+
+    # Final P&L
+    S_T = S_path[end]
+    final_payoff = max(S_T - K, 0.0)
+    final_pnl = shares * S_T + cash - final_payoff
+
+    return (final_pnl=final_pnl, pnl_series=hedge_pnl_series,
+            hedge_error=final_pnl - call_price)
+end
+
+"""
+    theta_decay_profile(S, K, r, q, sigma, T; num_points=100)
+
+Theta decay profile from now to expiry.
+"""
+function theta_decay_profile(S::Float64, K::Float64, r::Float64, q::Float64,
+                              sigma::Float64, T::Float64; num_points::Int=100)
+    times = range(T, 0.001, length=num_points)
+    prices = [bs_call_full(S, K, r, q, sigma, t).price for t in times]
+    thetas = [bs_call_full(S, K, r, q, sigma, t).theta for t in times]
+    gammas = [bs_call_full(S, K, r, q, sigma, t).gamma for t in times]
+
+    return (times=collect(times), prices=prices, thetas=thetas, gammas=gammas)
+end
+
+"""
+    pin_risk_analysis(S, K, r, q, sigma, T_remaining; price_range_pct=0.05)
+
+Gamma/pin risk analysis near expiry.
+"""
+function pin_risk_analysis(S::Float64, K::Float64, r::Float64, q::Float64,
+                            sigma::Float64, T_remaining::Float64;
+                            price_range_pct::Float64=0.05)
+    prices = range(S * (1.0 - price_range_pct), S * (1.0 + price_range_pct), length=50)
+
+    deltas = [bs_call_full(p, K, r, q, sigma, T_remaining).delta for p in prices]
+    gammas = [bs_call_full(p, K, r, q, sigma, T_remaining).gamma for p in prices]
+    dollar_gamma = [g * p^2 * 0.01 for (g, p) in zip(gammas, prices)]
+
+    return (prices=collect(prices), deltas=deltas, gammas=gammas,
+            dollar_gamma=dollar_gamma,
+            max_gamma=maximum(gammas),
+            max_dollar_gamma=maximum(dollar_gamma))
+end
+
+"""
+    vol_surface_arbitrage_check(strikes, maturities, implied_vols, S, r, q)
+
+Check vol surface for calendar and butterfly arbitrage.
+"""
+function vol_surface_arbitrage_check(strikes::Vector{Float64},
+                                      maturities::Vector{Float64},
+                                      implied_vols::Matrix{Float64},
+                                      S::Float64, r::Float64, q::Float64)
+    nK = length(strikes)
+    nT = length(maturities)
+
+    calendar_violations = 0
+    butterfly_violations = 0
+
+    # Calendar arbitrage: total variance must be non-decreasing in T
+    for i in 1:nK
+        for j in 2:nT
+            tv_prev = implied_vols[i, j-1]^2 * maturities[j-1]
+            tv_curr = implied_vols[i, j]^2 * maturities[j]
+            if tv_curr < tv_prev - 1e-10
+                calendar_violations += 1
+            end
+        end
+    end
+
+    # Butterfly arbitrage: d2C/dK2 >= 0 (call prices convex in K)
+    for j in 1:nT
+        for i in 2:(nK-1)
+            c_low = bs_call_full(S, strikes[i-1], r, q, implied_vols[i-1, j], maturities[j]).price
+            c_mid = bs_call_full(S, strikes[i], r, q, implied_vols[i, j], maturities[j]).price
+            c_high = bs_call_full(S, strikes[i+1], r, q, implied_vols[i+1, j], maturities[j]).price
+
+            butterfly = c_low - 2.0 * c_mid + c_high
+            if butterfly < -1e-8
+                butterfly_violations += 1
+            end
+        end
+    end
+
+    return (calendar_violations=calendar_violations,
+            butterfly_violations=butterfly_violations,
+            is_arbitrage_free=calendar_violations == 0 && butterfly_violations == 0)
+end
+
 end # module DerivativesPricingAdvanced
