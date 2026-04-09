@@ -2199,10 +2199,22 @@ class LiveTrader:
             qty_round = 8
             min_qty   = 1e-7
 
-        order_side = OrderSide.BUY if side == "buy" else OrderSide.SELL
+        # Validate order side (don't silently default to SELL on bad input)
+        if side == "buy":
+            order_side = OrderSide.BUY
+        elif side == "sell":
+            order_side = OrderSide.SELL
+        else:
+            log.error("REJECTED: invalid order side '%s' for %s", side, sym)
+            return
+
+        # Guard: reject orders where price is too low (prevents runaway qty)
+        if price < 0.01:
+            log.error("REJECTED: price %.8f too low for %s (runaway qty risk)", price, sym)
+            return
 
         while remaining > min_qty:
-            slice_qty = min(remaining, max_slice / price)
+            slice_qty = min(remaining, max_slice / max(price, 0.01))
             rounded   = round(slice_qty, qty_round)
 
             # Guard: rounding could produce 0 → break to avoid infinite loop
