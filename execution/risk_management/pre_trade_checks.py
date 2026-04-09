@@ -114,14 +114,14 @@ def check_position_limit(
     if positions.nav <= 0:
         return CheckResult(False, check_name, "NAV is zero or negative", "invalid_nav")
 
-    current_exposure = abs(positions.positions.get(order.symbol, 0.0))
-    order_value = order.qty * order.price
-
+    # Fix: compute net quantity, then absolute exposure.
+    # Previous code double-counted BUY_TO_COVER as additive exposure.
+    current_qty = positions.positions.get(order.symbol, 0.0)
     if order.side in (OrderSide.BUY, OrderSide.BUY_TO_COVER):
-        new_exposure = current_exposure + order_value
+        new_qty = current_qty + order.qty
     else:
-        # selling reduces long exposure or increases short exposure
-        new_exposure = abs(current_exposure - order_value)
+        new_qty = current_qty - order.qty
+    new_exposure = abs(new_qty * order.price)
 
     new_pct = new_exposure / positions.nav
 

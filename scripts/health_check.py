@@ -415,8 +415,11 @@ def check_circuit_breakers(timeout: float = 3.0) -> ServiceResult:
     Query coordination layer for circuit breaker states.
     Returns degraded if any breaker is open.
     """
-    coord_url = os.environ.get("SRFM_COORD_URL", "http://localhost:8781")
-    url = f"{coord_url.rstrip('/health')}/health"
+    coord_url = os.environ.get("SRFM_COORD_URL", "http://localhost:8781").rstrip("/")
+    # Fix: rstrip('/health') strips individual chars, not the suffix. Use removesuffix.
+    if coord_url.endswith("/health"):
+        coord_url = coord_url[:-7]
+    url = f"{coord_url}/health"
     result = http_probe("circuit_breakers", url, timeout, critical=False)
 
     if result.status == "ok" and result.details:

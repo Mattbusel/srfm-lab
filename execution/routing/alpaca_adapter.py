@@ -29,6 +29,18 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+
+def _validate_side(side: str) -> "OrderSide":
+    """Validate order side. Raises ValueError on unrecognized input instead of silently defaulting to SELL."""
+    from alpaca.trading.enums import OrderSide
+    s = side.lower().strip()
+    if s == "buy":
+        return OrderSide.BUY
+    elif s == "sell":
+        return OrderSide.SELL
+    else:
+        raise ValueError(f"Invalid order side: '{side}'. Must be 'buy' or 'sell'.")
+
 log = logging.getLogger("execution.alpaca_adapter")
 
 # Retry configuration
@@ -169,7 +181,7 @@ class AlpacaAdapter:
         req = MarketOrderRequest(
             symbol        = symbol,
             qty           = qty,
-            side          = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL,
+            side          = _validate_side(side),
             time_in_force = TimeInForce.GTC,
         )
         order = self._with_retry(self._client.submit_order, req)
@@ -213,7 +225,7 @@ class AlpacaAdapter:
         req = LimitOrderRequest(
             symbol        = symbol,
             qty           = qty,
-            side          = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL,
+            side          = _validate_side(side),
             limit_price   = round(limit_price, 8),
             time_in_force = _tif_map.get(time_in_force.lower(), TimeInForce.GTC),
         )
