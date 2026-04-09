@@ -35,6 +35,8 @@ members = [
     "crates/risk-analytics",
     "crates/signal-processing",
     "crates/time-series-engine",
+    "crates/synthetic-exchange",
+    "crates/alpha-tensor",
 ]
 resolver = "2"
 

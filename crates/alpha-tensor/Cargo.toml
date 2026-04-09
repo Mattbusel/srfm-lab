@@ -1,0 +1,7 @@
+[package]
+name = "alpha-tensor"
+version = "0.1.0"
+edition = "2021"
+description = "Multi-dimensional sparse tensor for parallel backtest farm"
+
+[dependencies]
