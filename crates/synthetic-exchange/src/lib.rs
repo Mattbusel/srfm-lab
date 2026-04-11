@@ -5,6 +5,23 @@
 //! momentum followers, mean-reversion strategies, latency simulation, and
 //! aggregate population management with metrics collection.
 
+// ── Chronos / AETERNUS Module 1 additions ───────────────────────────────────
+pub mod exchange;
+pub mod market_maker;
+pub mod arbitrageur;
+pub mod momentum_agent;
+pub mod population;
+
+pub use exchange::{
+    Exchange, Instrument, InstrumentConfig, Order, Fill, Side, OrderKind, TimeInForce,
+    CircuitBreaker, CircuitBreakerState, MarketDataSnapshot, CrossAssetTrigger,
+    InstrumentPhase, OrderId, InstrumentId, AgentId, Qty, Price, Nanos,
+};
+pub use market_maker::{MarketMakerAgent, AvellanedaStoikovParams, MarketMakerSummary, PositionState, DeltaHedgeConfig};
+pub use arbitrageur::{ArbitrageAgent, ArbitrageConfig, SpreadSignal, ArbitrageSignal, KalmanHedge, CointegrationResult, engle_granger_test, ols, adf_test, estimate_half_life};
+pub use momentum_agent::{MomentumAgent, MomentumConfig, Ewma, AtrEstimator, MomentumSummary};
+pub use population::{Population, PopulationConfig, PopulationSimulation, SimulationResult, NoiseTrader, AgentVariant, PopulationStats, AgentPerformance};
+
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt;
 

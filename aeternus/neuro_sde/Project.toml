@@ -1,0 +1,40 @@
+name = "NeuroSDE"
+uuid = "b7c4a891-f2d3-4e56-89ab-cd0123456789"
+authors = ["SRFM Lab <srfm@lab.local>"]
+version = "0.1.0"
+
+[deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+DataFrames = "a93c6f00-e57d-5684-b466-afe8fa294f29"
+DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Optimisers = "3bd65402-5787-11e9-1adc-39752487f4e2"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SciMLSensitivity = "1ed8b502-d754-442c-8d8f-a18d559d4b3a"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b1"
+StochasticDiffEq = "789caeaf-c7a9-5a7d-9973-519522f5f7f5"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
+NNlib = "872c559c-99b0-510c-b3b7-b6c96a88d5cd"
+ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+
+[weakdeps]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+
+[extensions]
+NeuroSDECUDAExt = "CUDA"
+
+[compat]
+julia = "1.9"
+CSV = "0.10"
+DataFrames = "1.5"
+Flux = "0.14"
+Zygote = "0.6"
+Optimisers = "0.3"
+Distributions = "0.25"
+Plots = "1.38"
+FFTW = "1.7"

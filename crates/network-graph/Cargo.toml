@@ -20,6 +20,7 @@ rand = { workspace = true }
 statrs = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+rayon = { workspace = true }
 csv = "1"
 clap = { version = "4", features = ["derive"] }
 

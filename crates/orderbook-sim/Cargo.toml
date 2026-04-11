@@ -11,3 +11,5 @@ chrono = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 ordered-float = { version = "4", features = ["serde"] }
+crossbeam = "0.8"
+crossbeam-channel = "0.5"
