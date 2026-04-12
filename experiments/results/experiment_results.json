@@ -1,0 +1,72 @@
+{
+  "experiment": "AETERNUS Full Pipeline",
+  "date": "2026-04-12",
+  "config": {
+    "n_assets": 20,
+    "n_ticks": 2000,
+    "n_agents": 5
+  },
+  "results": {
+    "chronos": {
+      "n_assets": 20,
+      "n_ticks": 2000,
+      "return_kurtosis": 0.027,
+      "return_skewness": 0.102,
+      "mean_spread": 0.0249,
+      "hawkes_peak_intensity": 68.521
+    },
+    "neuro_sde": {
+      "mean_realized_vol": 0.0779,
+      "stressed_regime_fraction": 0.013,
+      "vol_surface_min": 0.1002,
+      "vol_surface_max": 0.3026
+    },
+    "tensor_net": {
+      "n_windows": 10,
+      "full_rank": 20,
+      "rank_4_mean_error": 0.7829,
+      "compression_ratio_rank4": 5.0,
+      "anomaly_alerts": 2
+    },
+    "omni_graph": {
+      "n_nodes": 20,
+      "n_edges": 0,
+      "graph_density": 0,
+      "top_systemic_asset": "Asset_0",
+      "top_pagerank": 0.05,
+      "min_fiedler": 0.0,
+      "max_fiedler": 0.0
+    },
+    "lumina": {
+      "final_val_accuracy": 0.5,
+      "mean_ic": -0.0029,
+      "positive_ic_assets": 11,
+      "signal_sharpe": -0.03,
+      "n_params": 19060
+    },
+    "hyper_agent": {
+      "n_episodes": 100,
+      "n_steps": 50,
+      "agent_sharpes": {
+        "MarketMaker": 0.058,
+        "Momentum": -0.171,
+        "Arbitrageur": 0.033,
+        "MeanReversion": 0.234,
+        "NoiseTrader": 0.095
+      },
+      "best_agent": "MeanReversion",
+      "top_elo": 1505.5,
+      "elo_spread": 13.7
+    }
+  },
+  "files_generated": [
+    "00_AETERNUS_summary.png",
+    "01_chronos_lob.png",
+    "02_neuro_sde_vol.png",
+    "03_tensor_net_compression.png",
+    "04_omni_graph_network.png",
+    "05_lumina_transformer.png",
+    "06_hyper_agent_marl.png",
+    "experiment_results.json"
+  ]
+}
