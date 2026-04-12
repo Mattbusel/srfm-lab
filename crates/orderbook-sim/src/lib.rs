@@ -18,6 +18,16 @@ pub mod event_stream;
 pub mod statistics;
 pub mod replay;
 
+// ── Chronos / AETERNUS Module 2 additions ───────────────────────────────────
+pub mod data_replay;
+pub mod latency_model;
+pub mod market_impact_model;
+pub mod telemetry;
+pub mod order_types;
+pub mod risk_checks;
+#[cfg(test)]
+pub mod tests;
+
 pub use order::{Order, OrderSide, OrderStatus, OrderType};
 pub use orderbook::OrderBook;
 pub use fills::{Fill, FillSummary};

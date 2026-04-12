@@ -12,6 +12,11 @@ pub mod arbitrageur;
 pub mod momentum_agent;
 pub mod population;
 
+// ── Chronos / AETERNUS Module 2 additions ───────────────────────────────────
+pub mod scenario_engine;
+pub mod performance_profiler;
+pub mod backtest_engine;
+
 pub use exchange::{
     Exchange, Instrument, InstrumentConfig, Order, Fill, Side, OrderKind, TimeInForce,
     CircuitBreaker, CircuitBreakerState, MarketDataSnapshot, CrossAssetTrigger,
