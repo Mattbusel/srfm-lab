@@ -1,6 +1,6 @@
 # SRFM Trading Lab
 
-A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** -- from raw tick data to live paper trading and autonomous idea discovery, across 9 languages and **1,136,068 lines of code**.
+A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** -- from raw tick data to live paper trading and autonomous idea discovery, across 9 languages and **1,708,917 lines of code**.
 
 > Mad scientist workshop. Everything automated, everything measurable, rapid iteration at scale.
 
