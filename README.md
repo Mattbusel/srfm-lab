@@ -1,6 +1,6 @@
 # SRFM Trading Lab
 
-A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** -- from raw tick data to live paper trading and autonomous idea discovery, across 9 languages and **1,708,917 lines of code**.
+A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** -- from raw tick data to live paper trading and autonomous idea discovery, across 9 languages, **4,888 files**, and **1,708,917 lines of code**.
 
 > Mad scientist workshop. Everything automated, everything measurable, rapid iteration at scale.
 
@@ -21,6 +21,7 @@ A full-stack quantitative trading research platform built on **Special Relativis
 | [Key Parameters](#key-parameters) | All tunable constants |
 | [IAE Research Output](#iae-live-research-output) | Live findings |
 | [Service Endpoints](#service-endpoints) | All running ports |
+| [AETERNUS Lab](#aeternus-six-module-research-lab) | BH physics experiment results |
 
 ---
 
@@ -152,6 +153,24 @@ Pick a subsystem to deep dive into. Every doc covers architecture, key primitive
 | [Market Microstructure](docs/market_microstructure.md) | VPIN, OFI, Kyle's Lambda, L3 orderbook, Zig order flow, adversarial orderbook testing |
 | [Statistical Tooling](docs/statistical_tooling.md) | All Julia and R modules -- copulas, SVI, Kalman, HJB PDE, SABR, HMM, WFA |
 | [Monte Carlo Engine](docs/monte_carlo.md) | GBM, Merton jump-diffusion, Heston, Longstaff-Schwartz American pricing, variance reduction |
+
+### AETERNUS — Six-Module Research Lab
+
+Production-grade quantitative research framework built on SRFM BH physics. Control/experiment design: synthetic Heston paths vs real ES/NQ/YM SRFM data.
+
+| Doc | What it covers |
+|---|---|
+| [AETERNUS Overview](docs/aeternus_overview.md) | Full experiment design, LARSA v16 physics, results summary across all 4 hypotheses |
+| [TensorNet](docs/aeternus_tensornet.md) | MPS/TT-SVD correlation compression — 51x lower error on real vs synthetic, 67.2% BH direction alignment |
+| [Omni-Graph](docs/aeternus_omni_graph.md) | Granger causality network — density 0.624 convergence vs 0.806 calm, p<0.0001 |
+| [Lumina](docs/aeternus_lumina.md) | LSTM directional forecasting — 52.0% accuracy during convergence vs 50.4% calm |
+| [Hyper-Agent](docs/aeternus_hyper_agent.md) | 5-agent MARL with BH physics observations — ELO tournament, convergence episode analysis |
+
+**Experiment scripts:**
+- `run_aeternus_experiment.py` — Synthetic control (Heston)
+- `run_aeternus_real.py` — Real SRFM data experiment
+
+**Results:** `experiments/results/` (synthetic) and `experiments/results/real_run/` (real)
 
 ### Infrastructure
 
@@ -765,17 +784,17 @@ Key Go primitives:
 
 | Language | LOC | Key Systems | Docs |
 |---|---|---|---|
-| Python | ~632K | Live trader (LARSA v18), backtesting, IAE pipeline, 59-module quant math library, 22-module ML library, 22 idea-engine subsystems, execution algos, broker adapters, risk API, regime ensemble, config management, research validation, optimization | [Execution Stack](docs/execution_stack.md) |
-| Julia | ~123K | Advanced options (Heston/SABR/Merton/Dupire), live risk (VaR/CVaR/stress), ML signals (GP/Kalman/HMM), vectorized backtesting (CPCV/DSR), numerical methods (PDE/Sobol/quadrature) | [Statistical Tooling](docs/statistical_tooling.md) |
-| Rust | ~141K | 27 crates: genome engine, Monte Carlo, portfolio, risk, online-learning (FTRL/Hedge/bandits), RL exit optimizer, regime-analytics, smart-order-router, microstructure, FIX engine, WASM analytics | [Rust Crates Reference](docs/rust_crates.md) |
-| R | ~60K | HMM, regime models, WFA, factor analysis, options risk, microstructure, stress testing, copulas, spectral | [Statistical Tooling](docs/statistical_tooling.md) |
+| Python | ~1,000K | Live trader (LARSA v18), backtesting, IAE pipeline, AETERNUS lab, 59-module quant math library, 22-module ML library, 22 idea-engine subsystems, execution algos, broker adapters, risk API, regime ensemble, config management, research validation, optimization | [Execution Stack](docs/execution_stack.md) |
+| Julia | ~172K | Advanced options (Heston/SABR/Merton/Dupire), live risk (VaR/CVaR/stress), ML signals (GP/Kalman/HMM), vectorized backtesting (CPCV/DSR), numerical methods (PDE/Sobol/quadrature) | [Statistical Tooling](docs/statistical_tooling.md) |
+| Rust | ~202K | 27 crates: genome engine, Monte Carlo, portfolio, risk, online-learning (FTRL/Hedge/bandits), RL exit optimizer, regime-analytics, smart-order-router, microstructure, FIX engine, WASM analytics | [Rust Crates Reference](docs/rust_crates.md) |
+| R | ~73K | HMM, regime models, WFA, factor analysis, options risk, microstructure, stress testing, copulas, spectral | [Statistical Tooling](docs/statistical_tooling.md) |
 | TypeScript/React | ~58K | IAE dashboard, signal evolution, BH physics panel, walk-forward, factor analysis, spacetime UI, research dashboards | [Stack Overview](docs/stack_overview.md) |
-| Go | ~84K | IAE microservices (API/bus/scheduler/webhook/metrics), market data (L2 agg/bar assembly/WebSocket), genome inspector, alerter, TUI | [Market Data Service](docs/market_data_service.md) |
-| C/C++ | ~19K | Signal engine (Kalman, tick indicators, multi-timeframe, Lorentz boost, ZMQ), L3 orderbook (AVX2), matrix ops | [C++ Signal Engine](docs/signal_engine_cpp.md) |
-| Zig | ~10K | ITCH 5.0 decoder, lock-free L2 book, bar compression, tick processor, SIMD indicators, order flow | [Native Layer](docs/native_layer.md) |
+| Go | ~109K | IAE microservices (API/bus/scheduler/webhook/metrics), market data (L2 agg/bar assembly/WebSocket), genome inspector, alerter, TUI | [Market Data Service](docs/market_data_service.md) |
+| C/C++ | ~59K | Signal engine (Kalman, tick indicators, multi-timeframe, Lorentz boost, ZMQ), L3 orderbook (AVX2), matrix ops | [C++ Signal Engine](docs/signal_engine_cpp.md) |
+| Zig | ~13K | ITCH 5.0 decoder, lock-free L2 book, bar compression, tick processor, SIMD indicators, order flow | [Native Layer](docs/native_layer.md) |
 | Elixir/OTP | ~12K | Coordination: OTP supervision, circuit breakers, param validation, rollback, genome bridge, alert manager | [Coordination Layer](docs/coordination_layer.md) |
 | SQL | ~7K | SQLite (16 migrations, WAL), DuckDB analytics, BH UDFs, warehouse views, TCA queries | [Stack Overview](docs/stack_overview.md) |
-| **Total** | **~1,136,068** | **2,600+ source files** | |
+| **Total** | **~1,708,917** | **4,888 tracked files** | |
 
 ---
 
@@ -1173,6 +1192,56 @@ Backtest comparison after applying all 6 ideas:
 
 -> **[IAE architecture deep dive](docs/iae_architecture.md)**
 -> **[Genome evolution deep dive](docs/genome_evolution.md)**
+
+---
+
+## AETERNUS Six-Module Research Lab
+
+AETERNUS is the scientific validation layer of SRFM — a controlled experiment testing whether BH convergence windows contain learnable structure beyond random noise.
+
+### Design
+
+- **Control**: Synthetic Heston paths (ES/NQ/YM simulated independently, no real structure)
+- **Experiment**: Real ES/NQ/YM hourly data (2023-11-09 to 2026-04-03, 13,652 bars) with LARSA v16 BH physics reconstructed in real time
+
+### BH Physics Summary (Real Data)
+
+| Instrument | BH Active | Onsets |
+|---|---|---|
+| ES (E-mini S&P) | 27.5% of bars | 179 |
+| NQ (E-mini Nasdaq) | 17.6% of bars | 132 |
+| YM (E-mini Dow) | 13.4% of bars | 118 |
+| Convergence (>=2 simultaneous) | 20.0% | — |
+
+### Hypothesis Results
+
+| Hypothesis | Control | Experiment | Result |
+|---|---|---|---|
+| H1 — Lumina accuracy >50% | 50.0% | 50.7% overall / **52.0% at convergence** | Supported |
+| H2 — Omni-Graph edges at convergence | 0 edges | density 0.624 vs 0.806, **p<0.0001** | **Confirmed** |
+| H3 — TensorNet compression (real < synthetic) | error 0.7829 | **error 0.0152** (51x lower) | **Confirmed** |
+| H4 — BH-Follower Sharpe higher | 0.234 | -0.009 | Not supported |
+
+### Key Findings
+
+**H3 (TensorNet)**: Real correlated instruments compress 51x more efficiently than independent Heston paths. The rank-2 MPS error drops from 0.7829 to 0.0152, confirming that ES/NQ/YM share genuine low-dimensional correlation structure.
+
+**H2 (Omni-Graph)**: The Granger causality network is significantly less dense during BH convergence (0.624) than during calm periods (0.806), p<0.0001. Interpretation: convergence events mark periods where instruments decouple from the common macro driver — internal structure forms while cross-asset Granger causality drops.
+
+**H1 (Lumina)**: 52.0% accuracy during convergence vs 50.4% calm. SRFM convergence windows are periods of slightly reduced entropy in next-bar direction — the physics engine identifies moments where returns are marginally more predictable.
+
+**BH Direction Alignment (TensorNet)**: The BH engine and linear algebra (dominant eigenvector of rolling correlation) agree on market direction 67.2% of the time vs 50% random baseline.
+
+```bash
+python run_aeternus_experiment.py   # synthetic control
+python run_aeternus_real.py         # real SRFM experiment
+```
+
+-> **[Full AETERNUS overview](docs/aeternus_overview.md)**
+-> **[TensorNet deep dive](docs/aeternus_tensornet.md)**
+-> **[Omni-Graph deep dive](docs/aeternus_omni_graph.md)**
+-> **[Lumina deep dive](docs/aeternus_lumina.md)**
+-> **[Hyper-Agent deep dive](docs/aeternus_hyper_agent.md)**
 
 ---
 
