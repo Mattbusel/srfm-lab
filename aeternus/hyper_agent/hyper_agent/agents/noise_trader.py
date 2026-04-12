@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from hyper_agent.agents.base_agent import BaseAgent
+from hyper_agent.agents._base_compat import BaseAgent
 
 
 class NoiseTrader(BaseAgent):

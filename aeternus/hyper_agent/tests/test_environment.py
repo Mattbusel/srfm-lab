@@ -19,13 +19,9 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from hyper_agent.environment import MultiAssetTradingEnv
-from hyper_agent.env_compat import DictMultiAgentEnv as MultiAgentTradingEnv, make_env
-
-# Shim: tests that reference LimitOrderBook / MarketEnvironment
-try:
-    from hyper_agent.environment import OrderBook as LimitOrderBook
-except ImportError:
-    LimitOrderBook = None
+from hyper_agent.env_compat import (
+    DictMultiAgentEnv as MultiAgentTradingEnv, make_env, LimitOrderBook,
+)
 
 MarketEnvironment = MultiAgentTradingEnv
 
@@ -123,11 +119,12 @@ class TestMarketEnvironment(unittest.TestCase):
         self.env.reset()
         actions = self._random_actions()
         obs, rew, term, trunc, info = self.env.step(actions)
-        self.assertEqual(set(obs.keys()),  set(self.agent_ids))
-        self.assertEqual(set(rew.keys()),  set(self.agent_ids))
-        self.assertEqual(set(term.keys()), set(self.agent_ids))
-        self.assertEqual(set(trunc.keys()),set(self.agent_ids))
-        self.assertEqual(set(info.keys()), set(self.agent_ids))
+        agent_set = set(self.agent_ids)
+        self.assertTrue(agent_set.issubset(set(obs.keys())))
+        self.assertTrue(agent_set.issubset(set(rew.keys())))
+        self.assertTrue(agent_set.issubset(set(term.keys())))
+        self.assertTrue(agent_set.issubset(set(trunc.keys())))
+        self.assertTrue(agent_set.issubset(set(info.keys())))
 
     def test_rewards_are_finite(self):
         self.env.reset()

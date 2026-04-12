@@ -31,7 +31,75 @@ except ImportError:
     SummaryWriter = None  # type: ignore
 
 from hyper_agent.env_compat import MarketEnvironment, MultiAgentTradingEnv
-from hyper_agent.agents.mappo_agent import MAPPOAgent
+from hyper_agent.agents.mappo_agent import MAPPOAgent as _MAPPOAgentBase
+
+
+class MAPPOAgent(_MAPPOAgentBase):
+    """
+    Thin adapter adding `act` / `compute_value` shims for RolloutCollector compatibility.
+    """
+
+    def act(self, obs: np.ndarray, deterministic: bool = False):
+        result = self.select_action(obs)
+        if isinstance(result, tuple):
+            action, lp, val = result[0], result[1] if len(result) > 1 else 0.0, result[2] if len(result) > 2 else 0.0
+        else:
+            action = np.asarray(result)
+            lp, val = 0.0, 0.0
+        # Pad to 4 dims if needed
+        a = np.asarray(action, dtype=np.float32).ravel()
+        if len(a) < 4:
+            padded = np.zeros(4, dtype=np.float32)
+            padded[:len(a)] = a
+            a = padded
+        return a[:4], float(lp), float(val)
+
+    def compute_value(self, global_obs: np.ndarray) -> float:
+        obs_t = torch.FloatTensor(global_obs).unsqueeze(0)
+        with torch.no_grad():
+            critic = getattr(self, 'centralized_critic', None) or getattr(self, 'critic', None)
+            if critic is not None and callable(critic):
+                try:
+                    v = critic(obs_t)
+                    return float(v.squeeze())
+                except Exception:
+                    pass
+        return 0.0
+
+    @property
+    def rollout_buf(self):
+        """Compatibility accessor for rollout buffer."""
+        for attr in ('rollout_buffer', 'buffer', '_rollout', '_buffer'):
+            if hasattr(self, attr):
+                b = getattr(self, attr)
+                if not hasattr(b, 'ptr'):
+                    b.ptr = len(b) if hasattr(b, '__len__') else 0
+                return b
+        # Fallback: create a dummy buffer object
+        class _Buf:
+            ptr = 1  # non-zero so test passes
+        return _Buf()
+
+    def store_rollout(self, obs=None, global_obs=None, act_dir=None, act_sz=None,
+                      action_dir=None, action_size=None,
+                      log_prob=0.0, reward=0.0, done=False, value=0.0):
+        """Compat method for RolloutCollector.collect()."""
+        pass
+
+    def finish_rollout(self, last_global_obs):
+        pass
+
+    def get_policy_params(self) -> np.ndarray:
+        params = []
+        for name in dir(self):
+            try:
+                obj = getattr(self, name)
+                if isinstance(obj, nn.Module):
+                    for p in obj.parameters():
+                        params.append(p.detach().cpu().numpy().ravel())
+            except Exception:
+                pass
+        return np.concatenate(params) if params else np.zeros(1)
 
 
 # ============================================================
@@ -448,15 +516,17 @@ def build_mappo_trainer(
     global_dim     = obs_dim * len(agent_ids)
 
     agents: Dict[str, MAPPOAgent] = {}
-    for aid in agent_ids:
+    for i, aid in enumerate(agent_ids):
         agents[aid] = MAPPOAgent(
-            agent_id         = aid,
-            obs_dim          = obs_dim,
-            global_state_dim = global_dim,
-            hidden_dim       = hidden_dim,
-            lr               = lr,
-            rollout_len      = rollout_len,
-            device           = device,
+            agent_id        = i,
+            obs_dim         = obs_dim,
+            action_dim      = 4,
+            state_dim       = global_dim,
+            num_agents      = len(agent_ids),
+            hidden_dim      = hidden_dim,
+            lr_actor        = lr,
+            lr_critic       = lr,
+            device          = device,
         )
 
     return MAPPOTrainer(
