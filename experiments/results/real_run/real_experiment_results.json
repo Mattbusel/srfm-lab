@@ -1,0 +1,124 @@
+{
+  "experiment": "AETERNUS Real-Data Experiment",
+  "data": "Real ES/NQ/YM hourly  2023-11-09 to 2026-04-03",
+  "physics_engine": "LARSA v16 BH physics (exact port of update_bh + detect_regime)",
+  "n_bars": 13652,
+  "bh_physics": {
+    "ES_active_pct": 27.53,
+    "NQ_active_pct": 17.56,
+    "YM_active_pct": 13.36,
+    "convergence_pct": 20.05,
+    "all3_pct": 6.59
+  },
+  "hypotheses": {
+    "H1_lumina_accuracy": {
+      "final_acc_with_bh": 0.5067,
+      "final_acc_no_bh": 0.5095,
+      "bh_feature_uplift": -0.0028,
+      "acc_convergence_windows": 0.5204,
+      "acc_calm_periods": 0.5039,
+      "H1_supported": true,
+      "IC_ES": 0.0073,
+      "IC_NQ": -0.0007,
+      "IC_YM": 0.0029,
+      "signal_sharpe_ES": 0.698,
+      "synthetic_control_acc": 0.5
+    },
+    "H2_graph_density": {
+      "n_conv_windows": 402,
+      "n_calm_windows": 960,
+      "mean_density_conv": 0.6244,
+      "mean_density_calm": 0.8059,
+      "ttest_pvalue": 0.0,
+      "H2_supported": true
+    },
+    "H3_correlation_uplift": {
+      "rank2_error_mean": 0.0152,
+      "rank2_error_synthetic": 0.7829,
+      "es_nq_corr_convergence": 0.8417,
+      "es_nq_corr_calm": 0.9427,
+      "corr_uplift": -0.101,
+      "bh_direction_alignment_pct": 67.19,
+      "corr_vs_conv_r": 0.076,
+      "corr_vs_conv_p": 0.6398
+    },
+    "H4_agent_sharpe": {
+      "best_agent": "Momentum",
+      "sharpes": {
+        "BH-Follower": -0.009,
+        "BH-Contrarian": -0.075,
+        "Momentum": 0.087,
+        "MeanReversion": -0.115,
+        "NoiseTrader": -0.056
+      },
+      "bh_follower_sharpe": -0.009,
+      "bh_contrarian_sharpe": -0.075,
+      "elo_spread": 251.3
+    }
+  },
+  "module_results": {
+    "chronos": {
+      "n_bars": 13652,
+      "instruments": "ES/NQ/YM",
+      "ES_kurtosis": 92.949,
+      "ES_skewness": 1.781,
+      "bh_active_ES_pct": 27.53,
+      "bh_active_NQ_pct": 17.56,
+      "bh_active_YM_pct": 13.36,
+      "convergence_pct": 20.05,
+      "all3_convergence_pct": 6.59,
+      "spread_conv_vs_normal": 0.4893
+    },
+    "neuro_sde": {
+      "rv_during_convergence": 3.0836,
+      "rv_during_calm": 9.4591,
+      "rv_ratio": 0.326,
+      "pf_stressed_fraction": 0.495,
+      "pf_bh_agreement": 0.361
+    },
+    "tensor_net": {
+      "rank2_error_mean": 0.0152,
+      "rank2_error_synthetic": 0.7829,
+      "es_nq_corr_convergence": 0.8417,
+      "es_nq_corr_calm": 0.9427,
+      "corr_uplift": -0.101,
+      "bh_direction_alignment_pct": 67.19,
+      "corr_vs_conv_r": 0.076,
+      "corr_vs_conv_p": 0.6398
+    },
+    "omni_graph": {
+      "n_conv_windows": 402,
+      "n_calm_windows": 960,
+      "mean_density_conv": 0.6244,
+      "mean_density_calm": 0.8059,
+      "ttest_pvalue": 0.0,
+      "H2_supported": true
+    },
+    "lumina": {
+      "final_acc_with_bh": 0.5067,
+      "final_acc_no_bh": 0.5095,
+      "bh_feature_uplift": -0.0028,
+      "acc_convergence_windows": 0.5204,
+      "acc_calm_periods": 0.5039,
+      "H1_supported": true,
+      "IC_ES": 0.0073,
+      "IC_NQ": -0.0007,
+      "IC_YM": 0.0029,
+      "signal_sharpe_ES": 0.698,
+      "synthetic_control_acc": 0.5
+    },
+    "hyper_agent": {
+      "best_agent": "Momentum",
+      "sharpes": {
+        "BH-Follower": -0.009,
+        "BH-Contrarian": -0.075,
+        "Momentum": 0.087,
+        "MeanReversion": -0.115,
+        "NoiseTrader": -0.056
+      },
+      "bh_follower_sharpe": -0.009,
+      "bh_contrarian_sharpe": -0.075,
+      "elo_spread": 251.3
+    }
+  }
+}
