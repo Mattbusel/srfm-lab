@@ -1,0 +1,10 @@
+jax
+jaxlib
+optax
+numpy
+scipy
+pandas
+matplotlib
+seaborn
+networkx
+scikit-learn
