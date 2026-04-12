@@ -4,10 +4,10 @@ TensorNet — Tensor Network / Matrix Product State framework for SRFM-lab Proje
 Provides JAX-based MPS/TT decompositions and quantum-inspired methods for compressing
 high-dimensional financial correlation structures.
 
-Version: 0.1.0
+Version: 0.2.0
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __description__ = (
     "Tensor Network / Matrix Product State framework for compressing "
     "high-dimensional financial correlation structures (Project AETERNUS Module 3)."
@@ -27,11 +27,43 @@ from tensor_net.mps import (
     mps_to_density_matrix,
     mps_bond_entropies,
     mps_from_dense,
+    mps_random,
+    mps_normalize,
+    mps_norm,
+    mps_norm_sq,
+    mps_fidelity,
+    mps_to_dense,
+    mps_to_vector,
+    mps_subtract,
+    mps_hadamard,
+    mps_mixed_canonicalize,
+    mps_truncate_bond,
+    mps_linear_combination,
+    mps_magnetization,
+    mps_entanglement_spectrum,
+    mps_renyi_entropy,
+    mps_reduced_density_matrix,
+    mps_site_entropy,
+    mps_transfer_matrix,
+    mps_correlation_length,
+    mps_reconstruction_error,
+    mps_relative_error,
+    mps_equal,
+    mps_to_dict,
+    mps_from_dict,
+    mps_product_state,
+    mps_ghz,
+    mps_w_state,
+    mps_zeros,
+    mps_from_dense_right_canonical,
+    correlation_mps_from_matrix,
+    mps_encode_time_series,
     dmrg_fit,
 )
 
-from tensor_net.tensor_train import (
+from tensor_net.tt_decomp import (
     TensorTrain,
+    TensorTrainMatrix,
     tt_svd,
     tt_cross,
     tt_round,
@@ -39,84 +71,194 @@ from tensor_net.tensor_train import (
     tt_hadamard,
     tt_dot,
     tt_norm,
+    tt_norm_sq,
     tt_relative_error,
-    TensorTrainMatrix,
     tt_matvec,
     tt_riemannian_grad,
+    tt_retract,
+    tt_vector_transport,
+    tt_left_orthogonalize,
+    tt_right_orthogonalize,
+    tt_mixed_canonical,
+    tt_to_dense,
+    tt_evaluate,
+    tt_normalize,
+    tt_scale,
+    tt_subtract,
+    tt_identity_matrix,
+    tt_from_matrix,
+    tucker_decomp,
+    cp_decomp,
+    tt_svd_randomized,
+    tt_bond_energies,
+    tt_cumulative_error,
 )
 
-from tensor_net.financial_compression import (
+from tensor_net.financial_tensors import (
     CorrelationMPS,
+    CorrelationTucker,
+    TensorFactorModel,
+    TensorPCA,
     CausalityTensor,
     DependencyHypercube,
     StreamingCompressor,
     RegimeCompression,
     AnomalyDetector,
+    build_return_tensor,
+    build_correlation_tensor,
+    build_factor_return_tensor,
+    build_cross_moment_tensor,
+    build_volatility_surface_tensor,
+    compress_vol_surface,
+    build_momentum_tensor,
+    risk_attribution_tensor,
     run_financial_mps_experiment,
 )
 
-from tensor_net.quantum_inspired import (
-    QuantumCircuitSim,
-    VariationalPortfolioOptimizer,
+from tensor_net.quantum_ml import (
+    MPSClassifier,
     QuantumKernel,
     MERA,
-    mps_sample,
     BornMachine,
+    QuantumCircuitSim,
+    VariationalPortfolioOptimizer,
+    TensorNetworkAttention,
+    mps_sample,
+    angle_encoding,
+    amplitude_encoding,
+    iqp_encoding,
+    entanglement_regularizer,
+    mps_regularizer,
 )
 
-from tensor_net.training import (
-    TensorNetTrainer,
-    reconstruction_mse,
-    negative_log_likelihood,
-    cross_entropy_loss,
-    riemannian_sgd_step,
-    cosine_schedule,
+from tensor_net.anomaly_detection import (
+    TuckerResidualDetector,
+    RobustTensorPCA,
+    StreamingTensorAnomalyDetector,
+    TensorLOF,
+    IsolationTensorForest,
+    TensorAnomalyDetector,
+    TensorChangePointDetector,
+    compute_tail_risk_scores,
+    correlation_breakdown_score,
+    multivariate_kurtosis_score,
 )
 
-from tensor_net.visualization import (
-    plot_bond_dimensions,
-    plot_entanglement_spectrum,
-    plot_compression_error_vs_ratio,
-    plot_anomaly_scores,
-    plot_tt_structure,
-    animate_mps_evolution,
-    plot_quantum_kernel_matrix,
+from tensor_net.compression import (
+    TTLinear,
+    TTLinearSimple,
+    TTEmbedding,
+    TTLSTMCell,
+    TTLSTM,
+    TTConv2d,
+    TTAttention,
+    ModelCompressor,
+    compress_dense_layer,
+    estimate_compression_ratio,
+    select_tt_rank_for_ratio,
+    factorize_dimension,
+    quantize_tt_cores,
+    tt_compress_and_quantize,
 )
 
-from tensor_net.experiments import (
-    experiment_correlation_compression,
-    experiment_crisis_anomaly_detection,
-    experiment_quantum_kernel_regime,
-    experiment_causal_tensor_compression,
-    experiment_portfolio_vqe,
+from tensor_net.riemannian_optim import (
+    riemannian_gradient,
+    tangent_space_projection,
+    riemannian_inner_product,
+    riemannian_norm,
+    svd_retraction,
+    cayley_retraction,
+    projection_transport,
+    RiemannianGradientDescent,
+    RiemannianAdam,
+    RiemannianConjugateGradient,
+    AdaptiveRankOptimizer,
+    preconditioned_riemannian_grad,
+    armijo_line_search,
+    wolfe_line_search,
+    gradient_norm_history,
+    theoretical_convergence_rate,
+    fit_low_rank_correlation,
+)
+
+from tensor_net.benchmarks import (
+    benchmark_tt_svd_compression,
+    benchmark_tucker_compression,
+    benchmark_mps_operations,
+    error_vs_bond_dim,
+    error_vs_tucker_rank,
+    scalability_benchmark,
+    financial_compression_benchmark,
+    anomaly_detection_benchmark,
+    optimizer_comparison_benchmark,
+    timing_analysis,
+    run_all_benchmarks,
+    synthetic_low_rank_tensor,
+    synthetic_correlation_tensor,
+    print_benchmark_report,
 )
 
 __all__ = [
-    # MPS
+    # MPS core
     "MatrixProductState", "mps_inner_product", "mps_compress",
     "mps_left_canonicalize", "mps_right_canonicalize", "mps_add", "mps_scale",
     "mps_expectation_single", "mps_expectation_two_site", "mps_to_density_matrix",
-    "mps_bond_entropies", "mps_from_dense", "dmrg_fit",
-    # TT
-    "TensorTrain", "tt_svd", "tt_cross", "tt_round", "tt_add", "tt_hadamard",
-    "tt_dot", "tt_norm", "tt_relative_error", "TensorTrainMatrix", "tt_matvec",
-    "tt_riemannian_grad",
+    "mps_bond_entropies", "mps_from_dense", "mps_random", "mps_normalize",
+    "mps_norm", "mps_norm_sq", "mps_fidelity", "mps_to_dense", "mps_to_vector",
+    "mps_subtract", "mps_hadamard", "mps_mixed_canonicalize", "mps_truncate_bond",
+    "mps_linear_combination", "mps_magnetization", "mps_entanglement_spectrum",
+    "mps_renyi_entropy", "mps_reduced_density_matrix", "mps_site_entropy",
+    "mps_transfer_matrix", "mps_correlation_length", "mps_reconstruction_error",
+    "mps_relative_error", "mps_equal", "mps_to_dict", "mps_from_dict",
+    "mps_product_state", "mps_ghz", "mps_w_state", "mps_zeros",
+    "mps_from_dense_right_canonical", "correlation_mps_from_matrix",
+    "mps_encode_time_series", "dmrg_fit",
+    # TT core
+    "TensorTrain", "TensorTrainMatrix", "tt_svd", "tt_cross", "tt_round",
+    "tt_add", "tt_hadamard", "tt_dot", "tt_norm", "tt_norm_sq",
+    "tt_relative_error", "tt_matvec", "tt_riemannian_grad", "tt_retract",
+    "tt_vector_transport", "tt_left_orthogonalize", "tt_right_orthogonalize",
+    "tt_mixed_canonical", "tt_to_dense", "tt_evaluate", "tt_normalize",
+    "tt_scale", "tt_subtract", "tt_identity_matrix", "tt_from_matrix",
+    "tucker_decomp", "cp_decomp", "tt_svd_randomized", "tt_bond_energies",
+    "tt_cumulative_error",
     # Financial
-    "CorrelationMPS", "CausalityTensor", "DependencyHypercube",
-    "StreamingCompressor", "RegimeCompression", "AnomalyDetector",
+    "CorrelationMPS", "CorrelationTucker", "TensorFactorModel", "TensorPCA",
+    "CausalityTensor", "DependencyHypercube", "StreamingCompressor",
+    "RegimeCompression", "AnomalyDetector", "build_return_tensor",
+    "build_correlation_tensor", "build_factor_return_tensor",
+    "build_cross_moment_tensor", "build_volatility_surface_tensor",
+    "compress_vol_surface", "build_momentum_tensor", "risk_attribution_tensor",
     "run_financial_mps_experiment",
-    # Quantum
-    "QuantumCircuitSim", "VariationalPortfolioOptimizer", "QuantumKernel",
-    "MERA", "mps_sample", "BornMachine",
-    # Training
-    "TensorNetTrainer", "reconstruction_mse", "negative_log_likelihood",
-    "cross_entropy_loss", "riemannian_sgd_step", "cosine_schedule",
-    # Visualization
-    "plot_bond_dimensions", "plot_entanglement_spectrum",
-    "plot_compression_error_vs_ratio", "plot_anomaly_scores",
-    "plot_tt_structure", "animate_mps_evolution", "plot_quantum_kernel_matrix",
-    # Experiments
-    "experiment_correlation_compression", "experiment_crisis_anomaly_detection",
-    "experiment_quantum_kernel_regime", "experiment_causal_tensor_compression",
-    "experiment_portfolio_vqe",
+    # Quantum ML
+    "MPSClassifier", "QuantumKernel", "MERA", "BornMachine",
+    "QuantumCircuitSim", "VariationalPortfolioOptimizer",
+    "TensorNetworkAttention", "mps_sample", "angle_encoding",
+    "amplitude_encoding", "iqp_encoding", "entanglement_regularizer",
+    "mps_regularizer",
+    # Anomaly detection
+    "TuckerResidualDetector", "RobustTensorPCA", "StreamingTensorAnomalyDetector",
+    "TensorLOF", "IsolationTensorForest", "TensorAnomalyDetector",
+    "TensorChangePointDetector", "compute_tail_risk_scores",
+    "correlation_breakdown_score", "multivariate_kurtosis_score",
+    # Compression
+    "TTLinear", "TTLinearSimple", "TTEmbedding", "TTLSTMCell", "TTLSTM",
+    "TTConv2d", "TTAttention", "ModelCompressor", "compress_dense_layer",
+    "estimate_compression_ratio", "select_tt_rank_for_ratio",
+    "factorize_dimension", "quantize_tt_cores", "tt_compress_and_quantize",
+    # Riemannian optimization
+    "riemannian_gradient", "tangent_space_projection", "riemannian_inner_product",
+    "riemannian_norm", "svd_retraction", "cayley_retraction",
+    "projection_transport", "RiemannianGradientDescent", "RiemannianAdam",
+    "RiemannianConjugateGradient", "AdaptiveRankOptimizer",
+    "preconditioned_riemannian_grad", "armijo_line_search", "wolfe_line_search",
+    "gradient_norm_history", "theoretical_convergence_rate",
+    "fit_low_rank_correlation",
+    # Benchmarks
+    "benchmark_tt_svd_compression", "benchmark_tucker_compression",
+    "benchmark_mps_operations", "error_vs_bond_dim", "error_vs_tucker_rank",
+    "scalability_benchmark", "financial_compression_benchmark",
+    "anomaly_detection_benchmark", "optimizer_comparison_benchmark",
+    "timing_analysis", "run_all_benchmarks", "synthetic_low_rank_tensor",
+    "synthetic_correlation_tensor", "print_benchmark_report",
 ]

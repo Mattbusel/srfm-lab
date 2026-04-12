@@ -1652,3 +1652,643 @@ def _cp_reconstruction_error(
                 outer = jnp.tensordot(outer, term_k, axes=0)
         recon = recon + float(lambdas[r]) * outer
     return jnp.linalg.norm(tensor - recon)
+
+
+# ============================================================================
+# Extended TT utilities: financial applications, TT statistics, TT manifold
+# ============================================================================
+
+def tt_gram_matrix(
+    tt_list: List[TensorTrain],
+) -> jnp.ndarray:
+    """
+    Compute the Gram matrix G[i,j] = <tt_i, tt_j>_F for a list of TTs.
+
+    Parameters
+    ----------
+    tt_list : list of TensorTrain with same shape
+
+    Returns
+    -------
+    (n, n) Gram matrix
+    """
+    n = len(tt_list)
+    G = jnp.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            G = G.at[i, j].set(float(tt_dot(tt_list[i], tt_list[j])))
+    return G
+
+
+def tt_gram_schmidt(
+    tt_list: List[TensorTrain],
+    max_rank: int = 20,
+) -> List[TensorTrain]:
+    """
+    Gram-Schmidt orthonormalization of a list of TTs in Frobenius inner product.
+
+    Parameters
+    ----------
+    tt_list : list of TensorTrain
+    max_rank : maximum rank for rounding after each step
+
+    Returns
+    -------
+    Orthonormal list of TensorTrain
+    """
+    ortho = []
+    for tt in tt_list:
+        v = tt.copy()
+        for u in ortho:
+            proj = tt_dot(u, v)
+            v = tt_subtract(v, tt_scale(u, float(proj)))
+            v = tt_round(v, max_rank=max_rank)
+        norm = float(tt_norm(v))
+        if norm > 1e-10:
+            v = tt_scale(v, 1.0 / norm)
+            ortho.append(v)
+    return ortho
+
+
+def tt_linear_combination(
+    tt_list: List[TensorTrain],
+    coeffs: Sequence[float],
+    max_rank: int = 50,
+) -> TensorTrain:
+    """
+    Compute a linear combination sum_i c_i * tt_i.
+
+    Parameters
+    ----------
+    tt_list : list of TensorTrain
+    coeffs : scalar coefficients
+    max_rank : rank for rounding the result
+
+    Returns
+    -------
+    TensorTrain linear combination
+    """
+    assert len(tt_list) == len(coeffs)
+    result = tt_scale(tt_list[0], coeffs[0])
+    for tt, c in zip(tt_list[1:], coeffs[1:]):
+        result = tt_add(result, tt_scale(tt, c))
+    return tt_round(result, max_rank=max_rank)
+
+
+def tt_random(
+    shape: Tuple[int, ...],
+    max_rank: int,
+    key: jax.random.KeyArray,
+    dtype=jnp.float32,
+) -> TensorTrain:
+    """
+    Create a random TensorTrain with given shape and rank.
+
+    Parameters
+    ----------
+    shape : tensor shape
+    max_rank : maximum TT-rank
+    key : random key
+    dtype : element dtype
+
+    Returns
+    -------
+    Random TensorTrain
+    """
+    n_dims = len(shape)
+    cores = []
+    for k in range(n_dims):
+        r_l = 1 if k == 0 else min(max_rank, shape[k - 1])
+        r_r = 1 if k == n_dims - 1 else min(max_rank, shape[k + 1])
+        key, subkey = jax.random.split(key)
+        G = jax.random.normal(subkey, (r_l, shape[k], r_r), dtype=dtype)
+        G = G / math.sqrt(r_l * shape[k] * r_r + 1)
+        cores.append(G)
+    return TensorTrain(cores, shape)
+
+
+def tt_ones(shape: Tuple[int, ...], dtype=jnp.float32) -> TensorTrain:
+    """Create a TT representing the all-ones tensor (rank 1)."""
+    cores = [jnp.ones((1, n, 1), dtype=dtype) for n in shape]
+    return TensorTrain(cores, shape)
+
+
+def tt_zeros(shape: Tuple[int, ...], rank: int = 1, dtype=jnp.float32) -> TensorTrain:
+    """Create a TT of zeros with given rank."""
+    n_dims = len(shape)
+    cores = []
+    for k in range(n_dims):
+        r_l = 1 if k == 0 else rank
+        r_r = 1 if k == n_dims - 1 else rank
+        cores.append(jnp.zeros((r_l, shape[k], r_r), dtype=dtype))
+    return TensorTrain(cores, shape)
+
+
+def tt_frobenius_norm(tt: TensorTrain) -> jnp.ndarray:
+    """Alias for tt_norm: Frobenius norm of TT."""
+    return tt_norm(tt)
+
+
+def tt_spectral_norm_estimate(
+    tt: TensorTrain,
+    n_iter: int = 20,
+    key: Optional[jax.random.KeyArray] = None,
+) -> jnp.ndarray:
+    """
+    Estimate the spectral norm (largest singular value) of the TT tensor
+    viewed as a matrix.
+
+    Uses power iteration on the TT-matrix structure.
+
+    Parameters
+    ----------
+    tt : TensorTrain
+    n_iter : power iteration steps
+    key : random key
+
+    Returns
+    -------
+    Spectral norm estimate
+    """
+    if key is None:
+        key = jax.random.PRNGKey(0)
+
+    # Flatten TT to matrix shape (first half modes x second half modes)
+    n = tt.ndim
+    half = n // 2
+    dense = tt_to_dense(tt)
+    m = 1
+    for k in range(half):
+        m *= tt.shape[k]
+    n2 = 1
+    for k in range(half, n):
+        n2 *= tt.shape[k]
+
+    mat = dense.reshape(m, n2)
+    # Power iteration
+    key, subkey = jax.random.split(key)
+    v = jax.random.normal(subkey, (n2,))
+    v = v / (jnp.linalg.norm(v) + 1e-10)
+
+    for _ in range(n_iter):
+        u = mat @ v
+        sigma = jnp.linalg.norm(u)
+        u = u / (sigma + 1e-10)
+        v = mat.T @ u
+        v = v / (jnp.linalg.norm(v) + 1e-10)
+
+    return sigma
+
+
+def tt_condition_number(
+    tt: TensorTrain,
+    n_iter: int = 10,
+    key: Optional[jax.random.KeyArray] = None,
+) -> float:
+    """
+    Estimate the condition number of the TT tensor as a matrix.
+
+    Parameters
+    ----------
+    tt : TensorTrain
+    n_iter : power iteration steps
+    key : random key
+
+    Returns
+    -------
+    Estimated condition number (sigma_max / sigma_min)
+    """
+    if key is None:
+        key = jax.random.PRNGKey(0)
+
+    dense = tt_to_dense(tt)
+    n = tt.ndim
+    half = n // 2
+    m, n2 = 1, 1
+    for k in range(half):
+        m *= tt.shape[k]
+    for k in range(half, n):
+        n2 *= tt.shape[k]
+
+    mat = dense.reshape(m, n2)
+    s = jnp.linalg.svd(mat, compute_uv=False)
+    s_max = float(s[0])
+    s_min = float(s[-1])
+    return s_max / (s_min + 1e-30)
+
+
+def tt_rank_reveal(
+    tt: TensorTrain,
+    threshold: float = 1e-6,
+) -> List[int]:
+    """
+    Determine the effective TT-ranks after truncating small singular values.
+
+    Parameters
+    ----------
+    tt : TensorTrain
+    threshold : relative threshold for rank truncation
+
+    Returns
+    -------
+    List of effective TT-ranks
+    """
+    n = tt.ndim
+    tt_left = tt_left_orthogonalize(tt)
+    effective_ranks = []
+
+    for k in range(n - 1):
+        G = tt_left.cores[k]
+        r_l, n_k, r_r = G.shape
+        M = G.reshape(r_l * n_k, r_r)
+        s = jnp.linalg.svd(M, compute_uv=False)
+        s_rel = s / (s[0] + 1e-30)
+        rank = int(jnp.sum(s_rel > threshold).item())
+        effective_ranks.append(max(1, rank))
+
+    return effective_ranks
+
+
+def tt_is_left_orthogonal(tt: TensorTrain, tol: float = 1e-6) -> bool:
+    """
+    Check if all but the last core of a TT are left-orthogonal.
+
+    A core G_k is left-orthogonal if sum_s G_k[:, s, :]^T G_k[:, s, :] = I.
+
+    Parameters
+    ----------
+    tt : TensorTrain
+    tol : tolerance for orthogonality check
+
+    Returns
+    -------
+    True if TT is in left-canonical form
+    """
+    for k in range(tt.ndim - 1):
+        G = tt.cores[k]
+        r_l, n_k, r_r = G.shape
+        M = G.reshape(r_l * n_k, r_r)
+        gram = M.T @ M  # Should be identity (r_r, r_r)
+        err = float(jnp.linalg.norm(gram - jnp.eye(r_r)))
+        if err > tol:
+            return False
+    return True
+
+
+def tt_is_right_orthogonal(tt: TensorTrain, tol: float = 1e-6) -> bool:
+    """Check if all but the first core are right-orthogonal."""
+    for k in range(1, tt.ndim):
+        G = tt.cores[k]
+        r_l, n_k, r_r = G.shape
+        M = G.reshape(r_l, n_k * r_r)
+        gram = M @ M.T  # Should be identity (r_l, r_l)
+        err = float(jnp.linalg.norm(gram - jnp.eye(r_l)))
+        if err > tol:
+            return False
+    return True
+
+
+def tt_contraction_cost(tt: TensorTrain) -> int:
+    """
+    Estimate the total contraction cost (FLOPs) for converting TT to dense.
+
+    Parameters
+    ----------
+    tt : TensorTrain
+
+    Returns
+    -------
+    Estimated FLOPs
+    """
+    total_cost = 0
+    running_dim = 1  # Current accumulated dimension
+
+    for k in range(tt.ndim):
+        r_l, n_k, r_r = tt.cores[k].shape
+        cost = running_dim * r_l * n_k * r_r
+        total_cost += cost
+        running_dim = running_dim * n_k
+
+    return total_cost
+
+
+def tt_memory_estimate(tt: TensorTrain, bytes_per_element: int = 4) -> int:
+    """
+    Estimate memory usage of a TT in bytes.
+
+    Parameters
+    ----------
+    tt : TensorTrain
+    bytes_per_element : bytes per float element
+
+    Returns
+    -------
+    Memory in bytes
+    """
+    return tt.n_params * bytes_per_element
+
+
+def tt_apply_function(
+    tt: TensorTrain,
+    func: Callable[[jnp.ndarray], jnp.ndarray],
+    max_rank: int = 20,
+) -> TensorTrain:
+    """
+    Apply a non-linear function to the TT tensor element-wise (approximate).
+
+    Uses a CP-like approximation: convert to dense, apply function, then
+    re-decompose. Only feasible for small tensors.
+
+    Parameters
+    ----------
+    tt : TensorTrain
+    func : element-wise function
+    max_rank : rank for re-decomposition
+
+    Returns
+    -------
+    TensorTrain approximation of func(tensor)
+    """
+    dense = tt_to_dense(tt)
+    result = func(dense)
+    return tt_svd(result, max_rank=max_rank)
+
+
+def tt_log(tt: TensorTrain, max_rank: int = 20) -> TensorTrain:
+    """Element-wise natural log of a positive TT tensor."""
+    return tt_apply_function(tt, jnp.log, max_rank=max_rank)
+
+
+def tt_exp(tt: TensorTrain, max_rank: int = 20) -> TensorTrain:
+    """Element-wise exponential of a TT tensor."""
+    return tt_apply_function(tt, jnp.exp, max_rank=max_rank)
+
+
+def tt_softmax(tt: TensorTrain, max_rank: int = 20) -> TensorTrain:
+    """Softmax of TT tensor (applied to flattened representation)."""
+    dense = tt_to_dense(tt)
+    result = jax.nn.softmax(dense.reshape(-1)).reshape(dense.shape)
+    return tt_svd(result, max_rank=max_rank)
+
+
+def tt_solve(
+    ttm_A: TensorTrainMatrix,
+    tt_b: TensorTrain,
+    max_rank: int = 20,
+    n_iter: int = 50,
+    lr: float = 0.01,
+) -> TensorTrain:
+    """
+    Solve the linear system TTM_A @ x = tt_b for x in TT format.
+
+    Uses gradient descent minimization of ||A x - b||^2_F.
+
+    Parameters
+    ----------
+    ttm_A : TensorTrainMatrix operator
+    tt_b : TensorTrain right-hand side
+    max_rank : TT-rank for the solution
+    n_iter : gradient descent iterations
+    lr : learning rate
+
+    Returns
+    -------
+    TensorTrain solution approximation x
+    """
+    # Initialize x as a zero TT
+    x = tt_random(ttm_A.col_shape, max_rank, jax.random.PRNGKey(0))
+    x = tt_scale(x, 0.01)
+
+    for _ in range(n_iter):
+        Ax = tt_matvec(ttm_A, x)
+        residual = tt_subtract(Ax, tt_b)
+        # Gradient: A^T r
+        At_r = tt_matvec(
+            TensorTrainMatrix(
+                [c.transpose(0, 2, 1, 3) for c in ttm_A.cores],
+                ttm_A.col_shape,
+                ttm_A.row_shape,
+            ),
+            residual,
+        )
+        x = tt_subtract(x, tt_scale(At_r, lr))
+        x = tt_round(x, max_rank=max_rank)
+
+    return x
+
+
+# ============================================================================
+# TT-based statistics for financial data
+# ============================================================================
+
+def tt_covariance_from_samples(
+    samples: jnp.ndarray,
+    shape: Tuple[int, ...],
+    max_rank: int = 10,
+) -> TensorTrain:
+    """
+    Estimate the TT covariance tensor from Monte Carlo samples.
+
+    Each sample is a realization of a random tensor X. The covariance
+    C[i1,...,iN, j1,...,jN] = E[X_{i1...iN} X_{j1...jN}] is estimated
+    from samples and compressed as a TT.
+
+    Parameters
+    ----------
+    samples : (n_samples, d^N) flattened tensor samples
+    shape : tensor shape
+    max_rank : TT-rank for compression
+
+    Returns
+    -------
+    TensorTrain approximating the sample covariance tensor
+    """
+    n_samples = samples.shape[0]
+    d_flat = 1
+    for s in shape:
+        d_flat *= s
+
+    # Sample covariance matrix (d^N x d^N)
+    samples_mat = samples.reshape(n_samples, d_flat)
+    mu = jnp.mean(samples_mat, axis=0)
+    centered = samples_mat - mu[None, :]
+    cov = centered.T @ centered / (n_samples - 1)  # (d^N, d^N)
+
+    # Compress the covariance matrix to TT
+    combined_shape = tuple(s * s for s in shape)
+    cov_tensor = cov.reshape(combined_shape)
+    return tt_svd(cov_tensor, max_rank=max_rank)
+
+
+def tt_mean(
+    tt_list: List[TensorTrain],
+    max_rank: int = 20,
+) -> TensorTrain:
+    """
+    Compute the TT-mean of a list of TTs.
+
+    Parameters
+    ----------
+    tt_list : list of TensorTrain
+    max_rank : rank for compression
+
+    Returns
+    -------
+    Mean TensorTrain
+    """
+    n = len(tt_list)
+    result = tt_scale(tt_list[0], 1.0 / n)
+    for tt in tt_list[1:]:
+        result = tt_add(result, tt_scale(tt, 1.0 / n))
+    return tt_round(result, max_rank=max_rank)
+
+
+def tt_variance(
+    tt_list: List[TensorTrain],
+    max_rank: int = 20,
+) -> jnp.ndarray:
+    """
+    Compute the average squared deviation from the mean.
+
+    Returns sum_i ||tt_i - mean||^2_F / n.
+
+    Parameters
+    ----------
+    tt_list : list of TensorTrain
+    max_rank : rank budget
+
+    Returns
+    -------
+    Scalar variance
+    """
+    n = len(tt_list)
+    mean = tt_mean(tt_list, max_rank=max_rank)
+    var = jnp.zeros(())
+    for tt in tt_list:
+        diff = tt_subtract(tt, mean)
+        var = var + tt_dot(diff, diff)
+    return var / n
+
+
+def tt_pca(
+    tt_list: List[TensorTrain],
+    n_components: int = 3,
+    max_rank: int = 20,
+) -> Tuple[List[TensorTrain], jnp.ndarray]:
+    """
+    TT-PCA: find principal components of a collection of TT tensors.
+
+    Uses the Gram matrix of inner products between TT tensors to extract
+    principal directions in TT space.
+
+    Parameters
+    ----------
+    tt_list : list of TensorTrain (same shape and rank)
+    n_components : number of principal components
+    max_rank : rank for orthogonalization
+
+    Returns
+    -------
+    (principal_components, explained_variance)
+    """
+    n = len(tt_list)
+    K = tt_gram_matrix(tt_list)
+
+    # Eigendecomposition of Gram matrix
+    evals, evecs = jnp.linalg.eigh(K)
+
+    # Sort descending
+    idx = jnp.argsort(-evals)
+    evals = evals[idx]
+    evecs = evecs[:, idx]
+
+    # Build principal components as linear combinations
+    pcs = []
+    explained = []
+    for comp in range(min(n_components, n)):
+        coeffs = [float(evecs[i, comp]) for i in range(n)]
+        pc = tt_linear_combination(tt_list, coeffs, max_rank=max_rank)
+        pc = tt_scale(pc, 1.0 / (float(tt_norm(pc)) + 1e-10))
+        pcs.append(pc)
+        explained.append(float(jnp.maximum(evals[comp], 0.0)))
+
+    total_var = sum(max(float(e), 0.0) for e in evals)
+    explained_ratio = jnp.array(explained) / (total_var + 1e-10)
+
+    return pcs, explained_ratio
+
+
+def tt_distance_matrix(
+    tt_list: List[TensorTrain],
+) -> jnp.ndarray:
+    """
+    Compute pairwise Frobenius distance matrix for a list of TTs.
+
+    D[i,j] = ||tt_i - tt_j||_F
+
+    Parameters
+    ----------
+    tt_list : list of TensorTrain
+
+    Returns
+    -------
+    (n, n) distance matrix
+    """
+    n = len(tt_list)
+    norms = jnp.array([float(tt_norm(tt)) for tt in tt_list])
+    K = tt_gram_matrix(tt_list)
+
+    # D[i,j]^2 = ||tt_i||^2 - 2<tt_i,tt_j> + ||tt_j||^2
+    D_sq = norms[:, None] ** 2 - 2 * K + norms[None, :] ** 2
+    return jnp.sqrt(jnp.maximum(D_sq, 0.0))
+
+
+def tt_kmeans(
+    tt_list: List[TensorTrain],
+    k: int,
+    n_iter: int = 20,
+    max_rank: int = 10,
+    key: Optional[jax.random.KeyArray] = None,
+) -> Tuple[List[int], List[TensorTrain]]:
+    """
+    K-means clustering of TT tensors in Frobenius metric.
+
+    Parameters
+    ----------
+    tt_list : list of TensorTrain to cluster
+    k : number of clusters
+    n_iter : clustering iterations
+    max_rank : centroid rank budget
+    key : random key
+
+    Returns
+    -------
+    (labels, centroids) assignment labels and centroid TTs
+    """
+    if key is None:
+        key = jax.random.PRNGKey(0)
+
+    n = len(tt_list)
+    key, subkey = jax.random.split(key)
+    centroid_idx = list(jax.random.permutation(subkey, n)[:k])
+    centroids = [tt_list[i].copy() for i in centroid_idx]
+    labels = [0] * n
+
+    for iteration in range(n_iter):
+        # Assignment
+        new_labels = []
+        for tt in tt_list:
+            dists = [float(tt_norm(tt_subtract(tt, c))) for c in centroids]
+            new_labels.append(int(np.argmin(dists)))
+
+        if new_labels == labels:
+            break
+        labels = new_labels
+
+        # Update centroids
+        for c in range(k):
+            members = [tt_list[i] for i, l in enumerate(labels) if l == c]
+            if members:
+                centroids[c] = tt_mean(members, max_rank=max_rank)
+
+    return labels, centroids

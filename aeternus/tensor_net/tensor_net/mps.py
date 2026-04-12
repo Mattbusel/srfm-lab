@@ -1850,3 +1850,435 @@ def mps_from_dict(d: Dict[str, Any]) -> MatrixProductState:
     tensors = [jnp.array(t) for t in d["tensors"]]
     phys_dims = tuple(d["phys_dims"])
     return MatrixProductState(tensors, phys_dims)
+
+
+# ============================================================================
+# Extended MPS operations: excited states, TDVP, string order, risk models
+# ============================================================================
+
+def mps_excited_state(
+    ground_mps: "MatrixProductState",
+    bond_dim: int,
+    n_sweeps: int = 5,
+    key: Optional[jax.random.KeyArray] = None,
+) -> "MatrixProductState":
+    """
+    Approximate the first excited state orthogonal to the ground state.
+
+    Uses iterative projection: start from a random MPS and remove all
+    components along the ground state until the result is orthogonal.
+
+    Parameters
+    ----------
+    ground_mps : ground state MPS (normalized)
+    bond_dim : bond dimension of excited state
+    n_sweeps : number of orthogonalization sweeps
+    key : random key
+
+    Returns
+    -------
+    First excited state approximation (normalized, orthogonal to ground)
+    """
+    if key is None:
+        key = jax.random.PRNGKey(99)
+
+    n = ground_mps.n_sites
+    key, subkey = jax.random.split(key)
+    excited = mps_random(n, ground_mps.phys_dims, bond_dim, subkey)
+
+    for _ in range(n_sweeps):
+        ip = mps_inner_product(ground_mps, excited)
+        n_gs = mps_norm_sq(ground_mps)
+        coeff = ip / (n_gs + 1e-30)
+        correction = mps_scale(ground_mps, -float(jnp.real(coeff)))
+        excited = mps_add(excited, correction)
+        excited = mps_normalize(excited)
+        excited = mps_compress(excited, max_bond=bond_dim)
+
+    return excited
+
+
+def mps_overlap_matrix(
+    mps_list: List["MatrixProductState"],
+) -> jnp.ndarray:
+    """
+    Compute the Gram (overlap) matrix S[i,j] = <mps_i|mps_j>.
+
+    Parameters
+    ----------
+    mps_list : list of MatrixProductState
+
+    Returns
+    -------
+    (n, n) complex overlap matrix
+    """
+    n = len(mps_list)
+    S = jnp.zeros((n, n), dtype=jnp.complex64)
+    for i in range(n):
+        for j in range(n):
+            ip = mps_inner_product(mps_list[i], mps_list[j])
+            S = S.at[i, j].set(ip)
+    return S
+
+
+def mps_gram_schmidt(
+    mps_list: List["MatrixProductState"],
+    bond_dim: int = 16,
+) -> List["MatrixProductState"]:
+    """
+    Gram-Schmidt orthogonalization of a list of MPS.
+
+    Returns an orthonormal set spanning the same subspace.
+
+    Parameters
+    ----------
+    mps_list : list of MatrixProductState
+    bond_dim : bond dimension for compression
+
+    Returns
+    -------
+    Orthonormal list of MPS
+    """
+    orthonormal = []
+    for mps in mps_list:
+        v = mps.copy()
+        for u in orthonormal:
+            ip = mps_inner_product(u, v)
+            v = mps_add(v, mps_scale(u, -float(jnp.real(ip))))
+            v = mps_compress(v, max_bond=bond_dim)
+        norm = float(mps_norm(v))
+        if norm > 1e-10:
+            v = mps_scale(v, 1.0 / norm)
+            orthonormal.append(v)
+    return orthonormal
+
+
+def mps_time_evolve_tebd(
+    mps: "MatrixProductState",
+    time_steps: int,
+    dt: float,
+    local_gates: List[jnp.ndarray],
+    max_bond: int = 16,
+) -> List["MatrixProductState"]:
+    """
+    Time-evolve an MPS using TEBD (Time-Evolving Block Decimation).
+
+    Applies brick-wall pattern of two-site gates, alternating even/odd bonds.
+
+    Parameters
+    ----------
+    mps : initial state
+    time_steps : number of discrete time steps
+    dt : time step size (used to label output; gates are assumed pre-exponentiated)
+    local_gates : list of (d^2, d^2) two-site unitary gates
+    max_bond : maximum bond dimension after each step
+
+    Returns
+    -------
+    List of MPS states at each time step
+    """
+    n = mps.n_sites
+    states = [mps.copy()]
+    current = mps.copy()
+
+    for t in range(time_steps):
+        # Even bonds: (0,1), (2,3), ...
+        for i in range(0, n - 1, 2):
+            gate = local_gates[i % len(local_gates)]
+            current = _apply_two_site_gate_mps(current, gate, i, max_bond)
+        # Odd bonds: (1,2), (3,4), ...
+        for i in range(1, n - 1, 2):
+            gate = local_gates[i % len(local_gates)]
+            current = _apply_two_site_gate_mps(current, gate, i, max_bond)
+        states.append(current.copy())
+
+    return states
+
+
+def _apply_two_site_gate_mps(
+    mps: "MatrixProductState",
+    gate: jnp.ndarray,
+    site: int,
+    max_bond: int,
+) -> "MatrixProductState":
+    """Apply a two-site gate at (site, site+1) via SVD splitting."""
+    tensors = [jnp.array(t) for t in mps.tensors]
+    d = mps.phys_dims[site]
+
+    A = tensors[site]        # (chi_l, d, chi_m)
+    B = tensors[site + 1]    # (chi_m, d, chi_r)
+    chi_l = A.shape[0]
+    chi_r = B.shape[2]
+
+    # Two-site tensor
+    theta = jnp.einsum("asc,csd->ascd", A, B)  # (chi_l, d, d, chi_r)
+
+    # Apply gate: gate[s1',s2',s1,s2]
+    gate_t = gate.reshape(d, d, d, d)
+    theta_new = jnp.einsum("pqst,astb->apqb", gate_t, theta)
+
+    # SVD
+    M = theta_new.reshape(chi_l * d, d * chi_r)
+    U, s, Vt = jnp.linalg.svd(M, full_matrices=False)
+    keep = min(max_bond, U.shape[1])
+
+    tensors[site] = (U[:, :keep] * s[None, :keep]).reshape(chi_l, d, keep)
+    tensors[site + 1] = Vt[:keep, :].reshape(keep, d, chi_r)
+
+    return MatrixProductState(tensors, mps.phys_dims)
+
+
+def mps_correlation_matrix(
+    mps: "MatrixProductState",
+    operator: Optional[jnp.ndarray] = None,
+) -> jnp.ndarray:
+    """
+    Compute connected two-point correlation matrix C[i,j] = <Oi Oj> - <Oi><Oj>.
+
+    Parameters
+    ----------
+    mps : normalized MatrixProductState
+    operator : (d, d) single-site operator (default: Pauli Z for d=2)
+
+    Returns
+    -------
+    (n_sites, n_sites) connected correlation matrix
+    """
+    n = mps.n_sites
+    d = mps.phys_dims[0]
+
+    if operator is None:
+        operator = jnp.diag(jnp.array([1.0 if i == 0 else -1.0 for i in range(d)]))
+
+    # Single-site expectations
+    one_pt = jnp.array([
+        float(jnp.real(mps_expectation_single(mps, operator, i)))
+        for i in range(n)
+    ])
+
+    C = np.zeros((n, n))
+    for i in range(n):
+        for j in range(i, n):
+            if i == j:
+                op_sq = operator @ operator
+                ev = float(jnp.real(mps_expectation_single(mps, op_sq, i)))
+            else:
+                ev = float(jnp.real(mps_expectation_two_site(mps, operator, operator, i, j)))
+            C[i, j] = ev - one_pt[i] * one_pt[j]
+            C[j, i] = C[i, j]  # Symmetric
+
+    return jnp.array(C)
+
+
+def mps_half_chain_entropy(mps: "MatrixProductState") -> jnp.ndarray:
+    """
+    Von Neumann entanglement entropy at the central bond (half-chain entropy).
+
+    Parameters
+    ----------
+    mps : MatrixProductState
+
+    Returns
+    -------
+    Scalar half-chain entropy
+    """
+    center = mps.n_sites // 2
+    _, sv = mps_mixed_canonicalize(mps, center)
+    lambdas = sv / (jnp.linalg.norm(sv) + 1e-30)
+    probs = jnp.maximum(lambdas ** 2, 1e-15)
+    return -jnp.sum(probs * jnp.log(probs))
+
+
+def mps_truncation_error(
+    mps_original: "MatrixProductState",
+    mps_compressed: "MatrixProductState",
+) -> float:
+    """
+    Relative truncation error ||original - compressed|| / ||original||.
+
+    Parameters
+    ----------
+    mps_original : original high-rank MPS
+    mps_compressed : compressed low-rank MPS
+
+    Returns
+    -------
+    Relative Frobenius truncation error
+    """
+    diff = mps_subtract(mps_original, mps_compressed)
+    err = float(mps_norm(diff))
+    ref = float(mps_norm(mps_original))
+    return err / (ref + 1e-30)
+
+
+def mps_area_law_check(mps: "MatrixProductState") -> bool:
+    """
+    Check if MPS satisfies area law: S ~ O(log chi) bounded entanglement.
+
+    Parameters
+    ----------
+    mps : MatrixProductState
+
+    Returns
+    -------
+    True if area law is approximately satisfied
+    """
+    entropies = mps_bond_entropies(mps)
+    max_chi = float(mps.max_bond)
+    bound = math.log(max_chi + 1) + 2.0
+    return bool(jnp.all(entropies < bound))
+
+
+def mps_save(mps: "MatrixProductState", path: str) -> None:
+    """
+    Save MPS to numpy .npz file.
+
+    Parameters
+    ----------
+    mps : MatrixProductState
+    path : file path
+    """
+    d = mps_to_dict(mps)
+    save_dict = {
+        "n_sites": np.array(d["n_sites"]),
+        "phys_dims": np.array(d["phys_dims"]),
+    }
+    for i, t in enumerate(d["tensors"]):
+        save_dict[f"tensor_{i}"] = t
+    np.savez(path, **save_dict)
+
+
+def mps_load(path: str) -> "MatrixProductState":
+    """
+    Load MPS from numpy .npz file.
+
+    Parameters
+    ----------
+    path : file path
+
+    Returns
+    -------
+    MatrixProductState
+    """
+    data = np.load(path, allow_pickle=True)
+    n_sites = int(data["n_sites"])
+    phys_dims = tuple(int(d) for d in data["phys_dims"])
+    tensors = [jnp.array(data[f"tensor_{i}"]) for i in range(n_sites)]
+    return MatrixProductState(tensors, phys_dims)
+
+
+def mps_risk_factor_encoding(
+    factor_scores: jnp.ndarray,
+    n_bits: int = 4,
+    max_bond: int = 8,
+) -> "MatrixProductState":
+    """
+    Encode a risk factor score vector as an MPS using quantized amplitude encoding.
+
+    Maps each factor score to a one-hot physical state at the quantized level,
+    then chains them into a product-state MPS.
+
+    Parameters
+    ----------
+    factor_scores : (n_factors,) risk factor scores
+    n_bits : bits per factor (physical dimension = 2^n_bits)
+    max_bond : maximum bond dimension
+
+    Returns
+    -------
+    MatrixProductState encoding the risk factor vector
+    """
+    factor_scores = jnp.array(factor_scores, dtype=jnp.float32)
+    n = factor_scores.shape[0]
+    d = 2 ** n_bits
+
+    tensors = []
+    for i in range(n):
+        score = float(factor_scores[i])
+        idx = min(d - 1, max(0, int((math.tanh(score) + 1.0) / 2.0 * (d - 1))))
+        local_state = jnp.zeros(d).at[idx].set(1.0)
+        tensors.append(local_state.reshape(1, d, 1))
+
+    mps = MatrixProductState(tensors, (d,) * n)
+    return mps
+
+
+def mps_portfolio_state(
+    weights: jnp.ndarray,
+    asset_mps: List["MatrixProductState"],
+    max_bond: int = 16,
+) -> "MatrixProductState":
+    """
+    Construct portfolio MPS as weighted superposition sum_i w_i |asset_i>.
+
+    Parameters
+    ----------
+    weights : (n_assets,) portfolio weights
+    asset_mps : list of asset MPS (same structure)
+    max_bond : maximum bond dimension
+
+    Returns
+    -------
+    Normalized portfolio MPS
+    """
+    assert len(weights) == len(asset_mps)
+    result = mps_scale(asset_mps[0], float(weights[0]))
+    for i in range(1, len(asset_mps)):
+        result = mps_add(result, mps_scale(asset_mps[i], float(weights[i])))
+        if result.max_bond > max_bond:
+            result = mps_compress(result, max_bond=max_bond)
+    return mps_normalize(result)
+
+
+def mps_compression_benchmark(
+    n_sites_list: List[int] = (4, 6, 8, 10),
+    phys_dim: int = 2,
+    bond_dims: List[int] = (4, 8, 16),
+    key: jax.random.KeyArray = jax.random.PRNGKey(0),
+) -> Dict[str, Any]:
+    """
+    Benchmark MPS compression across configurations.
+
+    Parameters
+    ----------
+    n_sites_list : chain lengths to benchmark
+    phys_dim : physical dimension
+    bond_dims : bond dimensions to test
+    key : random key
+
+    Returns
+    -------
+    Dictionary with timing and compression statistics
+    """
+    import time
+    results = []
+    for n in n_sites_list:
+        for chi in bond_dims:
+            key, sk1 = jax.random.split(key)
+            mps = mps_random(n, phys_dim, chi, sk1)
+
+            t0 = time.time()
+            mps_lc = mps_left_canonicalize(mps)
+            t_lc = time.time() - t0
+
+            t0 = time.time()
+            norm = float(mps_norm(mps))
+            t_norm = time.time() - t0
+
+            t0 = time.time()
+            mps_c = mps_compress(mps, max_bond=max(1, chi // 2))
+            t_comp = time.time() - t0
+
+            results.append({
+                "n_sites": n,
+                "bond_dim": chi,
+                "phys_dim": phys_dim,
+                "n_params_original": mps.num_params(),
+                "n_params_compressed": mps_c.num_params(),
+                "compression_ratio": mps.num_params() / (mps_c.num_params() + 1e-10),
+                "norm": norm,
+                "lc_time_ms": t_lc * 1000,
+                "norm_time_ms": t_norm * 1000,
+                "compress_time_ms": t_comp * 1000,
+            })
+    return {"results": results}
