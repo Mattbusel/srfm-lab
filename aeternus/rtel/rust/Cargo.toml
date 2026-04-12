@@ -1,0 +1,88 @@
+[package]
+name = "aeternus-rtel"
+version = "0.1.0"
+edition = "2021"
+description = "AETERNUS RTEL — Rust client for the shared-memory bus and state publisher"
+authors = ["AETERNUS Lab"]
+license = "MIT"
+repository = "https://github.com/aeternus-lab/srfm-lab"
+keywords = ["trading", "hft", "shared-memory", "lock-free", "finance"]
+categories = ["finance", "concurrency", "network-programming"]
+
+[lib]
+name = "aeternus_rtel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rtel-publisher"
+path = "src/bin/publisher.rs"
+required-features = ["bin"]
+
+[features]
+default = ["tokio-async"]
+tokio-async = ["tokio", "tokio-stream"]
+bin = ["tokio-async", "clap"]
+prometheus = ["prometheus-client"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"], optional = true }
+tokio-stream = { version = "0.1", optional = true }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+
+# Shared memory
+memmap2 = "0.9"
+
+# Numeric types
+half = "2.3"           # f16 support
+bytemuck = { version = "1.14", features = ["derive"] }
+num-traits = "0.2"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# CLI (optional)
+clap = { version = "4.4", features = ["derive"], optional = true }
+
+# Metrics
+prometheus-client = { version = "0.22", optional = true }
+
+# Collections
+dashmap = "5.5"
+crossbeam-channel = "0.5"
+crossbeam-utils = "0.8"
+ordered-float = "4.2"
+tempfile = "3.9"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tokio = { version = "1.35", features = ["full", "test-util"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.4"
+rand = "0.8"
+
+[[bench]]
+name = "shm_bench"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+overflow-checks = false
+
+[profile.bench]
+inherits = "release"
+debug = true
