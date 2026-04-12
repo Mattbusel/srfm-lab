@@ -1,0 +1,163 @@
+# Lumina Base Configuration
+# Full-scale model for production pretraining
+
+model:
+  d_model: 512
+  n_layers: 12
+  n_heads: 8
+  n_kv_heads: 2           # GQA: 2 KV heads shared across 8 Q heads
+  d_ffn: null             # null = auto (8/3 * d_model, rounded to 64)
+  dropout: 0.10
+  max_seq_len: 512
+  use_rope: true
+  use_alibi: false
+  use_temporal: true
+  use_flash: false        # set true if flash-attn installed
+  use_moe: true
+  moe_every_n: 4          # MoE at every 4th block (blocks 3, 7, 11)
+  n_experts: 8
+  moe_lb_coeff: 0.01
+  vocab_size: 50000
+  unified_token_dim: 256
+  arch: "causal"
+  lm_head: true
+  pool_head: true
+  n_classes: 8            # number of regime classes
+
+tokenizer:
+  price:
+    patch_size: 16
+    d_patch: 64
+    vocab_bins: 256
+    hybrid_dim: 256
+    log_return_clip: 0.10
+    use_volume: true
+    normalize_ohlc: true
+    mode: "hybrid"
+  lob:
+    n_levels: 5
+    d_lob: 64
+    use_delta: true
+  onchain:
+    n_signals: 3
+    quantize_bins: 64
+    d_onchain: 64
+    rolling_window: 500
+  news:
+    bert_model: "bert-base-uncased"
+    max_length: 128
+    d_news: 768
+  multimodal:
+    unified_dim: 256
+    max_seq_len: 512
+    pad_to_max: true
+
+positional_encoding:
+  type: "rope"            # "rope", "alibi", or "temporal"
+  d_session: 16           # for temporal encoding
+  n_fourier: 64           # for Fourier encoding
+
+pretraining:
+  n_train_samples: 200000
+  n_val_samples: 5000
+  seq_len: 256
+  n_workers: 4
+  batch_size: 64
+  grad_accum_steps: 4
+  max_steps: 200000
+  warmup_steps: 4000
+  lr: 3.0e-4
+  weight_decay: 0.10
+  max_grad_norm: 1.0
+  mixed_precision: true
+  checkpoint_dir: "checkpoints/lumina_pretrain_base"
+  checkpoint_every_n_steps: 10000
+  eval_every_n_steps: 2000
+  use_wandb: false
+  wandb_project: "lumina-pretrain"
+  wandb_run_name: "base_v1"
+  n_regimes: 8
+
+finetuning:
+  batch_size: 32
+  n_epochs: 10
+  lr: 1.0e-4
+  pretrained_lr_factor: 0.1
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  warmup_steps: 200
+  mixed_precision: true
+  use_lora: true
+  lora_rank: 16
+  lora_alpha: 32.0
+  lora_dropout: 0.05
+  eval_every_n_steps: 100
+  use_wandb: false
+  n_regimes: 8
+  forecast_horizon: 5
+
+data:
+  n_train_samples: 100000
+  n_val_samples: 5000
+  seq_len: 256
+  heston:
+    mu: 0.0002
+    kappa: 2.0
+    theta: 0.04
+    xi: 0.30
+    rho: -0.70
+    v0: 0.04
+    dt: 0.003968   # 1/252
+  hawkes:
+    mu: 0.5
+    alpha: 0.3
+    beta: 1.5
+  crisis:
+    prob: 0.05
+    vol_multiplier: 5.0
+  curriculum:
+    enabled: true
+    schedule: "linear"
+    warmup_steps: 10000
+    min_difficulty: 0.0
+    max_difficulty: 1.0
+
+evaluation:
+  results_dir: "aeternus/lumina/results"
+  vol_threshold: 0.25       # for VIX baseline
+  probing_tasks:
+    - regime
+    - crisis
+    - volatility_level
+    - trend_direction
+  attention_layer: -1       # last layer
+  attention_head: 0
+
+multimodal:
+  d_fusion: 512
+  fusion_mode: "gated"      # "concat", "cross_attn", "gated"
+  fusion_n_heads: 8
+  n_cross_attn_layers: 2
+  n_regimes: 8
+  forecast_horizon: 5
+  price_encoder:
+    d_model: 256
+    n_layers: 4
+    n_heads: 4
+    n_kv_heads: 2
+    use_moe: false
+    arch: "bidirectional"
+  onchain_encoder:
+    d_model: 128
+    n_layers: 2
+    n_heads: 4
+    n_kv_heads: null
+    use_moe: false
+    arch: "bidirectional"
+  news_encoder:
+    d_model: 256
+    n_layers: 4
+    n_heads: 4
+    n_kv_heads: 2
+    use_moe: false
+    arch: "bidirectional"

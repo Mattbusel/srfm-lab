@@ -1,0 +1,161 @@
+# Lumina Small Configuration
+# Reduced model for fast iteration, testing, and CI
+
+model:
+  d_model: 128
+  n_layers: 4
+  n_heads: 4
+  n_kv_heads: 2
+  d_ffn: 384               # explicit: 3 * d_model
+  dropout: 0.10
+  max_seq_len: 128
+  use_rope: true
+  use_alibi: false
+  use_temporal: false       # skip temporal enc for speed
+  use_flash: false
+  use_moe: false            # no MoE in small model
+  moe_every_n: 0
+  n_experts: 4
+  moe_lb_coeff: 0.01
+  vocab_size: 10000
+  unified_token_dim: 64
+  arch: "causal"
+  lm_head: true
+  pool_head: true
+  n_classes: 8
+
+tokenizer:
+  price:
+    patch_size: 8
+    d_patch: 32
+    vocab_bins: 64
+    hybrid_dim: 64
+    log_return_clip: 0.10
+    use_volume: true
+    normalize_ohlc: true
+    mode: "hybrid"
+  lob:
+    n_levels: 3
+    d_lob: 32
+    use_delta: true
+  onchain:
+    n_signals: 3
+    quantize_bins: 32
+    d_onchain: 32
+    rolling_window: 100
+  news:
+    bert_model: "bert-base-uncased"
+    max_length: 64
+    d_news: 768
+  multimodal:
+    unified_dim: 64
+    max_seq_len: 128
+    pad_to_max: true
+
+positional_encoding:
+  type: "rope"
+  d_session: 8
+  n_fourier: 16
+
+pretraining:
+  n_train_samples: 1000
+  n_val_samples: 200
+  seq_len: 64
+  n_workers: 0
+  batch_size: 8
+  grad_accum_steps: 1
+  max_steps: 500
+  warmup_steps: 50
+  lr: 1.0e-3
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  mixed_precision: false    # keep simple for CPU testing
+  checkpoint_dir: "checkpoints/lumina_pretrain_small"
+  checkpoint_every_n_steps: 200
+  eval_every_n_steps: 100
+  use_wandb: false
+  wandb_project: "lumina-pretrain-small"
+  wandb_run_name: "small_v1"
+  n_regimes: 8
+
+finetuning:
+  batch_size: 8
+  n_epochs: 3
+  lr: 5.0e-4
+  pretrained_lr_factor: 0.1
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  warmup_steps: 20
+  mixed_precision: false
+  use_lora: true
+  lora_rank: 4
+  lora_alpha: 8.0
+  lora_dropout: 0.0
+  eval_every_n_steps: 50
+  use_wandb: false
+  n_regimes: 8
+  forecast_horizon: 3
+
+data:
+  n_train_samples: 1000
+  n_val_samples: 100
+  seq_len: 64
+  heston:
+    mu: 0.0002
+    kappa: 2.0
+    theta: 0.04
+    xi: 0.30
+    rho: -0.70
+    v0: 0.04
+    dt: 0.003968
+  hawkes:
+    mu: 0.5
+    alpha: 0.3
+    beta: 1.5
+  crisis:
+    prob: 0.1              # higher crisis rate for testing
+    vol_multiplier: 3.0
+  curriculum:
+    enabled: false
+    schedule: "linear"
+    warmup_steps: 100
+    min_difficulty: 0.0
+    max_difficulty: 1.0
+
+evaluation:
+  results_dir: "aeternus/lumina/results"
+  vol_threshold: 0.25
+  probing_tasks:
+    - regime
+    - crisis
+  attention_layer: -1
+  attention_head: 0
+
+multimodal:
+  d_fusion: 128
+  fusion_mode: "gated"
+  fusion_n_heads: 4
+  n_cross_attn_layers: 1
+  n_regimes: 8
+  forecast_horizon: 3
+  price_encoder:
+    d_model: 64
+    n_layers: 2
+    n_heads: 2
+    n_kv_heads: null
+    use_moe: false
+    arch: "bidirectional"
+  onchain_encoder:
+    d_model: 32
+    n_layers: 1
+    n_heads: 2
+    n_kv_heads: null
+    use_moe: false
+    arch: "bidirectional"
+  news_encoder:
+    d_model: 64
+    n_layers: 2
+    n_heads: 2
+    n_kv_heads: null
+    use_moe: false
+    arch: "bidirectional"
