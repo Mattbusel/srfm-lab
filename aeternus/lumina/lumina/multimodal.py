@@ -705,3 +705,484 @@ class MultiModalLumina(nn.Module):
         model = cls(config)
         model.load_state_dict(torch.load(f"{path}/model.pt", map_location=device))
         return model
+
+
+# ---------------------------------------------------------------------------
+# Multi-Modal Fusion Strategies
+# ---------------------------------------------------------------------------
+
+class EarlyFusion(nn.Module):
+    """Early fusion of multi-modal financial data.
+
+    All modalities are concatenated at the token level before the main
+    transformer backbone processes them.
+
+    Best for: modalities with tight temporal alignment and complementary
+    features (e.g., OHLCV + technical indicators).
+
+    Args:
+        modality_dims:  dict of modality name → input dimension
+        d_model:        unified output dimension
+        dropout:        fusion dropout
+
+    Example:
+        >>> fusion = EarlyFusion(
+        ...     modality_dims={"price": 64, "volume": 32, "macro": 20},
+        ...     d_model=256
+        ... )
+        >>> inputs = {"price": torch.randn(2, 100, 64), ...}
+        >>> out = fusion(inputs)  # (2, 100, 256)
+    """
+
+    def __init__(
+        self,
+        modality_dims: Dict[str, int],
+        d_model: int = 256,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        total_dim = sum(modality_dims.values())
+        self.modality_names = list(modality_dims.keys())
+        self.proj = nn.Sequential(
+            nn.Linear(total_dim, d_model * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model * 2, d_model),
+        )
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """Concatenate and project all modalities.
+
+        Args:
+            inputs: dict of modality name → (B, T, d_i)
+
+        Returns:
+            fused: (B, T, d_model)
+        """
+        # Ensure all modalities have same sequence length
+        seqlens = [v.shape[1] for v in inputs.values()]
+        min_T = min(seqlens)
+        parts = [inputs[name][:, :min_T, :] for name in self.modality_names if name in inputs]
+        concat = torch.cat(parts, dim=-1)  # (B, T, sum_d)
+        return self.norm(self.proj(concat))
+
+
+class LateFusion(nn.Module):
+    """Late fusion: each modality has its own backbone, then combine.
+
+    Best for: modalities with different temporal scales or low alignment
+    (e.g., price data + quarterly fundamentals + news headlines).
+
+    Args:
+        modality_backbones: dict of modality → nn.Module (each outputs d_model)
+        d_model:            unified embedding dimension
+        fusion_type:        "mean" | "max" | "attention" | "concat_project"
+
+    Example:
+        >>> backbones = {
+        ...     "price": PriceBackbone(d_model=256),
+        ...     "fundamental": FundaBackbone(d_model=256),
+        ... }
+        >>> fusion = LateFusion(backbones, d_model=256, fusion_type="attention")
+        >>> out = fusion({"price": price_data, "fundamental": fund_data})
+    """
+
+    def __init__(
+        self,
+        modality_backbones: Dict[str, nn.Module],
+        d_model: int = 256,
+        fusion_type: str = "attention",
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.backbones = nn.ModuleDict(modality_backbones)
+        self.fusion_type = fusion_type
+        self.d_model = d_model
+        n_mod = len(modality_backbones)
+
+        if fusion_type == "attention":
+            self.fusion_attn = nn.MultiheadAttention(
+                embed_dim=d_model,
+                num_heads=min(4, d_model // 64),
+                dropout=dropout,
+                batch_first=True,
+            )
+            self.query = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
+        elif fusion_type == "concat_project":
+            self.proj = nn.Linear(n_mod * d_model, d_model)
+
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(
+        self,
+        inputs: Dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """Run each backbone and fuse.
+
+        Args:
+            inputs: dict modality name → raw tensor
+
+        Returns:
+            fused: (B, d_model) fused representation
+        """
+        pooled = []
+        for name, backbone in self.backbones.items():
+            if name in inputs:
+                out = backbone(inputs[name])
+                # Pool if needed
+                if out.dim() == 3:
+                    out = out.mean(dim=1)  # (B, d_model)
+                pooled.append(out)
+
+        if not pooled:
+            raise ValueError("No modality inputs provided")
+
+        if len(pooled) == 1:
+            return pooled[0]
+
+        stacked = torch.stack(pooled, dim=1)  # (B, n_mod, d_model)
+
+        if self.fusion_type == "mean":
+            fused = stacked.mean(dim=1)
+        elif self.fusion_type == "max":
+            fused = stacked.max(dim=1).values
+        elif self.fusion_type == "attention":
+            B = stacked.shape[0]
+            q = self.query.expand(B, -1, -1)  # (B, 1, d_model)
+            fused, _ = self.fusion_attn(q, stacked, stacked)
+            fused = fused.squeeze(1)  # (B, d_model)
+        elif self.fusion_type == "concat_project":
+            cat = stacked.reshape(stacked.shape[0], -1)  # (B, n_mod * d_model)
+            fused = self.proj(cat)
+        else:
+            fused = stacked.mean(dim=1)
+
+        return self.norm(fused)
+
+
+class HierarchicalFusion(nn.Module):
+    """Hierarchical multi-modal fusion for financial data.
+
+    Fuses modalities in a tree-like hierarchy:
+    1. First fuse high-frequency modalities (price + order book)
+    2. Then fuse with medium-frequency modalities (fundamentals)
+    3. Finally incorporate low-frequency modalities (macro)
+
+    This allows each fusion level to operate at the appropriate
+    temporal resolution.
+
+    Args:
+        d_model:     output dimension
+        fusion_tree: list of lists, each inner list groups modality names
+                     that are fused together at one level
+
+    Example:
+        >>> fusion = HierarchicalFusion(
+        ...     d_model=256,
+        ...     fusion_tree=[
+        ...         ["price", "orderbook"],  # Level 1: high-freq
+        ...         ["result_1", "fundamentals"],  # Level 2: + medium
+        ...         ["result_2", "macro"],   # Level 3: + low-freq
+        ...     ]
+        ... )
+    """
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        fusion_tree: Optional[List[List[str]]] = None,
+    ):
+        super().__init__()
+        self.d_model = d_model
+
+        if fusion_tree is None:
+            fusion_tree = [["price", "orderbook"], ["result_1", "fundamentals"]]
+        self.fusion_tree = fusion_tree
+
+        # One fusion layer per level
+        self.fusion_layers = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(2 * d_model, d_model),
+                nn.LayerNorm(d_model),
+                nn.SiLU(),
+                nn.Linear(d_model, d_model),
+            )
+            for _ in fusion_tree
+        ])
+
+    def forward(
+        self,
+        modality_embeddings: Dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """Hierarchically fuse modalities.
+
+        Args:
+            modality_embeddings: dict of name → (B, d_model)
+
+        Returns:
+            fused: (B, d_model)
+        """
+        embeddings = dict(modality_embeddings)
+
+        for level_idx, (group, layer) in enumerate(zip(self.fusion_tree, self.fusion_layers)):
+            available = [g for g in group if g in embeddings]
+            if len(available) < 2:
+                continue
+
+            # Pair-wise fusion within the group
+            a = embeddings[available[0]]
+            b = embeddings[available[1]]
+            if a.dim() == 3:
+                a = a.mean(dim=1)
+            if b.dim() == 3:
+                b = b.mean(dim=1)
+
+            fused = layer(torch.cat([a, b], dim=-1))
+            embeddings[f"result_{level_idx + 1}"] = fused
+
+        # Return last fusion result
+        results = [k for k in embeddings if k.startswith("result_")]
+        if results:
+            return embeddings[sorted(results)[-1]]
+        else:
+            # Fallback: average all embeddings
+            all_emb = [v.mean(dim=1) if v.dim() == 3 else v for v in embeddings.values()]
+            return torch.stack(all_emb).mean(dim=0)
+
+
+class DynamicModalityGating(nn.Module):
+    """Dynamic gating mechanism for adaptive multi-modal fusion.
+
+    Learns to weight modalities based on their relevance at each time step.
+    Modalities that are more informative at a given moment get higher weight.
+
+    Uses a small gating network that takes all modality representations
+    and outputs scalar weights.
+
+    Args:
+        d_model:      embedding dimension
+        n_modalities: number of modalities
+        gate_type:    "softmax" | "sigmoid" | "sparsemax"
+
+    Example:
+        >>> gate = DynamicModalityGating(d_model=256, n_modalities=3)
+        >>> embeddings = [torch.randn(4, 100, 256) for _ in range(3)]
+        >>> weighted = gate(embeddings)  # (4, 100, 256)
+    """
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        n_modalities: int = 3,
+        gate_type: str = "softmax",
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.n_modalities = n_modalities
+        self.gate_type = gate_type
+
+        # Gating network: concatenate all modalities → weights
+        self.gate_net = nn.Sequential(
+            nn.Linear(n_modalities * d_model, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, n_modalities),
+        )
+
+    def forward(
+        self,
+        embeddings: List[torch.Tensor],
+    ) -> torch.Tensor:
+        """Apply dynamic gating.
+
+        Args:
+            embeddings: list of (B, T, d_model) tensors, one per modality
+
+        Returns:
+            weighted: (B, T, d_model) gated combination
+        """
+        B, T, D = embeddings[0].shape
+
+        # Compute gate weights from all modalities
+        concat = torch.cat(embeddings, dim=-1)  # (B, T, n_mod * d_model)
+        logits = self.gate_net(concat)  # (B, T, n_modalities)
+
+        if self.gate_type == "softmax":
+            weights = F.softmax(logits, dim=-1)  # (B, T, n_modalities)
+        elif self.gate_type == "sigmoid":
+            weights = torch.sigmoid(logits)
+            weights = weights / (weights.sum(dim=-1, keepdim=True) + 1e-8)
+        else:
+            weights = F.softmax(logits, dim=-1)
+
+        # Weighted combination
+        stacked = torch.stack(embeddings, dim=-1)  # (B, T, d_model, n_modalities)
+        weights = weights.unsqueeze(2)              # (B, T, 1, n_modalities)
+        return (stacked * weights).sum(dim=-1)      # (B, T, d_model)
+
+
+class TemporalAlignmentModule(nn.Module):
+    """Align multi-modal sequences with different temporal resolutions.
+
+    When combining modalities at different frequencies (e.g., minute-bar
+    price data with quarterly fundamental data), we need to align them.
+
+    Alignment strategies:
+    - "forward_fill": carry forward the lower-frequency signal
+    - "interpolate":  linear interpolation between updates
+    - "attention":    learned alignment via cross-attention
+
+    Args:
+        d_model:        embedding dimension
+        strategy:       alignment strategy
+        high_freq_len:  length of high-frequency sequence
+        low_freq_len:   length of low-frequency sequence
+
+    Example:
+        >>> align = TemporalAlignmentModule(d_model=256, strategy="attention")
+        >>> high_freq = torch.randn(4, 252, 256)  # daily
+        >>> low_freq = torch.randn(4, 4, 256)    # quarterly
+        >>> aligned = align(high_freq, low_freq)  # (4, 252, 256)
+    """
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        strategy: str = "attention",
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.strategy = strategy
+
+        if strategy == "attention":
+            self.align_attn = nn.MultiheadAttention(
+                embed_dim=d_model,
+                num_heads=min(4, d_model // 64),
+                batch_first=True,
+            )
+            self.norm = nn.LayerNorm(d_model)
+
+    def forward(
+        self,
+        high_freq: torch.Tensor,
+        low_freq: torch.Tensor,
+    ) -> torch.Tensor:
+        """Align low-frequency sequence to high-frequency timeline.
+
+        Args:
+            high_freq: (B, T_high, d_model) high-frequency embeddings
+            low_freq:  (B, T_low, d_model)  low-frequency embeddings
+
+        Returns:
+            aligned: (B, T_high, d_model) low-freq info aligned to high-freq timeline
+        """
+        if self.strategy == "forward_fill":
+            # Upsample low_freq by repeating
+            B, T_high, D = high_freq.shape
+            T_low = low_freq.shape[1]
+            scale = max(1, T_high // T_low)
+            # Repeat each low-freq token 'scale' times
+            upsampled = low_freq.repeat_interleave(scale, dim=1)
+            # Trim or pad to match T_high
+            if upsampled.shape[1] < T_high:
+                pad = upsampled[:, -1:, :].expand(-1, T_high - upsampled.shape[1], -1)
+                upsampled = torch.cat([upsampled, pad], dim=1)
+            return upsampled[:, :T_high, :]
+
+        elif self.strategy == "interpolate":
+            # Linear interpolation
+            B, T_high, D = high_freq.shape
+            T_low = low_freq.shape[1]
+            # Use F.interpolate on (B, D, T_low) → (B, D, T_high)
+            lf_t = low_freq.transpose(1, 2)  # (B, D, T_low)
+            upsampled = F.interpolate(lf_t, size=T_high, mode="linear", align_corners=False)
+            return upsampled.transpose(1, 2)  # (B, T_high, D)
+
+        elif self.strategy == "attention":
+            # Cross-attention: high_freq queries low_freq
+            aligned, _ = self.align_attn(high_freq, low_freq, low_freq)
+            return self.norm(high_freq + aligned)
+
+        else:
+            return high_freq
+
+
+class MultiModalMasking:
+    """Masking strategies for multi-modal pre-training.
+
+    Implements various masking patterns for self-supervised learning
+    with multi-modal financial data:
+
+    1. Unimodal masking: mask tokens within a single modality
+    2. Cross-modal masking: mask an entire modality, predict from others
+    3. Temporal masking: mask a time window across all modalities
+    4. Semantic masking: mask tokens based on semantic importance
+
+    Args:
+        mask_ratio:          fraction of tokens to mask
+        mask_strategy:       "random" | "block" | "cross_modal" | "temporal"
+        cross_modal_prob:    probability of cross-modal masking
+
+    Example:
+        >>> masker = MultiModalMasking(mask_ratio=0.15)
+        >>> embeddings = torch.randn(4, 128, 256)
+        >>> modality_ids = torch.randint(0, 4, (4, 128))
+        >>> masked, mask = masker.mask(embeddings, modality_ids)
+    """
+
+    def __init__(
+        self,
+        mask_ratio: float = 0.15,
+        mask_strategy: str = "random",
+        cross_modal_prob: float = 0.3,
+    ):
+        self.mask_ratio = mask_ratio
+        self.mask_strategy = mask_strategy
+        self.cross_modal_prob = cross_modal_prob
+
+    def mask(
+        self,
+        embeddings: torch.Tensor,
+        modality_ids: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Apply masking to embeddings.
+
+        Args:
+            embeddings:   (B, T, d_model)
+            modality_ids: (B, T) long optional modality assignments
+
+        Returns:
+            masked_embeddings: (B, T, d_model) with masked positions zeroed
+            mask:              (B, T) bool, True = masked
+        """
+        B, T, D = embeddings.shape
+
+        if self.mask_strategy == "random":
+            mask = torch.rand(B, T, device=embeddings.device) < self.mask_ratio
+
+        elif self.mask_strategy == "block":
+            # Mask consecutive blocks
+            mask = torch.zeros(B, T, dtype=torch.bool, device=embeddings.device)
+            n_mask = max(1, int(T * self.mask_ratio))
+            for b in range(B):
+                start = torch.randint(0, T - n_mask + 1, (1,)).item()
+                mask[b, start:start + n_mask] = True
+
+        elif self.mask_strategy == "cross_modal" and modality_ids is not None:
+            # Randomly select a modality to fully mask
+            n_modalities = modality_ids.max().item() + 1
+            mask = torch.zeros(B, T, dtype=torch.bool, device=embeddings.device)
+            for b in range(B):
+                if torch.rand(1).item() < self.cross_modal_prob:
+                    target_mod = torch.randint(0, int(n_modalities), (1,)).item()
+                    mask[b] = (modality_ids[b] == target_mod)
+                else:
+                    mask[b] = torch.rand(T, device=embeddings.device) < self.mask_ratio
+
+        else:
+            mask = torch.rand(B, T, device=embeddings.device) < self.mask_ratio
+
+        # Apply mask (zero out masked positions)
+        masked = embeddings.clone()
+        masked[mask] = 0.0
+        return masked, mask

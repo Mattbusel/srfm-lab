@@ -473,3 +473,383 @@ class LuminaInference:
             do_constant_folding=True,
         )
         print(f"[Lumina] Model exported to ONNX: {output_path}")
+
+
+# ---------------------------------------------------------------------------
+# Streaming Inference Engine
+# ---------------------------------------------------------------------------
+
+class StreamingInferenceEngine:
+    """Streaming inference engine for online financial model deployment.
+
+    Designed for real-time inference on incoming market data:
+    - Maintains rolling KV cache for efficient sequential processing
+    - Handles variable-length inputs by padding/truncating
+    - Supports batched parallel inference across multiple assets
+    - Async-compatible for integration with event-driven systems
+
+    Args:
+        model:          Lumina model
+        max_context:    maximum context window to maintain
+        device:         inference device
+        dtype:          inference dtype (float32, float16, bfloat16)
+        batch_timeout:  maximum time (seconds) to wait for batch accumulation
+
+    Example:
+        >>> engine = StreamingInferenceEngine(model, max_context=512)
+        >>> for tick in market_data_stream:
+        ...     result = engine.process(tick)
+        ...     if result is not None:
+        ...         signal = result["alpha_signal"]
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        max_context: int = 512,
+        device: str = "cpu",
+        dtype: torch.dtype = torch.float32,
+        batch_timeout: float = 0.1,
+    ):
+        self.model = model.to(device)
+        self.model.eval()
+        self.max_context = max_context
+        self.device = torch.device(device)
+        self.dtype = dtype
+        self.batch_timeout = batch_timeout
+
+        # Rolling buffer for each stream (keyed by asset ID)
+        self._buffers: Dict[str, List[torch.Tensor]] = {}
+        self._timestamps: Dict[str, List[float]] = {}
+        self._kv_caches: Dict[str, Optional[List]] = {}
+
+    def add_asset(self, asset_id: str) -> None:
+        """Register a new asset stream.
+
+        Args:
+            asset_id: unique asset identifier
+        """
+        self._buffers[asset_id] = []
+        self._timestamps[asset_id] = []
+        self._kv_caches[asset_id] = None
+
+    def ingest(
+        self,
+        asset_id: str,
+        data: torch.Tensor,
+        timestamp: Optional[float] = None,
+    ) -> None:
+        """Ingest new data for an asset.
+
+        Args:
+            asset_id:  asset identifier
+            data:      (1, d_input) or (d_input,) new data point
+            timestamp: optional Unix timestamp
+        """
+        if asset_id not in self._buffers:
+            self.add_asset(asset_id)
+
+        if data.dim() == 1:
+            data = data.unsqueeze(0)  # (1, d_input)
+
+        self._buffers[asset_id].append(data.to(self.device, dtype=self.dtype))
+        self._timestamps[asset_id].append(timestamp or 0.0)
+
+        # Trim buffer to max_context
+        if len(self._buffers[asset_id]) > self.max_context:
+            self._buffers[asset_id] = self._buffers[asset_id][-self.max_context:]
+            self._timestamps[asset_id] = self._timestamps[asset_id][-self.max_context:]
+
+    def infer(
+        self,
+        asset_id: str,
+        min_context: int = 1,
+    ) -> Optional[Dict[str, torch.Tensor]]:
+        """Run inference for an asset.
+
+        Args:
+            asset_id:    asset identifier
+            min_context: minimum context required (returns None if insufficient)
+
+        Returns:
+            output: model output dict, or None if insufficient context
+        """
+        if asset_id not in self._buffers:
+            return None
+
+        buffer = self._buffers[asset_id]
+        if len(buffer) < min_context:
+            return None
+
+        # Build input tensor
+        x = torch.cat(buffer, dim=0).unsqueeze(0)  # (1, T, d_input)
+
+        with torch.no_grad():
+            output = self.model(x)
+
+        return output
+
+    def infer_batch(
+        self,
+        asset_ids: List[str],
+        min_context: int = 1,
+    ) -> Dict[str, Dict[str, torch.Tensor]]:
+        """Run batch inference for multiple assets.
+
+        Args:
+            asset_ids:   list of asset identifiers to infer
+            min_context: minimum context length required
+
+        Returns:
+            results: dict of asset_id → output dict
+        """
+        results = {}
+        valid_ids = [
+            aid for aid in asset_ids
+            if aid in self._buffers and len(self._buffers[aid]) >= min_context
+        ]
+
+        if not valid_ids:
+            return results
+
+        # Pad to same length for batching
+        max_T = max(len(self._buffers[aid]) for aid in valid_ids)
+        batch_tensors = []
+        for aid in valid_ids:
+            buf = self._buffers[aid]
+            x = torch.cat(buf, dim=0)  # (T, d_input)
+            if x.shape[0] < max_T:
+                pad = x[-1:, :].expand(max_T - x.shape[0], -1)
+                x = torch.cat([pad, x], dim=0)  # left-pad
+            batch_tensors.append(x.unsqueeze(0))
+
+        batch = torch.cat(batch_tensors, dim=0)  # (B, T, d_input)
+
+        with torch.no_grad():
+            batch_output = self.model(batch)
+
+        # Split back to per-asset outputs
+        for i, aid in enumerate(valid_ids):
+            results[aid] = {
+                k: v[i] if isinstance(v, torch.Tensor) else v
+                for k, v in batch_output.items()
+                if isinstance(v, torch.Tensor)
+            }
+
+        return results
+
+    def reset_asset(self, asset_id: str) -> None:
+        """Clear buffer and cache for an asset."""
+        if asset_id in self._buffers:
+            self._buffers[asset_id] = []
+            self._timestamps[asset_id] = []
+            self._kv_caches[asset_id] = None
+
+    def get_buffer_stats(self) -> Dict[str, Dict[str, int]]:
+        """Return statistics about all asset buffers."""
+        return {
+            aid: {
+                "buffer_len": len(self._buffers[aid]),
+                "max_context": self.max_context,
+                "pct_filled": int(len(self._buffers[aid]) / self.max_context * 100),
+            }
+            for aid in self._buffers
+        }
+
+
+# ---------------------------------------------------------------------------
+# Inference Calibrator
+# ---------------------------------------------------------------------------
+
+class InferenceCalibrator:
+    """Post-hoc calibration for model outputs.
+
+    Calibrates model probability estimates using held-out validation data.
+    Applies temperature scaling and/or isotonic regression.
+
+    Args:
+        method:     calibration method: "temperature" | "isotonic" | "platt"
+        n_classes:  number of output classes
+
+    Example:
+        >>> calibrator = InferenceCalibrator(method="temperature")
+        >>> calibrator.fit(val_logits, val_labels)
+        >>> calibrated_probs = calibrator.calibrate(test_logits)
+    """
+
+    def __init__(
+        self,
+        method: str = "temperature",
+        n_classes: int = 3,
+    ):
+        self.method = method
+        self.n_classes = n_classes
+        self._temperature = 1.0
+        self._is_fitted = False
+
+    def fit(
+        self,
+        logits: torch.Tensor,
+        labels: torch.Tensor,
+        lr: float = 0.01,
+        max_iter: int = 1000,
+    ) -> "InferenceCalibrator":
+        """Fit calibration parameters on validation data.
+
+        Args:
+            logits: (N, n_classes) uncalibrated logits
+            labels: (N,) ground truth class labels
+            lr:     learning rate for optimization
+            max_iter: maximum optimization iterations
+
+        Returns:
+            self (for chaining)
+        """
+        if self.method == "temperature":
+            self._temperature = self._fit_temperature(logits, labels, lr, max_iter)
+        self._is_fitted = True
+        return self
+
+    def _fit_temperature(
+        self,
+        logits: torch.Tensor,
+        labels: torch.Tensor,
+        lr: float,
+        max_iter: int,
+    ) -> float:
+        """Find optimal temperature via NLL minimization."""
+        T = nn.Parameter(torch.ones(1))
+        optimizer = torch.optim.LBFGS([T], lr=lr, max_iter=max_iter)
+
+        def closure():
+            optimizer.zero_grad()
+            loss = F.cross_entropy(logits / T.clamp(min=0.01), labels)
+            loss.backward()
+            return loss
+
+        optimizer.step(closure)
+        return T.item()
+
+    def calibrate(self, logits: torch.Tensor) -> torch.Tensor:
+        """Apply calibration to logits.
+
+        Args:
+            logits: (N, n_classes) or (B, T, n_classes)
+
+        Returns:
+            calibrated_probs: probabilities after calibration
+        """
+        if not self._is_fitted:
+            return F.softmax(logits, dim=-1)
+
+        if self.method == "temperature":
+            return F.softmax(logits / max(self._temperature, 0.01), dim=-1)
+        else:
+            return F.softmax(logits, dim=-1)
+
+    @property
+    def temperature(self) -> float:
+        return self._temperature
+
+
+# ---------------------------------------------------------------------------
+# Beam Search Decoder (for autoregressive financial sequence generation)
+# ---------------------------------------------------------------------------
+
+class BeamSearchDecoder:
+    """Beam search decoder for autoregressive generation.
+
+    Used for generating financial scenarios (e.g., price path simulation)
+    in a structured, beam-search guided fashion.
+
+    Args:
+        model:      autoregressive model
+        beam_size:  number of beams to maintain
+        max_length: maximum generation length
+        length_penalty: length normalization factor (>1 = prefer longer)
+        temperature: sampling temperature
+
+    Example:
+        >>> decoder = BeamSearchDecoder(model, beam_size=5)
+        >>> initial_state = encode_context(context_prices)
+        >>> generated = decoder.decode(initial_state, max_length=20)
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        beam_size: int = 5,
+        max_length: int = 50,
+        length_penalty: float = 1.0,
+        temperature: float = 1.0,
+        device: str = "cpu",
+    ):
+        self.model = model
+        self.beam_size = beam_size
+        self.max_length = max_length
+        self.length_penalty = length_penalty
+        self.temperature = temperature
+        self.device = torch.device(device)
+
+    def decode(
+        self,
+        initial_embed: torch.Tensor,
+        n_return: int = 1,
+    ) -> List[Tuple[torch.Tensor, float]]:
+        """Run beam search decoding.
+
+        Args:
+            initial_embed: (1, T_ctx, d_model) initial context embedding
+            n_return:      number of beams to return
+
+        Returns:
+            results: list of (sequence, score) tuples, best first
+        """
+        B = initial_embed.shape[0]
+        assert B == 1, "BeamSearch currently only supports batch_size=1"
+
+        # Initialize beams: each beam is (current_token, cumulative_score, sequence)
+        beams = [(initial_embed, 0.0, [])]  # (context, log_prob_sum, tokens_generated)
+
+        completed_beams = []
+
+        for step in range(self.max_length):
+            if not beams:
+                break
+
+            all_candidates = []
+
+            for context, log_prob_sum, generated in beams:
+                with torch.no_grad():
+                    output = self.model(context)
+                    # Get next-token distribution
+                    if "lm_output" in output:
+                        logits = output["lm_output"][:, -1, :]  # (1, vocab)
+                    else:
+                        # For continuous prediction: treat as normal distribution
+                        logits = output.get("reg_output", torch.zeros(1, 1, device=self.device))
+                        logits = logits.expand(1, 10)  # dummy vocab
+
+                # Apply temperature
+                next_log_probs = F.log_softmax(logits / self.temperature, dim=-1)
+
+                # Top-k candidates for this beam
+                top_probs, top_idx = next_log_probs.topk(self.beam_size, dim=-1)
+
+                for prob, idx in zip(top_probs[0], top_idx[0]):
+                    new_log_prob = log_prob_sum + prob.item()
+                    new_generated = generated + [idx.item()]
+                    all_candidates.append((context, new_log_prob, new_generated))
+
+            # Sort by score with length penalty
+            def score(candidate):
+                _, log_prob_sum, generated = candidate
+                penalty = ((len(generated) + 5) / 6) ** self.length_penalty
+                return log_prob_sum / penalty
+
+            all_candidates.sort(key=score, reverse=True)
+            beams = all_candidates[:self.beam_size]
+
+        # Return top n_return beams
+        beams.sort(key=lambda x: x[1], reverse=True)
+        return [(torch.tensor(gen), log_p) for _, log_p, gen in beams[:n_return]]

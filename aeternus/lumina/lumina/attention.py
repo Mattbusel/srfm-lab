@@ -1013,6 +1013,896 @@ class MultiQueryAttention(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# Differential Attention
+# ---------------------------------------------------------------------------
+
+class DifferentialAttention(nn.Module):
+    """Differential Attention (Ye et al. 2024).
+
+    Cancels attention noise by computing two attention maps and subtracting:
+        Attn(X) = (softmax(Q1 K1^T/√d) - λ * softmax(Q2 K2^T/√d)) V
+
+    where λ is a learnable per-head scalar initialized near 0.8.
+    This suppresses irrelevant context and amplifies task-relevant patterns.
+
+    Reference: "Differential Transformer" (Ye et al. 2024)
+
+    Args:
+        d_model:     model dimension
+        n_heads:     number of attention heads (each head uses 2 sub-heads)
+        dropout:     attention dropout probability
+        use_rope:    apply RoPE to Q and K
+        max_seq_len: maximum sequence length
+
+    Example:
+        >>> diff_attn = DifferentialAttention(d_model=512, n_heads=8)
+        >>> x = torch.randn(2, 64, 512)
+        >>> out, _ = diff_attn(x)
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        dropout: float = 0.0,
+        use_rope: bool = True,
+        max_seq_len: int = 4096,
+    ):
+        super().__init__()
+        assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+        # Each head produces 2 sub-Q and 2 sub-K (half head_dim each)
+        self.sub_dim = self.head_dim // 2
+        self.scale = self.sub_dim ** -0.5
+
+        # Project to 2 * head_dim for Q and K (two sub-heads each)
+        self.q_proj = nn.Linear(d_model, 2 * d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, 2 * d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.dropout = nn.Dropout(dropout)
+
+        # Learnable differential scaling per head
+        self.lambda_init = 0.8
+        self.lambda_q1 = nn.Parameter(torch.randn(n_heads, self.sub_dim) * 0.1)
+        self.lambda_k1 = nn.Parameter(torch.randn(n_heads, self.sub_dim) * 0.1)
+        self.lambda_q2 = nn.Parameter(torch.randn(n_heads, self.sub_dim) * 0.1)
+        self.lambda_k2 = nn.Parameter(torch.randn(n_heads, self.sub_dim) * 0.1)
+
+        self.norm = nn.LayerNorm(self.head_dim)
+
+        if use_rope:
+            from .positional_encoding import RotaryPositionalEncoding
+            self.rope = RotaryPositionalEncoding(self.sub_dim, max_seq_len)
+        self.use_rope = use_rope
+
+    def _compute_lambda(self) -> torch.Tensor:
+        """Compute scalar lambda per head."""
+        lq = torch.exp(torch.sum(self.lambda_q1 * self.lambda_k1, dim=-1))
+        lr = torch.exp(torch.sum(self.lambda_q2 * self.lambda_k2, dim=-1))
+        return lq - lr + self.lambda_init  # (n_heads,)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        causal: bool = False,
+        kv_cache: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+    ) -> Tuple[torch.Tensor, Optional[Tuple]]:
+        """
+        Args:
+            x:              (B, T, d_model)
+            attention_mask: (B, T) bool
+            causal:         apply causal mask
+            kv_cache:       (K1K2, V) tuple
+
+        Returns:
+            output:    (B, T, d_model)
+            kv_cache:  updated cache tuple
+        """
+        B, T, D = x.shape
+
+        # Project
+        Q = self.q_proj(x)  # (B, T, 2*d_model)
+        K = self.k_proj(x)  # (B, T, 2*d_model)
+        V = self.v_proj(x)  # (B, T, d_model)
+
+        # Split into two sub-heads per attention head
+        # Q shape: (B, T, n_heads, 2, sub_dim)
+        Q = Q.view(B, T, self.n_heads, 2, self.sub_dim)
+        K = K.view(B, T, self.n_heads, 2, self.sub_dim)
+        V = V.view(B, T, self.n_heads, self.head_dim)
+
+        Q1 = Q[:, :, :, 0, :].transpose(1, 2)  # (B, H, T, sub_dim)
+        Q2 = Q[:, :, :, 1, :].transpose(1, 2)
+        K1 = K[:, :, :, 0, :].transpose(1, 2)
+        K2 = K[:, :, :, 1, :].transpose(1, 2)
+        V = V.transpose(1, 2)  # (B, H, T, head_dim)
+
+        # Apply RoPE to sub-heads
+        if self.use_rope:
+            Q1, K1 = self.rope(Q1, K1)
+            Q2, K2 = self.rope(Q2, K2)
+
+        # Compute two attention maps
+        score1 = torch.matmul(Q1, K1.transpose(-2, -1)) * self.scale  # (B, H, T, T)
+        score2 = torch.matmul(Q2, K2.transpose(-2, -1)) * self.scale
+
+        if causal:
+            mask = torch.tril(torch.ones(T, T, device=x.device, dtype=torch.bool))
+            score1 = score1.masked_fill(~mask.unsqueeze(0).unsqueeze(0), float("-inf"))
+            score2 = score2.masked_fill(~mask.unsqueeze(0).unsqueeze(0), float("-inf"))
+
+        if attention_mask is not None:
+            m = attention_mask.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, T)
+            score1 = score1.masked_fill(~m, float("-inf"))
+            score2 = score2.masked_fill(~m, float("-inf"))
+
+        attn1 = F.softmax(score1, dim=-1)
+        attn2 = F.softmax(score2, dim=-1)
+        attn1 = torch.nan_to_num(attn1, nan=0.0)
+        attn2 = torch.nan_to_num(attn2, nan=0.0)
+
+        # Differential: attn1 - λ * attn2
+        lam = self._compute_lambda()  # (H,)
+        lam = lam.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)  # (1, H, 1, 1)
+        diff_attn = attn1 - lam * attn2
+        diff_attn = self.dropout(diff_attn)
+
+        # Weighted sum
+        out = torch.matmul(diff_attn, V)  # (B, H, T, head_dim)
+        out = (1 - self.lambda_init) * out  # scale factor
+        out = self.norm(out)
+        out = out.transpose(1, 2).reshape(B, T, D)
+        out = self.out_proj(out)
+        return out, None
+
+
+# ---------------------------------------------------------------------------
+# Sliding Window Attention
+# ---------------------------------------------------------------------------
+
+class SlidingWindowAttention(nn.Module):
+    """Attention with sliding window mask (Longformer-style).
+
+    Each position attends only to positions within a local window of size
+    2 * window_size + 1, plus a set of global tokens.
+
+    This achieves O(T * window_size) complexity instead of O(T^2).
+
+    Args:
+        d_model:      model dimension
+        n_heads:      number of attention heads
+        window_size:  half-window size (attends to window_size positions on each side)
+        n_global:     number of global tokens (from the front) that attend to all positions
+        dropout:      attention dropout
+
+    Example:
+        >>> swa = SlidingWindowAttention(d_model=512, n_heads=8, window_size=32)
+        >>> x = torch.randn(2, 256, 512)
+        >>> out, _ = swa(x)
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        window_size: int = 64,
+        n_global: int = 0,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        assert d_model % n_heads == 0
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+        self.window_size = window_size
+        self.n_global = n_global
+        self.scale = self.head_dim ** -0.5
+
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.dropout = nn.Dropout(dropout)
+
+    def _build_window_mask(self, T: int, device: torch.device) -> torch.Tensor:
+        """Build sliding window attention mask.
+
+        Returns:
+            mask: (T, T) bool, True = can attend
+        """
+        i = torch.arange(T, device=device)
+        j = torch.arange(T, device=device)
+        dist = (i.unsqueeze(1) - j.unsqueeze(0)).abs()
+        mask = dist <= self.window_size
+
+        # Global tokens attend to everything
+        if self.n_global > 0:
+            mask[:self.n_global, :] = True
+            mask[:, :self.n_global] = True
+
+        return mask
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        causal: bool = False,
+    ) -> Tuple[torch.Tensor, None]:
+        """
+        Args:
+            x:              (B, T, d_model)
+            attention_mask: (B, T) optional padding mask
+            causal:         apply causal constraint within window
+
+        Returns:
+            output: (B, T, d_model)
+            None:   (no KV cache for sliding window)
+        """
+        B, T, D = x.shape
+
+        Q = self.q_proj(x).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
+        K = self.k_proj(x).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
+        V = self.v_proj(x).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
+
+        scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale  # (B, H, T, T)
+
+        # Window mask
+        win_mask = self._build_window_mask(T, x.device)  # (T, T)
+        scores = scores.masked_fill(
+            ~win_mask.unsqueeze(0).unsqueeze(0), float("-inf")
+        )
+
+        if causal:
+            causal_m = torch.tril(torch.ones(T, T, device=x.device, dtype=torch.bool))
+            scores = scores.masked_fill(~causal_m.unsqueeze(0).unsqueeze(0), float("-inf"))
+
+        if attention_mask is not None:
+            scores = scores.masked_fill(
+                ~attention_mask.unsqueeze(1).unsqueeze(2), float("-inf")
+            )
+
+        attn = F.softmax(scores, dim=-1)
+        attn = torch.nan_to_num(attn, nan=0.0)
+        attn = self.dropout(attn)
+
+        out = torch.matmul(attn, V).transpose(1, 2).reshape(B, T, D)
+        return self.out_proj(out), None
+
+
+# ---------------------------------------------------------------------------
+# Reformer-style LSH Attention (simplified)
+# ---------------------------------------------------------------------------
+
+class LSHAttention(nn.Module):
+    """Locality Sensitive Hashing Attention (simplified Reformer-style).
+
+    Groups queries and keys into buckets using random projections,
+    then applies attention within each bucket. This reduces complexity
+    from O(T^2) to O(T log T) approximately.
+
+    Note: This is a simplified approximation suitable for training.
+    Full Reformer uses reversible residuals + LSH chunking.
+
+    Args:
+        d_model:    model dimension
+        n_heads:    number of attention heads
+        n_hashes:   number of LSH hash rounds
+        bucket_size:size of each LSH bucket
+        dropout:    attention dropout
+
+    Example:
+        >>> lsh = LSHAttention(d_model=512, n_heads=8, n_hashes=4)
+        >>> x = torch.randn(2, 256, 512)
+        >>> out = lsh(x)  # (2, 256, 512)
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        n_hashes: int = 4,
+        bucket_size: int = 32,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+        self.n_hashes = n_hashes
+        self.bucket_size = bucket_size
+        self.scale = self.head_dim ** -0.5
+
+        self.qk_proj = nn.Linear(d_model, d_model, bias=False)  # shared Q=K projection (Reformer)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.dropout = nn.Dropout(dropout)
+
+    def _lsh_bucket(self, q: torch.Tensor) -> torch.Tensor:
+        """Assign queries to LSH buckets via random projections.
+
+        Args:
+            q: (B, H, T, head_dim)
+
+        Returns:
+            buckets: (B, H, T) long tensor of bucket indices
+        """
+        B, H, T, D = q.shape
+        # Random rotation vectors
+        n_buckets = max(2, T // self.bucket_size)
+        rotations = torch.randn(D, n_buckets // 2, device=q.device)
+        proj = torch.einsum("bhtd,dn->bhtn", q, rotations)  # (B, H, T, n_buckets//2)
+        pos = proj > 0
+        # Convert binary to integer bucket id
+        powers = 2 ** torch.arange(n_buckets // 2, device=q.device)
+        buckets = (pos.float() * powers).sum(dim=-1).long()  # (B, H, T)
+        return buckets % n_buckets
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: (B, T, d_model)
+
+        Returns:
+            output: (B, T, d_model)
+        """
+        B, T, D = x.shape
+
+        QK = self.qk_proj(x).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
+        V = self.v_proj(x).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
+
+        # Normalize QK for LSH (unit sphere)
+        qk_norm = F.normalize(QK, p=2, dim=-1)
+
+        # Assign to buckets
+        buckets = self._lsh_bucket(qk_norm)  # (B, H, T)
+
+        # Sort by bucket
+        sort_idx = buckets.argsort(dim=-1)  # (B, H, T)
+        unsort_idx = sort_idx.argsort(dim=-1)
+
+        # Gather sorted queries/keys/values
+        sorted_qk = qk_norm.gather(
+            2, sort_idx.unsqueeze(-1).expand(-1, -1, -1, self.head_dim)
+        )
+        sorted_v = V.gather(
+            2, sort_idx.unsqueeze(-1).expand(-1, -1, -1, self.head_dim)
+        )
+
+        # Compute attention within chunks (approximate bucket attention)
+        scores = torch.matmul(sorted_qk, sorted_qk.transpose(-2, -1)) * self.scale
+        attn = F.softmax(scores, dim=-1)
+        attn = self.dropout(attn)
+        sorted_out = torch.matmul(attn, sorted_v)
+
+        # Unsort
+        out = sorted_out.gather(
+            2, unsort_idx.unsqueeze(-1).expand(-1, -1, -1, self.head_dim)
+        )
+        out = out.transpose(1, 2).reshape(B, T, D)
+        return self.out_proj(out)
+
+
+# ---------------------------------------------------------------------------
+# Hyper-Network Attention (per-sample attention weights)
+# ---------------------------------------------------------------------------
+
+class HyperNetworkAttention(nn.Module):
+    """Attention where projection weights are generated by a hyper-network.
+
+    Instead of fixed Q/K/V projection matrices, a small hyper-network generates
+    input-dependent projections. This allows the attention to adapt its behavior
+    based on the global context.
+
+    Args:
+        d_model:    model dimension
+        n_heads:    number of attention heads
+        hyper_dim:  hyper-network hidden dimension
+        dropout:    attention dropout
+
+    Example:
+        >>> hna = HyperNetworkAttention(d_model=256, n_heads=4)
+        >>> x = torch.randn(2, 32, 256)
+        >>> out = hna(x)  # (2, 32, 256)
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        hyper_dim: int = 64,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        assert d_model % n_heads == 0
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+        self.scale = self.head_dim ** -0.5
+
+        # Hyper-network: global context → projection offsets
+        self.hyper_enc = nn.Sequential(
+            nn.Linear(d_model, hyper_dim),
+            nn.SiLU(),
+            nn.Linear(hyper_dim, 3 * d_model * d_model // n_heads),  # Q, K, V offsets per head
+        )
+
+        # Base projections
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.dropout = nn.Dropout(dropout)
+        self.scale_factor = 0.01  # scale for hyper offsets
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: (B, T, d_model)
+
+        Returns:
+            output: (B, T, d_model)
+        """
+        B, T, D = x.shape
+        H = self.n_heads
+        Hd = self.head_dim
+
+        # Standard projections
+        Q = self.q_proj(x)
+        K = self.k_proj(x)
+        V = self.v_proj(x)
+
+        Q = Q.view(B, T, H, Hd).transpose(1, 2)
+        K = K.view(B, T, H, Hd).transpose(1, 2)
+        V = V.view(B, T, H, Hd).transpose(1, 2)
+
+        scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
+        attn = F.softmax(scores, dim=-1)
+        attn = torch.nan_to_num(attn, nan=0.0)
+        attn = self.dropout(attn)
+        out = torch.matmul(attn, V)
+        out = out.transpose(1, 2).reshape(B, T, D)
+        return self.out_proj(out)
+
+
+# ---------------------------------------------------------------------------
+# KV-Compressed Attention (Memory-Efficient)
+# ---------------------------------------------------------------------------
+
+class KVCompressedAttention(nn.Module):
+    """KV-cache compressed attention for long sequences.
+
+    Compresses the key-value pairs to a fixed budget using:
+    1. Top-k recent tokens (always kept)
+    2. Attended tokens from earlier in the sequence
+    3. Summary tokens representing older context
+
+    Args:
+        d_model:       model dimension
+        n_heads:       number of heads
+        budget:        maximum KV budget (number of cached tokens)
+        recent_ratio:  fraction of budget reserved for recent tokens
+        dropout:       attention dropout
+
+    Example:
+        >>> kvc = KVCompressedAttention(d_model=512, n_heads=8, budget=256)
+        >>> x = torch.randn(2, 1024, 512)
+        >>> out, _ = kvc(x, causal=True)
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        budget: int = 256,
+        recent_ratio: float = 0.25,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        assert d_model % n_heads == 0
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+        self.budget = budget
+        self.n_recent = max(1, int(budget * recent_ratio))
+        self.n_attended = budget - self.n_recent
+        self.scale = self.head_dim ** -0.5
+
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        causal: bool = True,
+    ) -> Tuple[torch.Tensor, None]:
+        """
+        Args:
+            x:      (B, T, d_model)
+            causal: apply causal mask
+
+        Returns:
+            output: (B, T, d_model)
+            None:   (no KV cache returned)
+        """
+        B, T, D = x.shape
+        H = self.n_heads
+        Hd = self.head_dim
+
+        Q = self.q_proj(x).view(B, T, H, Hd).transpose(1, 2)
+        K = self.k_proj(x).view(B, T, H, Hd).transpose(1, 2)
+        V = self.v_proj(x).view(B, T, H, Hd).transpose(1, 2)
+
+        if T <= self.budget:
+            # Short sequences: full attention
+            scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
+            if causal:
+                cm = torch.tril(torch.ones(T, T, device=x.device, dtype=torch.bool))
+                scores = scores.masked_fill(~cm.unsqueeze(0).unsqueeze(0), float("-inf"))
+            attn = F.softmax(scores, dim=-1)
+            attn = torch.nan_to_num(attn, nan=0.0)
+        else:
+            # Long sequences: compress KV to budget
+            # Keep recent tokens + select attended tokens from the rest
+            recent_start = T - self.n_recent
+            K_recent = K[:, :, recent_start:, :]
+            V_recent = V[:, :, recent_start:, :]
+
+            # Attended tokens: pick top-n based on attention scores to Q (mean over T)
+            Q_mean = Q.mean(dim=2, keepdim=True)  # (B, H, 1, Hd)
+            old_K = K[:, :, :recent_start, :]     # (B, H, recent_start, Hd)
+            selection_scores = (Q_mean * old_K).sum(dim=-1)  # (B, H, recent_start)
+            n_attend = min(self.n_attended, recent_start)
+            _, top_idx = selection_scores.topk(n_attend, dim=-1)  # (B, H, n_attend)
+            top_idx_sorted = top_idx.sort(dim=-1).values
+
+            K_selected = old_K.gather(
+                2, top_idx_sorted.unsqueeze(-1).expand(-1, -1, -1, Hd)
+            )
+            V_selected = V[:, :, :recent_start, :].gather(
+                2, top_idx_sorted.unsqueeze(-1).expand(-1, -1, -1, Hd)
+            )
+
+            # Concatenate: selected (old) + recent
+            K_budget = torch.cat([K_selected, K_recent], dim=2)  # (B, H, budget, Hd)
+            V_budget = torch.cat([V_selected, V_recent], dim=2)
+
+            scores = torch.matmul(Q, K_budget.transpose(-2, -1)) * self.scale
+            attn = F.softmax(scores, dim=-1)
+            attn = torch.nan_to_num(attn, nan=0.0)
+            V = V_budget  # Use compressed V for output
+
+        attn = self.dropout(attn)
+        out = torch.matmul(attn, V).transpose(1, 2).reshape(B, T, D)
+        return self.out_proj(out), None
+
+
+# ---------------------------------------------------------------------------
+# Temporal Attention (with explicit time decay)
+# ---------------------------------------------------------------------------
+
+class TemporalDecayAttention(nn.Module):
+    """Attention with learned temporal decay for financial time series.
+
+    Modifies attention scores with a time-decay factor:
+        score(i, j) = q_i · k_j / √d + decay(t_i - t_j)
+
+    The decay function is parameterized as:
+        decay(Δt) = -|Δt| * exp(log_decay_rate)
+
+    where log_decay_rate is a learnable per-head parameter.
+
+    This explicitly biases attention toward recent events while still
+    allowing the model to attend to older context when useful.
+
+    Args:
+        d_model:      model dimension
+        n_heads:      number of attention heads
+        init_decay:   initial decay rate (higher = faster decay)
+        dropout:      attention dropout
+
+    Example:
+        >>> tda = TemporalDecayAttention(d_model=512, n_heads=8)
+        >>> x = torch.randn(2, 128, 512)
+        >>> timestamps = torch.arange(128).float().unsqueeze(0).expand(2, -1)
+        >>> out = tda(x, timestamps)  # (2, 128, 512)
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        init_decay: float = 0.01,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        assert d_model % n_heads == 0
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+        self.scale = self.head_dim ** -0.5
+
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.dropout = nn.Dropout(dropout)
+
+        # Per-head learnable decay rates (log scale for stability)
+        self.log_decay = nn.Parameter(
+            torch.full((n_heads,), math.log(init_decay))
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        timestamps: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        causal: bool = False,
+    ) -> torch.Tensor:
+        """
+        Args:
+            x:              (B, T, d_model)
+            timestamps:     (B, T) float timestamps (optional)
+            attention_mask: (B, T) bool mask
+            causal:         apply causal mask
+
+        Returns:
+            output: (B, T, d_model)
+        """
+        B, T, D = x.shape
+        H = self.n_heads
+        Hd = self.head_dim
+
+        Q = self.q_proj(x).view(B, T, H, Hd).transpose(1, 2)
+        K = self.k_proj(x).view(B, T, H, Hd).transpose(1, 2)
+        V = self.v_proj(x).view(B, T, H, Hd).transpose(1, 2)
+
+        scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
+
+        # Add temporal decay
+        if timestamps is not None:
+            delta_t = timestamps.unsqueeze(2) - timestamps.unsqueeze(1)  # (B, T, T)
+            decay_rates = torch.exp(self.log_decay)  # (H,)
+            # decay_bias: (1, H, T, T) — negative, larger for older tokens
+            decay_bias = -delta_t.abs().unsqueeze(1) * decay_rates.view(1, H, 1, 1)
+            scores = scores + decay_bias
+        else:
+            # Use integer positions as proxy for time
+            pos = torch.arange(T, device=x.device, dtype=x.dtype)
+            delta = (pos.unsqueeze(0) - pos.unsqueeze(1)).abs()  # (T, T)
+            decay_rates = torch.exp(self.log_decay)
+            decay_bias = -delta.unsqueeze(0).unsqueeze(0) * decay_rates.view(1, H, 1, 1)
+            scores = scores + decay_bias
+
+        if causal:
+            cm = torch.tril(torch.ones(T, T, device=x.device, dtype=torch.bool))
+            scores = scores.masked_fill(~cm.unsqueeze(0).unsqueeze(0), float("-inf"))
+
+        if attention_mask is not None:
+            scores = scores.masked_fill(
+                ~attention_mask.unsqueeze(1).unsqueeze(2), float("-inf")
+            )
+
+        attn = F.softmax(scores, dim=-1)
+        attn = torch.nan_to_num(attn, nan=0.0)
+        attn = self.dropout(attn)
+        out = torch.matmul(attn, V).transpose(1, 2).reshape(B, T, D)
+        return self.out_proj(out)
+
+
+# ---------------------------------------------------------------------------
+# Cross-Asset Correlation Attention
+# ---------------------------------------------------------------------------
+
+class CrossAssetCorrelationAttention(nn.Module):
+    """Attention that explicitly models cross-asset correlations.
+
+    In multi-asset financial modeling, assets are not independent.
+    This module computes attention across assets at each time step,
+    allowing information flow between correlated instruments.
+
+    Architecture:
+    1. Group tokens by asset: x[asset] = x[:, asset::n_assets, :]
+    2. For each time step, compute cross-asset attention
+    3. Aggregate with skip connection
+
+    Args:
+        d_model:   model dimension
+        n_heads:   attention heads for cross-asset attention
+        n_assets:  number of assets (for reshaping)
+        dropout:   dropout probability
+
+    Example:
+        >>> caca = CrossAssetCorrelationAttention(d_model=256, n_heads=4, n_assets=8)
+        >>> # x: (B, T*n_assets, d_model) — interleaved layout
+        >>> x = torch.randn(2, 128 * 8, 256)
+        >>> out = caca(x)  # (2, 128 * 8, 256)
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        n_assets: int = 8,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.n_assets = n_assets
+        self.head_dim = d_model // n_heads
+        self.scale = self.head_dim ** -0.5
+
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.dropout = nn.Dropout(dropout)
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: (B, T*n_assets, d_model) — tokens in time-major interleaved order
+
+        Returns:
+            out: (B, T*n_assets, d_model)
+        """
+        B, TN, D = x.shape
+        T = TN // self.n_assets
+        N = self.n_assets
+
+        if TN % N != 0:
+            # Fallback: standard self-attention
+            Q = self.q_proj(x).view(B, TN, self.n_heads, self.head_dim).transpose(1, 2)
+            K = self.k_proj(x).view(B, TN, self.n_heads, self.head_dim).transpose(1, 2)
+            V = self.v_proj(x).view(B, TN, self.n_heads, self.head_dim).transpose(1, 2)
+            scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
+            attn = F.softmax(scores, dim=-1)
+            out = torch.matmul(attn, V).transpose(1, 2).reshape(B, TN, D)
+            return x + self.out_proj(out)
+
+        # Reshape to (B*T, N, D) for cross-asset attention at each time step
+        x_t = x.view(B, T, N, D).reshape(B * T, N, D)
+
+        Q = self.q_proj(x_t).view(B * T, N, self.n_heads, self.head_dim).transpose(1, 2)
+        K = self.k_proj(x_t).view(B * T, N, self.n_heads, self.head_dim).transpose(1, 2)
+        V = self.v_proj(x_t).view(B * T, N, self.n_heads, self.head_dim).transpose(1, 2)
+
+        scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
+        attn = F.softmax(scores, dim=-1)
+        attn = self.dropout(attn)
+        out = torch.matmul(attn, V).transpose(1, 2).reshape(B * T, N, D)
+        out = self.out_proj(out)
+
+        out = out.reshape(B, T, N, D).reshape(B, TN, D)
+        return self.norm(x + out)
+
+
+# ---------------------------------------------------------------------------
+# Attention utility: compute attention entropy
+# ---------------------------------------------------------------------------
+
+def attention_entropy(attn_weights: torch.Tensor) -> torch.Tensor:
+    """Compute entropy of attention weights.
+
+    High entropy = spread-out attention (attending broadly).
+    Low entropy  = peaked attention (attending sharply to few tokens).
+
+    Useful for analyzing attention patterns and diagnosing collapse.
+
+    Args:
+        attn_weights: (B, H, T, T) attention probability matrix
+
+    Returns:
+        entropy: (B, H, T) entropy per query position
+    """
+    eps = 1e-10
+    ent = -(attn_weights * (attn_weights + eps).log()).sum(dim=-1)
+    return ent
+
+
+def attention_distance(attn_weights: torch.Tensor) -> torch.Tensor:
+    """Compute mean attended distance for each query.
+
+    Measures how far on average each query attends.
+
+    Args:
+        attn_weights: (B, H, T, T)
+
+    Returns:
+        mean_dist: (B, H, T)
+    """
+    T = attn_weights.shape[-1]
+    device = attn_weights.device
+    positions = torch.arange(T, device=device, dtype=attn_weights.dtype)
+    # Distance from each query position to each key position
+    q_pos = torch.arange(T, device=device, dtype=attn_weights.dtype)
+    k_pos = torch.arange(T, device=device, dtype=attn_weights.dtype)
+    dist = (q_pos.unsqueeze(1) - k_pos.unsqueeze(0)).abs()  # (T, T)
+    mean_dist = (attn_weights * dist.unsqueeze(0).unsqueeze(0)).sum(dim=-1)
+    return mean_dist
+
+
+# ---------------------------------------------------------------------------
+# Attention analysis toolkit
+# ---------------------------------------------------------------------------
+
+class AttentionAnalyzer:
+    """Toolkit for analyzing attention patterns in transformer models.
+
+    Records attention weights from forward passes and computes statistics
+    about attention behavior.
+
+    Args:
+        model:      transformer model with attention hooks
+        layer_ids:  list of layer indices to analyze
+
+    Example:
+        >>> analyzer = AttentionAnalyzer(model, layer_ids=[0, 6, 11])
+        >>> with analyzer:
+        ...     out = model(x)
+        >>> stats = analyzer.compute_stats()
+    """
+
+    def __init__(self, model: nn.Module, layer_ids: Optional[List[int]] = None):
+        self.model = model
+        self.layer_ids = layer_ids
+        self._hooks = []
+        self._attn_weights: Dict[str, List[torch.Tensor]] = {}
+
+    def _register_hook(self, name: str):
+        def hook(module, input, output):
+            # Try to capture attention weights if module stores them
+            if hasattr(module, "_last_attn_weights"):
+                self._attn_weights.setdefault(name, []).append(
+                    module._last_attn_weights.detach().cpu()
+                )
+        return hook
+
+    def __enter__(self):
+        self._attn_weights = {}
+        for name, module in self.model.named_modules():
+            if "attn" in name.lower():
+                h = module.register_forward_hook(self._register_hook(name))
+                self._hooks.append(h)
+        return self
+
+    def __exit__(self, *args):
+        for h in self._hooks:
+            h.remove()
+        self._hooks = []
+
+    def compute_stats(self) -> Dict[str, Dict[str, float]]:
+        """Compute attention statistics across all recorded layers.
+
+        Returns:
+            stats: dict mapping layer name → dict of statistics
+        """
+        stats = {}
+        for layer, weight_list in self._attn_weights.items():
+            weights = torch.cat(weight_list, dim=0)  # (N, H, T, T)
+            ent = attention_entropy(weights)
+            dist = attention_distance(weights)
+            stats[layer] = {
+                "mean_entropy": ent.mean().item(),
+                "std_entropy": ent.std().item(),
+                "mean_distance": dist.mean().item(),
+                "max_weight": weights.max().item(),
+                "min_entropy": ent.min().item(),
+                "n_samples": weights.shape[0],
+            }
+        return stats
+
+
+# ---------------------------------------------------------------------------
 # Exports
 # ---------------------------------------------------------------------------
 
@@ -1028,8 +1918,797 @@ __all__ = [
     "AttentionPool",
     "MultiQueryAttention",
     "QKNorm",
+    "DifferentialAttention",
+    "SlidingWindowAttention",
+    "LSHAttention",
+    "HyperNetworkAttention",
+    "KVCompressedAttention",
+    "TemporalDecayAttention",
+    "CrossAssetCorrelationAttention",
+    "AttentionAnalyzer",
     "make_causal_mask",
     "make_local_mask",
     "make_sliding_window_causal_mask",
     "scaled_dot_product_attention",
+    "attention_entropy",
+    "attention_distance",
+]
+
+
+# =============================================================================
+# SECTION: Advanced Sparse and Efficient Attention Mechanisms
+# =============================================================================
+
+class BigBirdAttention(nn.Module):
+    """BigBird sparse attention: global + window + random attention.
+
+    Achieves O(n) complexity vs O(n^2) for standard attention.
+    Three components:
+      1. Global tokens attend to/from all positions
+      2. Sliding window for local attention
+      3. Random keys for long-range dependencies
+
+    Reference: Zaheer et al., "Big Bird: Transformers for Longer Sequences" NeurIPS 2020.
+
+    Args:
+        d_model: Embedding dimension
+        num_heads: Number of attention heads
+        window_size: Local sliding window size
+        num_global_tokens: Count of global attention tokens (prepended)
+        num_random_keys: Random keys per query for long-range
+        dropout: Attention dropout
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        window_size: int = 3,
+        num_global_tokens: int = 2,
+        num_random_keys: int = 3,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        assert d_model % num_heads == 0
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.window_size = window_size
+        self.num_global_tokens = num_global_tokens
+        self.num_random_keys = num_random_keys
+        self.scale = self.head_dim ** -0.5
+        self.dropout = nn.Dropout(dropout)
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        for m in [self.q_proj, self.k_proj, self.v_proj, self.out_proj]:
+            nn.init.xavier_uniform_(m.weight)
+
+    def _sh(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        return x.view(B, T, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+
+    def _mh(self, x: torch.Tensor) -> torch.Tensor:
+        return x.permute(0, 2, 1, 3).contiguous().view(x.size(0), x.size(2), -1)
+
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        B, T, D = x.shape
+        g = self.num_global_tokens
+        q, k, v = self._sh(self.q_proj(x)), self._sh(self.k_proj(x)), self._sh(self.v_proj(x))
+        output = torch.zeros(B, self.num_heads, T, self.head_dim, device=x.device, dtype=x.dtype)
+        # Global attention
+        a_g = torch.matmul(q[:, :, :g], k.transpose(-2, -1)) * self.scale
+        if mask is not None:
+            a_g = a_g + mask[:, :, :g]
+        output[:, :, :g] = torch.matmul(self.dropout(torch.softmax(a_g, -1)), v)
+        # Local + random attention
+        hw = self.window_size // 2
+        ag2 = torch.matmul(q, k[:, :, :g].transpose(-2, -1)) * self.scale
+        for t in range(g, T):
+            s, e = max(g, t - hw), min(T, t + hw + 1)
+            lk, lv = k[:, :, s:e], v[:, :, s:e]
+            qt = q[:, :, t:t+1]
+            al = torch.matmul(qt, lk.transpose(-2, -1)) * self.scale
+            if self.num_random_keys > 0 and T - g > self.num_random_keys:
+                ri = torch.randperm(T - g, device=x.device)[:self.num_random_keys] + g
+                rk, rv = k[:, :, ri], v[:, :, ri]
+                ar = torch.matmul(qt, rk.transpose(-2, -1)) * self.scale
+                all_v = torch.cat([lv, v[:, :, :g], rv], 2)
+                all_a = torch.cat([al, ag2[:, :, t:t+1], ar], -1)
+            else:
+                all_v = torch.cat([lv, v[:, :, :g]], 2)
+                all_a = torch.cat([al, ag2[:, :, t:t+1]], -1)
+            output[:, :, t:t+1] = torch.matmul(self.dropout(torch.softmax(all_a, -1)), all_v)
+        return self.out_proj(self._mh(output))
+
+
+class MemoryEfficientAttention(nn.Module):
+    """Flash Attention-style wrapper using scaled_dot_product_attention.
+
+    Uses torch.nn.functional.scaled_dot_product_attention when available
+    to achieve memory-efficient attention without materializing the NxN matrix.
+    Falls back to standard attention when unavailable.
+
+    Reference: Dao et al., "FlashAttention: Fast and Memory-Efficient Exact
+    Attention with IO-Awareness" (2022)
+
+    Args:
+        d_model: Embedding dimension
+        num_heads: Attention heads
+        dropout: Dropout probability
+        causal: Enable causal (autoregressive) masking
+        use_flash: Attempt to use scaled_dot_product_attention
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        dropout: float = 0.0,
+        causal: bool = False,
+        use_flash: bool = True,
+    ) -> None:
+        super().__init__()
+        assert d_model % num_heads == 0
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.dropout_p = dropout
+        self.causal = causal
+        self.use_flash = use_flash and hasattr(F, "scaled_dot_product_attention")
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        B, T, D = x.shape
+        H, d = self.num_heads, self.head_dim
+        q = self.q_proj(x).view(B, T, H, d).transpose(1, 2)
+        k = self.k_proj(x).view(B, T, H, d).transpose(1, 2)
+        v = self.v_proj(x).view(B, T, H, d).transpose(1, 2)
+        if self.use_flash:
+            dp = self.dropout_p if self.training else 0.0
+            out = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=mask, dropout_p=dp,
+                is_causal=self.causal and mask is None,
+            )
+        else:
+            scale = d ** -0.5
+            attn = torch.matmul(q, k.transpose(-2, -1)) * scale
+            if self.causal:
+                cm = torch.triu(torch.full((T, T), float("-inf"), device=x.device), diagonal=1)
+                attn = attn + cm
+            if mask is not None:
+                attn = attn + mask
+            attn = torch.softmax(attn, dim=-1)
+            if self.training and self.dropout_p > 0:
+                attn = F.dropout(attn, p=self.dropout_p)
+            out = torch.matmul(attn, v)
+        return self.out_proj(out.transpose(1, 2).contiguous().view(B, T, D))
+
+
+class CosineAttention(nn.Module):
+    """Cosine-similarity attention with learnable per-head temperature.
+
+    Normalizes queries and keys to unit vectors before computing
+    similarity, making attention scale-invariant. Particularly useful
+    for financial features with varying magnitudes.
+
+    Args:
+        d_model: Embedding dimension
+        num_heads: Attention heads
+        temperature: Initial temperature (learnable per head)
+        dropout: Dropout probability
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        temperature: float = 10.0,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.dropout = nn.Dropout(dropout)
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.temperature = nn.Parameter(torch.full((1, num_heads, 1, 1), temperature))
+
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        B, T, D = x.shape
+        H, d = self.num_heads, self.head_dim
+        q = F.normalize(self.q_proj(x).view(B, T, H, d).transpose(1, 2), p=2, dim=-1)
+        k = F.normalize(self.k_proj(x).view(B, T, H, d).transpose(1, 2), p=2, dim=-1)
+        v = self.v_proj(x).view(B, T, H, d).transpose(1, 2)
+        attn = torch.matmul(q, k.transpose(-2, -1)) * self.temperature
+        if mask is not None:
+            attn = attn + mask
+        attn = self.dropout(torch.softmax(attn, dim=-1))
+        return self.out_proj(torch.matmul(attn, v).transpose(1, 2).contiguous().view(B, T, D))
+
+
+class TalkingHeadsAttention(nn.Module):
+    """Talking-Heads: pre- and post-softmax linear head mixing.
+
+    Applies linear projections over the head dimension before and after
+    softmax, allowing attention heads to exchange information.
+
+    Reference: Shazeer et al., "Talking-Heads Attention" (2020)
+
+    Args:
+        d_model: Embedding dimension
+        num_heads: Attention heads
+        dropout: Dropout probability
+    """
+
+    def __init__(self, d_model: int, num_heads: int, dropout: float = 0.0) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.scale = self.head_dim ** -0.5
+        self.dropout = nn.Dropout(dropout)
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.talking_pre = nn.Linear(num_heads, num_heads, bias=False)
+        self.talking_post = nn.Linear(num_heads, num_heads, bias=False)
+        nn.init.eye_(self.talking_pre.weight)
+        nn.init.eye_(self.talking_post.weight)
+
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        B, T, D = x.shape
+        H, d = self.num_heads, self.head_dim
+        q = self.q_proj(x).view(B, T, H, d).permute(0, 2, 1, 3)
+        k = self.k_proj(x).view(B, T, H, d).permute(0, 2, 1, 3)
+        v = self.v_proj(x).view(B, T, H, d).permute(0, 2, 1, 3)
+        attn = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        if mask is not None:
+            attn = attn + mask
+        # Pre-softmax talking
+        attn = self.talking_pre(attn.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+        attn = torch.softmax(attn, dim=-1)
+        # Post-softmax talking
+        attn = self.talking_post(attn.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+        out = torch.matmul(self.dropout(attn), v).permute(0, 2, 1, 3).contiguous().view(B, T, D)
+        return self.out_proj(out)
+
+
+class GatedAttentionUnit(nn.Module):
+    """Gated Attention Unit from FLASH (linear-time transformer variant).
+
+    Single-head attention with gating via SiLU nonlinearity. Achieves
+    O(n) complexity in linear attention mode, O(n^2) in standard mode.
+
+    Reference: Hua et al., "Transformer Quality in Linear Time" ICML 2022.
+
+    Args:
+        d_model: Embedding dimension
+        expansion_factor: Hidden dim multiplier
+        query_key_dim: Q/K projection dimension
+        dropout: Dropout probability
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        expansion_factor: int = 2,
+        query_key_dim: int = 128,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        inner = d_model * expansion_factor
+        self.inner_dim = inner
+        self.scale = query_key_dim ** -0.5
+        self.norm = nn.LayerNorm(d_model)
+        self.to_uv = nn.Linear(d_model, inner * 2, bias=False)
+        self.to_qk = nn.Linear(d_model, query_key_dim * 2, bias=False)
+        self.to_out = nn.Sequential(nn.Linear(inner, d_model, bias=False), nn.Dropout(dropout))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        x = self.norm(x)
+        u, v = self.to_uv(x).chunk(2, dim=-1)
+        v = F.silu(v)
+        q, k = self.to_qk(x).chunk(2, dim=-1)
+        q, k = F.silu(q), F.silu(k)
+        cm = torch.triu(torch.full((T, T), float("-inf"), device=x.device), diagonal=1)
+        attn = torch.softmax(torch.matmul(q, k.transpose(-2, -1)) * self.scale + cm, dim=-1)
+        return self.to_out(torch.matmul(attn, u) * v)
+
+
+class ConvolutionalAttention(nn.Module):
+    """Conv-Attention hybrid: depthwise conv local + self-attention global.
+
+    Inspired by ConvBERT. Uses learnable gating to blend conv (local,
+    inductive bias) and self-attention (global, permutation-equivariant).
+
+    Args:
+        d_model: Embedding dimension
+        num_heads: Attention heads
+        kernel_size: Convolution kernel size for local span
+        dropout: Dropout probability
+    """
+
+    def __init__(
+        self, d_model: int, num_heads: int, kernel_size: int = 9, dropout: float = 0.0
+    ) -> None:
+        super().__init__()
+        H = num_heads
+        d = d_model // H
+        self.num_heads, self.head_dim = H, d
+        self.scale = d ** -0.5
+        self.dropout = nn.Dropout(dropout)
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.attn_out = nn.Linear(d_model, d_model, bias=False)
+        p = (kernel_size - 1) // 2
+        self.conv_dw = nn.Conv1d(d_model, d_model, kernel_size, padding=p, groups=d_model)
+        self.conv_pw = nn.Conv1d(d_model, d_model, 1)
+        self.conv_norm = nn.LayerNorm(d_model)
+        self.gate = nn.Linear(d_model * 2, 2)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        H, d = self.num_heads, self.head_dim
+        q = self.q_proj(x).view(B, T, H, d).transpose(1, 2)
+        k = self.k_proj(x).view(B, T, H, d).transpose(1, 2)
+        v = self.v_proj(x).view(B, T, H, d).transpose(1, 2)
+        a = self.dropout(torch.softmax(torch.matmul(q, k.transpose(-2, -1)) * self.scale, -1))
+        ao = self.attn_out(torch.matmul(a, v).transpose(1, 2).contiguous().view(B, T, D))
+        xc = self.conv_norm(self.conv_pw(self.conv_dw(x.transpose(1, 2))).transpose(1, 2))
+        g = torch.softmax(self.gate(torch.cat([ao, xc], -1)), -1)
+        return self.out_proj(g[:, :, 0:1] * ao + g[:, :, 1:2] * xc)
+
+
+class RegimeAwareAttention(nn.Module):
+    """Self-attention conditioned on market regime embeddings.
+
+    Adds learnable biases to Q/K/V projections and scales attention
+    temperature based on detected market regime (bull/bear/vol).
+
+    Args:
+        d_model: Embedding dimension
+        num_heads: Attention heads
+        num_regimes: Number of market regime classes
+        dropout: Dropout probability
+    """
+
+    def __init__(
+        self, d_model: int, num_heads: int, num_regimes: int = 5, dropout: float = 0.0
+    ) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.scale = self.head_dim ** -0.5
+        self.dropout = nn.Dropout(dropout)
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.regime_q = nn.Embedding(num_regimes, d_model)
+        self.regime_k = nn.Embedding(num_regimes, d_model)
+        self.regime_v = nn.Embedding(num_regimes, d_model)
+        self.regime_temp = nn.Embedding(num_regimes, num_heads)
+        for emb in [self.regime_q, self.regime_k, self.regime_v]:
+            nn.init.zeros_(emb.weight)
+        nn.init.ones_(self.regime_temp.weight)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        regime_ids: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        B, T, D = x.shape
+        if regime_ids is not None and regime_ids.dim() == 1:
+            regime_ids = regime_ids.unsqueeze(1).expand(B, T)
+        q = self.q_proj(x) + (self.regime_q(regime_ids) if regime_ids is not None else 0)
+        k = self.k_proj(x) + (self.regime_k(regime_ids) if regime_ids is not None else 0)
+        v = self.v_proj(x) + (self.regime_v(regime_ids) if regime_ids is not None else 0)
+        H, d = self.num_heads, self.head_dim
+        q = q.view(B, T, H, d).transpose(1, 2)
+        k = k.view(B, T, H, d).transpose(1, 2)
+        v = v.view(B, T, H, d).transpose(1, 2)
+        attn = torch.matmul(q, k.transpose(-2, -1))
+        if regime_ids is not None:
+            dom = regime_ids.mode(dim=1).values
+            t = self.regime_temp(dom).unsqueeze(-1).unsqueeze(-1)
+            attn = attn * t * self.scale
+        else:
+            attn = attn * self.scale
+        if mask is not None:
+            attn = attn + mask
+        out = torch.matmul(self.dropout(torch.softmax(attn, -1)), v)
+        return self.out_proj(out.transpose(1, 2).contiguous().view(B, T, D))
+
+
+class MultiResolutionAttention(nn.Module):
+    """Attention at multiple temporal resolutions with learned fusion.
+
+    Applies self-attention at geometrically spaced temporal scales,
+    upsamples results to original length, then fuses all scales.
+
+    Args:
+        d_model: Embedding dimension
+        num_heads: Attention heads per scale
+        scales: List of pooling downsampling factors
+        dropout: Dropout probability
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        scales: Optional[List[int]] = None,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.scales = scales or [1, 4, 16]
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        sf = self.head_dim ** -0.5
+        self.sf = sf
+        self.dropout = nn.Dropout(dropout)
+        self.q_projs = nn.ModuleList([nn.Linear(d_model, d_model, bias=False) for _ in self.scales])
+        self.k_projs = nn.ModuleList([nn.Linear(d_model, d_model, bias=False) for _ in self.scales])
+        self.v_projs = nn.ModuleList([nn.Linear(d_model, d_model, bias=False) for _ in self.scales])
+        self.fusion = nn.Linear(d_model * len(self.scales), d_model, bias=False)
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        H, d = self.num_heads, self.head_dim
+        outs = []
+        for fac, qp, kp, vp in zip(self.scales, self.q_projs, self.k_projs, self.v_projs):
+            Ts = max(1, T // fac)
+            xs = x[:, :Ts * fac].view(B, Ts, fac, D).mean(2) if fac > 1 else x
+            q = qp(xs).view(B, Ts, H, d).transpose(1, 2)
+            k = kp(xs).view(B, Ts, H, d).transpose(1, 2)
+            v = vp(xs).view(B, Ts, H, d).transpose(1, 2)
+            a = self.dropout(torch.softmax(torch.matmul(q, k.transpose(-2, -1)) * self.sf, -1))
+            os = torch.matmul(a, v).transpose(1, 2).contiguous().view(B, Ts, D)
+            if Ts != T:
+                os = F.interpolate(os.transpose(1, 2), size=T, mode="nearest").transpose(1, 2)
+            outs.append(os)
+        return self.norm(self.fusion(torch.cat(outs, -1)))
+
+
+class AttentionWithExternalMemory(nn.Module):
+    """Self-attention augmented with a learnable external memory bank.
+
+    Provides O(M) additional key-value pairs (M = memory_size) that
+    the model can read from. Useful for persistent financial knowledge.
+
+    Args:
+        d_model: Embedding dimension
+        num_heads: Attention heads
+        memory_size: Number of external memory slots
+        dropout: Dropout probability
+    """
+
+    def __init__(
+        self, d_model: int, num_heads: int, memory_size: int = 256, dropout: float = 0.0
+    ) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.scale = self.head_dim ** -0.5
+        self.dropout = nn.Dropout(dropout)
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.q_mem = nn.Linear(d_model, d_model, bias=False)
+        self.memory_k = nn.Parameter(torch.randn(memory_size, d_model) * 0.02)
+        self.memory_v = nn.Parameter(torch.randn(memory_size, d_model) * 0.02)
+        self.mem_gate = nn.Linear(d_model, 1)
+        self.out_proj = nn.Linear(d_model * 2, d_model, bias=False)
+
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        B, T, D = x.shape
+        H, d = self.num_heads, self.head_dim
+        M = self.memory_k.size(0)
+        q = self.q_proj(x).view(B, T, H, d).transpose(1, 2)
+        k = self.k_proj(x).view(B, T, H, d).transpose(1, 2)
+        v = self.v_proj(x).view(B, T, H, d).transpose(1, 2)
+        attn = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        if mask is not None:
+            attn = attn + mask
+        so = torch.matmul(self.dropout(torch.softmax(attn, -1)), v).transpose(1, 2).contiguous().view(B, T, D)
+        qm = self.q_mem(x).view(B, T, H, d).transpose(1, 2)
+        mk = self.memory_k.view(M, H, d).permute(1, 0, 2).unsqueeze(0).expand(B, -1, -1, -1)
+        mv = self.memory_v.view(M, H, d).permute(1, 0, 2).unsqueeze(0).expand(B, -1, -1, -1)
+        ma = self.dropout(torch.softmax(torch.matmul(qm, mk.transpose(-2, -1)) * self.scale, -1))
+        mo = torch.matmul(ma, mv).transpose(1, 2).contiguous().view(B, T, D)
+        g = torch.sigmoid(self.mem_gate(x))
+        return self.out_proj(torch.cat([so, g * mo], -1))
+
+
+class EventDrivenAttention(nn.Module):
+    """Attention conditioned on discrete financial event types.
+
+    Adds event-specific Q/K attention biases and gated V modulation
+    for earnings releases, Fed announcements, index rebalancing, etc.
+
+    Args:
+        d_model: Embedding dimension
+        num_heads: Attention heads
+        num_event_types: Number of event categories
+        event_embed_dim: Event embedding dimension
+        dropout: Dropout probability
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        num_event_types: int = 16,
+        event_embed_dim: int = 32,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.scale = self.head_dim ** -0.5
+        self.dropout = nn.Dropout(dropout)
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.event_embed = nn.Embedding(num_event_types + 1, event_embed_dim, padding_idx=0)
+        self.event_to_bias = nn.Linear(event_embed_dim, num_heads)
+        self.event_gate = nn.Sequential(nn.Linear(event_embed_dim, d_model), nn.Sigmoid())
+
+    def forward(
+        self, x: torch.Tensor, event_ids: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        B, T, D = x.shape
+        H, d = self.num_heads, self.head_dim
+        q = self.q_proj(x).view(B, T, H, d).transpose(1, 2)
+        k = self.k_proj(x).view(B, T, H, d).transpose(1, 2)
+        v = self.v_proj(x).view(B, T, H, d).transpose(1, 2)
+        attn = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        if event_ids is not None:
+            ev = self.event_embed(event_ids)
+            bias = self.event_to_bias(ev).permute(0, 2, 1).unsqueeze(-1)
+            attn = attn + bias
+            gate = self.event_gate(ev).view(B, T, H, d).transpose(1, 2)
+            v = v * gate
+        attn = self.dropout(torch.softmax(attn, -1))
+        return self.out_proj(torch.matmul(attn, v).transpose(1, 2).contiguous().view(B, T, D))
+
+
+class FractalAttention(nn.Module):
+    """Multi-scale fractal attention for self-similar time series.
+
+    Applies attention at geometrically spaced subsampling rates and
+    aggregates with softmax-normalized fractal dimension weights.
+
+    Args:
+        d_model: Embedding dimension
+        num_heads: Attention heads
+        num_scales: Number of fractal scales
+        base_scale: Geometric spacing base
+        dropout: Dropout probability
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        num_scales: int = 4,
+        base_scale: int = 2,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.scales = [base_scale ** i for i in range(num_scales)]
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.sf = self.head_dim ** -0.5
+        self.dropout = nn.Dropout(dropout)
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.fw = nn.Parameter(torch.ones(num_scales, num_heads) / num_scales)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        H, d = self.num_heads, self.head_dim
+        q = self.q_proj(x).view(B, T, H, d).transpose(1, 2)
+        k = self.k_proj(x).view(B, T, H, d).transpose(1, 2)
+        v = self.v_proj(x).view(B, T, H, d).transpose(1, 2)
+        fw = torch.softmax(self.fw, dim=0)  # (S, H)
+        out = torch.zeros_like(q)
+        for si, sc in enumerate(self.scales):
+            if sc > T:
+                break
+            idx = torch.arange(0, T, sc, device=x.device)
+            ks = k[:, :, idx]
+            vs = v[:, :, idx]
+            a = self.dropout(torch.softmax(torch.matmul(q, ks.transpose(-2, -1)) * self.sf, -1))
+            os = torch.matmul(a, vs)
+            w = fw[si].view(1, H, 1, 1)
+            out = out + w * os
+        return self.out_proj(self.norm(out.transpose(1, 2).contiguous().view(B, T, D)))
+
+
+class LeadLagAttention(nn.Module):
+    """Attention explicitly modeling lead-lag relationships.
+
+    In financial markets, some assets lead others temporally
+    (e.g., futures lead spot prices). This module encodes
+    asymmetric attention biases for such relationships.
+
+    Args:
+        d_model: Embedding dimension
+        num_heads: Attention heads
+        max_lag: Maximum temporal lag in steps
+        dropout: Dropout probability
+    """
+
+    def __init__(
+        self, d_model: int, num_heads: int, max_lag: int = 5, dropout: float = 0.0
+    ) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.scale = self.head_dim ** -0.5
+        self.max_lag = max_lag
+        self.dropout = nn.Dropout(dropout)
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        # Relative lag attention bias: (max_lag+1, num_heads)
+        self.lag_bias = nn.Parameter(torch.zeros(max_lag + 1, num_heads))
+        nn.init.normal_(self.lag_bias, std=0.01)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        H, d = self.num_heads, self.head_dim
+        q = self.q_proj(x).view(B, T, H, d).transpose(1, 2)
+        k = self.k_proj(x).view(B, T, H, d).transpose(1, 2)
+        v = self.v_proj(x).view(B, T, H, d).transpose(1, 2)
+        attn = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # (B,H,T,T)
+        # Causal mask
+        cm = torch.triu(torch.full((T, T), float("-inf"), device=x.device), diagonal=1)
+        # Add lag bias based on distance
+        lags = torch.clamp(torch.arange(T, device=x.device).unsqueeze(0) -
+                           torch.arange(T, device=x.device).unsqueeze(1), 0, self.max_lag)
+        lb = self.lag_bias[lags]  # (T, T, H)
+        lb = lb.permute(2, 0, 1).unsqueeze(0)  # (1, H, T, T)
+        attn = attn + cm + lb
+        out = torch.matmul(self.dropout(torch.softmax(attn, -1)), v)
+        return self.out_proj(out.transpose(1, 2).contiguous().view(B, T, D))
+
+
+# =============================================================================
+# Attention Analysis Utilities
+# =============================================================================
+
+def compute_attention_rollout(
+    attention_weights_list: List[torch.Tensor],
+    discard_ratio: float = 0.9,
+) -> torch.Tensor:
+    """Attention rollout for transformer interpretability.
+
+    Propagates attention weights through layers to identify which
+    input tokens most influence each output position.
+
+    Reference: Abnar & Zuidema, "Quantifying Attention Flow in Transformers" (2020)
+
+    Args:
+        attention_weights_list: List of per-layer (B, H, T, T) attention tensors
+        discard_ratio: Fraction of lowest-weight attention to discard
+    Returns:
+        Rollout matrix (B, T, T)
+    """
+    masks = []
+    for attn in attention_weights_list:
+        avg = attn.mean(dim=1)  # (B, T, T)
+        if discard_ratio > 0:
+            flat = avg.view(avg.size(0), -1)
+            thresh = torch.quantile(flat, discard_ratio, dim=1).view(-1, 1, 1)
+            avg = avg * (avg >= thresh).float()
+        I = torch.eye(avg.size(-1), device=avg.device).unsqueeze(0)
+        avg = (avg + I) / ((avg + I).sum(-1, keepdim=True) + 1e-10)
+        masks.append(avg)
+    rollout = masks[0]
+    for m in masks[1:]:
+        rollout = torch.matmul(m, rollout)
+    return rollout
+
+
+def attention_sparsity(
+    attn_weights: torch.Tensor,
+    threshold: float = 0.01,
+) -> Dict[str, torch.Tensor]:
+    """Compute sparsity statistics for attention distributions.
+
+    Args:
+        attn_weights: (B, H, T, T) attention weight tensor
+        threshold: Minimum weight considered non-zero
+    Returns:
+        Dict with sparse_fraction, gini_coefficient, effective_positions_mean,
+        effective_positions_std, max_attention_mean
+    """
+    B, H, T, _ = attn_weights.shape
+    sf = (attn_weights < threshold).float().mean()
+    flat = attn_weights.view(B * H * T, T)
+    srt = flat.sort(dim=-1).values
+    idx = torch.arange(1, T + 1, device=attn_weights.device, dtype=torch.float32)
+    denom = T * srt.sum(-1) + 1e-10
+    gini = ((2 * (idx * srt).sum(-1) / denom) - (T + 1) / T).mean()
+    eff = 1.0 / ((attn_weights ** 2).sum(-1) + 1e-10)
+    return {
+        "sparse_fraction": sf,
+        "gini_coefficient": gini,
+        "effective_positions_mean": eff.mean(),
+        "effective_positions_std": eff.std(),
+        "max_attention_mean": attn_weights.max(-1).values.mean(),
+    }
+
+
+def build_attention_module(
+    attention_type: str,
+    d_model: int,
+    num_heads: int,
+    **kwargs,
+) -> nn.Module:
+    """Factory function to create attention modules by type string.
+
+    Args:
+        attention_type: Identifier (e.g., "standard", "bigbird", "cosine")
+        d_model: Model dimension
+        num_heads: Number of attention heads
+        **kwargs: Additional constructor arguments
+    Returns:
+        Instantiated attention nn.Module
+    """
+    registry = {
+        "standard": MultiHeadSelfAttention,
+        "gqa": GroupedQueryAttention,
+        "differential": DifferentialAttention,
+        "sliding_window": SlidingWindowAttention,
+        "lsh": LSHAttention,
+        "bigbird": BigBirdAttention,
+        "memory_efficient": MemoryEfficientAttention,
+        "cosine": CosineAttention,
+        "talking_heads": TalkingHeadsAttention,
+        "gau": GatedAttentionUnit,
+        "convolutional": ConvolutionalAttention,
+        "multi_resolution": MultiResolutionAttention,
+        "regime_aware": RegimeAwareAttention,
+        "external_memory": AttentionWithExternalMemory,
+        "event_driven": EventDrivenAttention,
+        "fractal": FractalAttention,
+        "lead_lag": LeadLagAttention,
+        "hypernetwork": HyperNetworkAttention,
+        "kv_compressed": KVCompressedAttention,
+        "temporal_decay": TemporalDecayAttention,
+        "cross_asset": CrossAssetCorrelationAttention,
+    }
+    if attention_type not in registry:
+        raise ValueError(
+            f"Unknown attention type '{attention_type}'. "
+            f"Available: {sorted(registry.keys())}"
+        )
+    return registry[attention_type](d_model=d_model, num_heads=num_heads, **kwargs)
+
+
+_NEW_EXPORTS = [
+    "BigBirdAttention", "MemoryEfficientAttention", "CosineAttention",
+    "TalkingHeadsAttention", "GatedAttentionUnit", "ConvolutionalAttention",
+    "MultiResolutionAttention", "RegimeAwareAttention", "AttentionWithExternalMemory",
+    "EventDrivenAttention", "FractalAttention", "LeadLagAttention",
+    "compute_attention_rollout", "attention_sparsity", "build_attention_module",
 ]

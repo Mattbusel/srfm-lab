@@ -1506,6 +1506,15 @@ __all__ = [
     "AugmentedPriceTokenizer",
     "SimpleFinancialTokenizer",
     "FinancialSentimentHead",
+    "TickDataTokenizer",
+    "OptionsDataTokenizer",
+    "FundamentalDataTokenizer",
+    "MacroDataTokenizer",
+    "CorporateActionTokenizer",
+    "TokenizerPipeline",
+    "CrossAssetTokenizer",
+    "HierarchicalPatchTokenizer",
+    "MultiResolutionTokenizer",
     # Helper functions
     "log_return",
     "z_score_normalize",
@@ -1523,3 +1532,1020 @@ __all__ = [
     "SPECIAL_FINANCIAL_TOKENS",
     "FINANCIAL_VOCAB_EXTENSION",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Tick Data Tokenizer
+# ---------------------------------------------------------------------------
+
+class TickDataTokenizer(nn.Module):
+    """Tokenizer for high-frequency tick/trade data.
+
+    Processes individual tick events (trade price, volume, bid/ask spread)
+    into fixed-size patch embeddings suitable for transformer input.
+
+    Tick features per trade:
+    - Log price change from previous tick
+    - Volume (log-scaled)
+    - Trade side indicator (+1 buyer-initiated, -1 seller-initiated)
+    - Time since previous tick (microseconds, log-scaled)
+    - Bid-ask spread at time of trade
+    - Order imbalance (rolling average)
+    - Kyle's lambda (price impact coefficient, rolling)
+
+    Aggregation:
+    - Ticks are grouped into fixed-time or fixed-count buckets
+    - Bucket statistics become the patch features
+
+    Args:
+        patch_size:       ticks per patch
+        d_model:          output embedding dimension
+        n_tick_features:  number of raw tick features
+        use_volume_clock: if True, patches are volume-based (equal $ volume)
+
+    Example:
+        >>> tok = TickDataTokenizer(patch_size=50, d_model=256)
+        >>> ticks = torch.randn(2, 1000, 7)  # (B, n_ticks, n_features)
+        >>> patches = tok(ticks)  # (B, 20, 256)
+    """
+
+    def __init__(
+        self,
+        patch_size: int = 50,
+        d_model: int = 256,
+        n_tick_features: int = 7,
+        use_volume_clock: bool = False,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.patch_size = patch_size
+        self.d_model = d_model
+        self.n_tick_features = n_tick_features
+        self.use_volume_clock = use_volume_clock
+
+        # Per-tick encoding
+        self.tick_proj = nn.Linear(n_tick_features, d_model // 2, bias=False)
+
+        # Patch aggregation statistics: mean, std, min, max = 4 per feature
+        agg_dim = 4 * (d_model // 2)
+        self.patch_proj = nn.Sequential(
+            nn.LayerNorm(agg_dim),
+            nn.Linear(agg_dim, d_model),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+        )
+
+        # Additional microstructure features
+        n_micro = 8  # derived microstructure statistics per patch
+        self.micro_proj = nn.Linear(n_micro, d_model // 4, bias=False)
+        self.final_proj = nn.Linear(d_model + d_model // 4, d_model, bias=False)
+        self.norm = nn.LayerNorm(d_model)
+
+    def _compute_microstructure(
+        self,
+        ticks: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute microstructure features from a batch of ticks.
+
+        Args:
+            ticks: (B, T_ticks, n_features)
+
+        Returns:
+            micro: (B, n_micro) microstructure summary
+        """
+        B, T, F = ticks.shape
+        # Assume features: [price, volume, side, delta_t, spread, imb, impact, ...]
+        price = ticks[:, :, 0]  # (B, T)
+        volume = ticks[:, :, 1]
+        side = ticks[:, :, 2] if F > 2 else torch.zeros_like(price)
+
+        buy_vol = (volume * (side > 0).float()).sum(dim=-1)
+        sell_vol = (volume * (side < 0).float()).sum(dim=-1)
+        total_vol = volume.sum(dim=-1).clamp(min=1e-8)
+
+        return torch.stack([
+            price.mean(dim=-1),                          # mean price
+            price.std(dim=-1),                           # price volatility
+            volume.sum(dim=-1).log1p(),                  # total volume (log)
+            (buy_vol - sell_vol) / total_vol,            # volume imbalance
+            (price[:, -1] - price[:, 0]),                # price change
+            side.mean(dim=-1),                           # mean trade direction
+            (price.max(dim=-1).values - price.min(dim=-1).values),  # range
+            volume.max(dim=-1).values.log1p(),           # max trade size
+        ], dim=-1)  # (B, 8)
+
+    def forward(self, ticks: torch.Tensor) -> torch.Tensor:
+        """Tokenize tick sequence into patches.
+
+        Args:
+            ticks: (B, n_ticks, n_tick_features)
+
+        Returns:
+            patches: (B, n_patches, d_model)
+        """
+        B, T, F = ticks.shape
+        P = self.patch_size
+        n_patches = T // P
+
+        if n_patches == 0:
+            n_patches = 1
+            ticks_padded = F.pad(ticks, (0, 0, 0, P - T % P if T % P else 0))
+        else:
+            ticks_padded = ticks[:, :n_patches * P, :]
+
+        # Reshape: (B, n_patches, P, F)
+        ticks_reshaped = ticks_padded.view(B, n_patches, P, F)
+
+        # Encode each tick
+        tick_enc = self.tick_proj(ticks_reshaped)  # (B, n_patches, P, d_model//2)
+
+        # Aggregate statistics per patch
+        t_mean = tick_enc.mean(dim=2)
+        t_std = tick_enc.std(dim=2)
+        t_min = tick_enc.min(dim=2).values
+        t_max = tick_enc.max(dim=2).values
+        agg = torch.cat([t_mean, t_std, t_min, t_max], dim=-1)  # (B, n_patches, 4*d_model//2)
+
+        patch_emb = self.patch_proj(agg)  # (B, n_patches, d_model)
+
+        # Microstructure features per patch
+        micro = []
+        for p_idx in range(n_patches):
+            patch_ticks = ticks_padded[:, p_idx * P:(p_idx + 1) * P, :]
+            micro.append(self._compute_microstructure(patch_ticks))
+        micro = torch.stack(micro, dim=1)  # (B, n_patches, 8)
+        micro_emb = self.micro_proj(micro)  # (B, n_patches, d_model//4)
+
+        combined = torch.cat([patch_emb, micro_emb], dim=-1)
+        out = self.norm(self.final_proj(combined))
+        return out
+
+
+# ---------------------------------------------------------------------------
+# Options Data Tokenizer
+# ---------------------------------------------------------------------------
+
+class OptionsDataTokenizer(nn.Module):
+    """Tokenizer for options chain data.
+
+    Processes a snapshot of the options chain (multiple strikes and expirations)
+    into a sequence of tokens for transformer processing.
+
+    Options features per contract:
+    - Moneyness (log(K/S))
+    - Time to expiry (log-scaled, in years)
+    - Implied volatility (mid-market)
+    - IV skew (difference from ATM IV)
+    - Bid-ask spread (as fraction of mid)
+    - Open interest (log-scaled)
+    - Volume (log-scaled)
+    - Option type (call/put)
+    - Greeks: delta, gamma, theta, vega, rho
+
+    Args:
+        d_model:       embedding dimension
+        n_options_features: number of per-option features
+        max_strikes:   maximum number of strikes to tokenize
+        max_expirations: maximum number of expirations
+
+    Example:
+        >>> tok = OptionsDataTokenizer(d_model=256, max_strikes=20)
+        >>> options = torch.randn(2, 40, 12)  # (B, n_options, n_features)
+        >>> embedded = tok(options)  # (2, 40, 256)
+    """
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        n_options_features: int = 12,
+        max_strikes: int = 40,
+        max_expirations: int = 10,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.n_options_features = n_options_features
+        self.max_strikes = max_strikes
+        self.max_expirations = max_expirations
+
+        # Option type embedding
+        self.type_emb = nn.Embedding(2, d_model // 8)  # 0=put, 1=call
+
+        # Moneyness/expiry embedding (continuous)
+        self.moneyness_proj = nn.Linear(1, d_model // 8)
+        self.expiry_proj = nn.Linear(1, d_model // 8)
+
+        # Full feature projection
+        total_in = n_options_features - 2 + 2 * (d_model // 8) + d_model // 8
+        self.proj = nn.Sequential(
+            nn.Linear(n_options_features + d_model // 8, d_model),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+        )
+        self.norm = nn.LayerNorm(d_model)
+
+        # Cross-strike attention for IV surface awareness
+        self.iv_surface_attn = nn.MultiheadAttention(
+            embed_dim=d_model,
+            num_heads=min(4, d_model // 64),
+            dropout=dropout,
+            batch_first=True,
+        )
+
+    def forward(
+        self,
+        options: torch.Tensor,
+        option_types: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Embed options chain.
+
+        Args:
+            options:      (B, N, n_options_features) options features
+            option_types: (B, N) optional long tensor (0=put, 1=call)
+
+        Returns:
+            embeddings: (B, N, d_model)
+        """
+        B, N, F = options.shape
+
+        # Project raw features
+        if option_types is not None:
+            type_emb = self.type_emb(option_types)  # (B, N, d_model//8)
+            combined = torch.cat([options, type_emb], dim=-1)
+        else:
+            # Create dummy type embedding
+            dummy_type = torch.zeros(B, N, self.d_model // 8, device=options.device)
+            combined = torch.cat([options, dummy_type], dim=-1)
+
+        x = self.proj(combined)  # (B, N, d_model)
+        x = self.norm(x)
+
+        # Cross-strike attention for IV surface modeling
+        x_attn, _ = self.iv_surface_attn(x, x, x)
+        x = x + x_attn
+
+        return x
+
+
+# ---------------------------------------------------------------------------
+# Fundamental Data Tokenizer
+# ---------------------------------------------------------------------------
+
+class FundamentalDataTokenizer(nn.Module):
+    """Tokenizer for company fundamental/financial statement data.
+
+    Processes quarterly/annual financial metrics into embeddings:
+
+    Balance Sheet:
+    - Total assets, liabilities, equity
+    - Cash and equivalents
+    - Debt-to-equity ratio
+
+    Income Statement:
+    - Revenue, gross profit, EBITDA, net income
+    - Revenue growth (QoQ, YoY)
+    - Margins (gross, operating, net)
+
+    Cash Flow:
+    - Operating, investing, financing cash flows
+    - Free cash flow
+    - CapEx as fraction of revenue
+
+    Valuation Ratios (relative to market):
+    - P/E, P/B, P/S, EV/EBITDA
+    - Dividend yield
+
+    Args:
+        d_model:            output dimension
+        n_fundamentals:     number of fundamental features
+        n_history_quarters: number of historical quarters
+
+    Example:
+        >>> tok = FundamentalDataTokenizer(d_model=256)
+        >>> fundamentals = torch.randn(4, 8, 50)  # (B, n_quarters, n_features)
+        >>> emb = tok(fundamentals)  # (4, 8, 256)
+    """
+
+    FEATURE_GROUPS = {
+        "balance_sheet": ["total_assets", "total_liabilities", "equity", "cash", "debt"],
+        "income": ["revenue", "gross_profit", "ebitda", "net_income", "eps"],
+        "growth": ["rev_growth_qoq", "rev_growth_yoy", "eps_growth_yoy"],
+        "margins": ["gross_margin", "operating_margin", "net_margin"],
+        "cashflow": ["ocf", "fcf", "capex_ratio"],
+        "valuation": ["pe_ratio", "pb_ratio", "ps_ratio", "ev_ebitda", "div_yield"],
+    }
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        n_fundamentals: int = 50,
+        n_history_quarters: int = 8,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.n_fundamentals = n_fundamentals
+
+        # Winsorization bounds (handle extreme fundamental outliers)
+        self.register_buffer(
+            "feature_mins", torch.full((n_fundamentals,), -10.0)
+        )
+        self.register_buffer(
+            "feature_maxs", torch.full((n_fundamentals,), 10.0)
+        )
+
+        self.proj = nn.Sequential(
+            nn.Linear(n_fundamentals, d_model),
+            nn.LayerNorm(d_model),
+            nn.SiLU(),
+            nn.Linear(d_model, d_model),
+            nn.Dropout(dropout),
+        )
+        self.norm = nn.LayerNorm(d_model)
+
+        # Temporal attention to summarize quarters
+        self.temporal_attn = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=min(4, d_model // 64),
+            dim_feedforward=d_model * 2,
+            dropout=dropout,
+            batch_first=True,
+            norm_first=True,
+        )
+
+    def _winsorize(self, x: torch.Tensor) -> torch.Tensor:
+        """Clip features to learned bounds."""
+        return torch.clamp(x, self.feature_mins, self.feature_maxs)
+
+    def forward(self, fundamentals: torch.Tensor) -> torch.Tensor:
+        """Embed fundamental data.
+
+        Args:
+            fundamentals: (B, T_quarters, n_fundamentals)
+
+        Returns:
+            embeddings: (B, T_quarters, d_model)
+        """
+        x = self._winsorize(fundamentals)
+        x = self.proj(x)                        # (B, T, d_model)
+        x = self.temporal_attn(x)               # cross-quarter attention
+        return self.norm(x)
+
+
+# ---------------------------------------------------------------------------
+# Macro Data Tokenizer
+# ---------------------------------------------------------------------------
+
+class MacroDataTokenizer(nn.Module):
+    """Tokenizer for macroeconomic indicator data.
+
+    Processes macro time series (GDP, CPI, interest rates, etc.) into
+    embeddings. Key challenge: these series have very different:
+    - Frequencies (monthly, quarterly, daily)
+    - Scales (rates vs. levels vs. growth rates)
+    - Lags (data released weeks/months after period end)
+
+    Features:
+    - GDP growth (QoQ, YoY)
+    - Inflation (CPI, PCE)
+    - Unemployment rate
+    - Federal funds rate
+    - 2Y/10Y Treasury yields
+    - Yield curve slope (10Y - 2Y)
+    - Credit spreads (HY-IG, IG-Tsy)
+    - ISM PMI (manufacturing, services)
+    - Consumer confidence
+    - Housing starts
+    - Trade balance
+
+    Args:
+        d_model:       output embedding dimension
+        n_macro_series: number of macro time series
+        use_release_dates: if True, encode data release dates
+
+    Example:
+        >>> tok = MacroDataTokenizer(d_model=256, n_macro_series=20)
+        >>> macro = torch.randn(2, 60, 20)  # (B, T_months, n_series)
+        >>> emb = tok(macro)  # (2, 60, 256)
+    """
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        n_macro_series: int = 20,
+        use_release_dates: bool = False,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.n_macro_series = n_macro_series
+        self.use_release_dates = use_release_dates
+
+        # Each macro series gets its own normalization parameters (learned)
+        self.series_scales = nn.Parameter(torch.ones(n_macro_series))
+        self.series_biases = nn.Parameter(torch.zeros(n_macro_series))
+
+        # Projection
+        self.proj = nn.Sequential(
+            nn.Linear(n_macro_series, d_model * 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model * 2, d_model),
+        )
+        self.norm = nn.LayerNorm(d_model)
+
+        if use_release_dates:
+            # Encode data vintage (how stale is the data)
+            self.vintage_proj = nn.Linear(n_macro_series, d_model // 4)
+            self.final_proj = nn.Linear(d_model + d_model // 4, d_model)
+
+    def forward(
+        self,
+        macro: torch.Tensor,
+        staleness: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Embed macroeconomic data.
+
+        Args:
+            macro:     (B, T, n_macro_series)
+            staleness: (B, T, n_macro_series) optional staleness (periods since release)
+
+        Returns:
+            embeddings: (B, T, d_model)
+        """
+        # Normalize each series
+        x = (macro - self.series_biases) * self.series_scales
+
+        x = self.proj(x)
+
+        if self.use_release_dates and staleness is not None:
+            vintage = self.vintage_proj(staleness.float())
+            x = torch.cat([x, vintage], dim=-1)
+            x = self.final_proj(x)
+
+        return self.norm(x)
+
+
+# ---------------------------------------------------------------------------
+# Corporate Action Tokenizer
+# ---------------------------------------------------------------------------
+
+class CorporateActionTokenizer(nn.Module):
+    """Tokenizer for corporate action events.
+
+    Encodes discrete corporate events that affect asset prices:
+    - Dividends (cash, stock, special)
+    - Stock splits / reverse splits
+    - Mergers & acquisitions (announced, completed)
+    - Share buybacks
+    - Rights offerings
+    - Spin-offs
+    - Earnings announcements (beat/miss/in-line)
+
+    Events are represented as binary occurrence flags + magnitude fields.
+
+    Args:
+        d_model:        output embedding dimension
+        n_event_types:  number of distinct event types
+        max_events:     maximum events per window
+
+    Example:
+        >>> tok = CorporateActionTokenizer(d_model=128)
+        >>> # events: (B, T, n_event_types * 2) — type indicator + magnitude
+        >>> events = torch.zeros(2, 252, 14)
+        >>> events[:, 45, 0] = 1.0   # dividend at t=45
+        >>> events[:, 45, 7] = 0.02  # 2% dividend yield
+        >>> emb = tok(events)  # (2, 252, 128)
+    """
+
+    EVENT_TYPES = [
+        "cash_dividend", "stock_dividend", "split", "reverse_split",
+        "buyback_announce", "ma_announce", "ma_complete", "spinoff",
+        "earnings_beat", "earnings_miss", "guidance_raise", "guidance_cut",
+        "rights_issue", "special_dividend",
+    ]
+
+    def __init__(
+        self,
+        d_model: int = 128,
+        n_event_types: int = 14,
+        max_events: int = 5,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.n_event_types = n_event_types
+
+        # Event type embedding
+        self.event_type_emb = nn.Embedding(n_event_types + 1, d_model // 4)  # +1 for no-event
+
+        # Magnitude projection (continuous features)
+        self.magnitude_proj = nn.Linear(n_event_types, d_model // 4)
+
+        # Combined projection
+        self.proj = nn.Sequential(
+            nn.Linear(n_event_types * 2, d_model),
+            nn.LayerNorm(d_model),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+        )
+        self.norm = nn.LayerNorm(d_model)
+
+        # No-event embedding (for time steps with no events)
+        self.no_event_emb = nn.Parameter(torch.zeros(1, 1, d_model))
+
+    def forward(
+        self,
+        events: torch.Tensor,
+    ) -> torch.Tensor:
+        """Embed corporate action events.
+
+        Args:
+            events: (B, T, n_event_types * 2) — [type_flags..., magnitudes...]
+
+        Returns:
+            embeddings: (B, T, d_model)
+        """
+        B, T, F = events.shape
+
+        x = self.proj(events)
+        x = self.norm(x)
+
+        # At time steps with no events, blend with no-event embedding
+        has_event = events[:, :, :self.n_event_types].any(dim=-1, keepdim=True).float()  # (B, T, 1)
+        no_event = self.no_event_emb.expand(B, T, -1)
+        x = has_event * x + (1 - has_event) * no_event
+
+        return x
+
+
+# ---------------------------------------------------------------------------
+# Tokenizer Pipeline
+# ---------------------------------------------------------------------------
+
+class TokenizerPipeline(nn.Module):
+    """Sequential pipeline of tokenizer modules.
+
+    Applies multiple tokenizers in sequence, concatenating or adding their
+    outputs to produce a unified representation.
+
+    Modes:
+    - "concat": concatenate embeddings, then project to d_model
+    - "add":    element-wise addition (all tokenizers must output d_model)
+    - "attention": cross-attention fusion
+
+    Args:
+        tokenizers:  ordered list of (name, tokenizer) tuples
+        d_model:     output embedding dimension
+        fusion_mode: "concat" | "add" | "attention"
+
+    Example:
+        >>> price_tok = PriceSeriesTokenizer(patch_size=10, d_model=256)
+        >>> macro_tok = MacroDataTokenizer(d_model=256)
+        >>> pipe = TokenizerPipeline([
+        ...     ("price", price_tok),
+        ...     ("macro", macro_tok),
+        ... ], d_model=256, fusion_mode="add")
+        >>> out = pipe({"price": ohlcv, "macro": macro_data})
+    """
+
+    def __init__(
+        self,
+        tokenizers: List[Tuple[str, nn.Module]],
+        d_model: int = 256,
+        fusion_mode: str = "add",
+    ):
+        super().__init__()
+        self.tokenizer_dict = nn.ModuleDict({name: tok for name, tok in tokenizers})
+        self.tokenizer_names = [name for name, _ in tokenizers]
+        self.d_model = d_model
+        self.fusion_mode = fusion_mode
+        self.n_modalities = len(tokenizers)
+
+        if fusion_mode == "concat":
+            self.fusion_proj = nn.Linear(self.n_modalities * d_model, d_model)
+        elif fusion_mode == "attention":
+            self.fusion_attn = nn.MultiheadAttention(
+                embed_dim=d_model,
+                num_heads=min(4, d_model // 64),
+                batch_first=True,
+            )
+            self.modality_queries = nn.Parameter(torch.randn(1, 1, d_model))
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(
+        self,
+        inputs: Dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """Apply all tokenizers and fuse outputs.
+
+        Args:
+            inputs: dict mapping modality name → raw tensor
+
+        Returns:
+            fused: (B, T, d_model) unified token embeddings
+        """
+        outputs = []
+        for name in self.tokenizer_names:
+            if name in inputs:
+                tok = self.tokenizer_dict[name]
+                emb = tok(inputs[name])  # (B, T, d_model)
+                outputs.append(emb)
+
+        if not outputs:
+            raise ValueError("No modality inputs provided to TokenizerPipeline")
+
+        if len(outputs) == 1:
+            return outputs[0]
+
+        if self.fusion_mode == "add":
+            # Ensure all outputs have same seq length before adding
+            min_T = min(o.shape[1] for o in outputs)
+            fused = sum(o[:, :min_T, :] for o in outputs)
+
+        elif self.fusion_mode == "concat":
+            min_T = min(o.shape[1] for o in outputs)
+            cat = torch.cat([o[:, :min_T, :] for o in outputs], dim=-1)
+            fused = self.fusion_proj(cat)
+
+        elif self.fusion_mode == "attention":
+            # Stack all modality outputs: (B, T*n_modalities, d_model)
+            stacked = torch.cat(outputs, dim=1)  # concat along time
+            # Use a single query per position
+            B, _, D = stacked.shape
+            q = self.modality_queries.expand(B, stacked.shape[1], -1)
+            fused, _ = self.fusion_attn(q, stacked, stacked)
+            fused = fused[:, :outputs[0].shape[1], :]  # trim to first modality's length
+
+        else:
+            fused = outputs[0]
+
+        return self.norm(fused)
+
+
+# ---------------------------------------------------------------------------
+# Cross-Asset Tokenizer
+# ---------------------------------------------------------------------------
+
+class CrossAssetTokenizer(nn.Module):
+    """Tokenizer for multi-asset portfolios.
+
+    Jointly tokenizes N assets and produces:
+    1. Per-asset embeddings (individual representations)
+    2. Cross-asset embeddings (pairwise correlation structure)
+    3. Portfolio-level embedding (aggregate signal)
+
+    The cross-asset structure uses a mini-transformer operating
+    across the asset dimension at each time step.
+
+    Args:
+        n_assets:      number of assets
+        d_model:       embedding dimension per asset
+        n_ohlcv_features: raw features per asset (typically 5 for OHLCV)
+        patch_size:    time steps per patch
+        dropout:       dropout probability
+
+    Example:
+        >>> tok = CrossAssetTokenizer(n_assets=8, d_model=256, patch_size=20)
+        >>> ohlcv = torch.randn(2, 200, 8, 5)  # (B, T, N, F)
+        >>> per_asset, cross, portfolio = tok(ohlcv)
+    """
+
+    def __init__(
+        self,
+        n_assets: int = 8,
+        d_model: int = 256,
+        n_ohlcv_features: int = 5,
+        patch_size: int = 20,
+        n_cross_heads: int = 4,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.n_assets = n_assets
+        self.d_model = d_model
+        self.patch_size = patch_size
+
+        # Per-asset patch embedding
+        self.asset_proj = nn.Linear(
+            n_ohlcv_features * patch_size, d_model, bias=False
+        )
+
+        # Asset ID embedding
+        self.asset_id_emb = nn.Embedding(n_assets, d_model // 8)
+
+        # Cross-asset attention (over asset dimension)
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=d_model,
+            num_heads=n_cross_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+
+        # Portfolio aggregation
+        self.portfolio_proj = nn.Sequential(
+            nn.Linear(d_model, d_model // 2),
+            nn.SiLU(),
+            nn.Linear(d_model // 2, d_model),
+        )
+
+        self.norm_asset = nn.LayerNorm(d_model)
+        self.norm_cross = nn.LayerNorm(d_model)
+        self.norm_port = nn.LayerNorm(d_model)
+
+    def forward(
+        self,
+        ohlcv: torch.Tensor,
+        asset_ids: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Tokenize multi-asset OHLCV data.
+
+        Args:
+            ohlcv:     (B, T, N, F) tensor — T time steps, N assets, F features
+            asset_ids: (N,) long tensor of asset identifiers (optional)
+
+        Returns:
+            per_asset:  (B, T_patches, N, d_model) per-asset embeddings
+            cross:      (B, T_patches, N, d_model) cross-asset embeddings
+            portfolio:  (B, T_patches, d_model) portfolio-level embedding
+        """
+        B, T, N, F = ohlcv.shape
+        P = self.patch_size
+        T_patches = T // P
+
+        if T_patches == 0:
+            T_patches = 1
+            ohlcv = F_pad(ohlcv, (0, 0, 0, 0, 0, P - T))
+
+        # Extract patches: (B, T_patches, N, P*F)
+        ohlcv_patched = ohlcv[:, :T_patches * P, :, :].view(B, T_patches, P, N, F)
+        ohlcv_patched = ohlcv_patched.permute(0, 1, 3, 2, 4)  # (B, T_p, N, P, F)
+        ohlcv_flat = ohlcv_patched.reshape(B, T_patches, N, P * F)
+
+        # Per-asset projection
+        asset_emb = self.asset_proj(ohlcv_flat)  # (B, T_p, N, d_model)
+
+        # Add asset ID embeddings
+        if asset_ids is None:
+            asset_ids = torch.arange(N, device=ohlcv.device)
+        id_emb = self.asset_id_emb(asset_ids)  # (N, d_model//8)
+        # Pad to d_model
+        id_emb_padded = torch.zeros(N, self.d_model, device=ohlcv.device)
+        id_emb_padded[:, :id_emb.shape[-1]] = id_emb
+        asset_emb = asset_emb + id_emb_padded.unsqueeze(0).unsqueeze(0)
+
+        asset_emb = self.norm_asset(asset_emb)
+
+        # Cross-asset attention at each time step
+        # Reshape: (B * T_patches, N, d_model) for cross-asset attention
+        x_flat = asset_emb.reshape(B * T_patches, N, self.d_model)
+        cross_out, _ = self.cross_attn(x_flat, x_flat, x_flat)
+        cross = (x_flat + cross_out).reshape(B, T_patches, N, self.d_model)
+        cross = self.norm_cross(cross)
+
+        # Portfolio aggregation: mean across assets
+        portfolio = cross.mean(dim=2)  # (B, T_patches, d_model)
+        portfolio = self.norm_port(self.portfolio_proj(portfolio))
+
+        return asset_emb, cross, portfolio
+
+
+# ---------------------------------------------------------------------------
+# Hierarchical Patch Tokenizer
+# ---------------------------------------------------------------------------
+
+class HierarchicalPatchTokenizer(nn.Module):
+    """Multi-level hierarchical tokenizer.
+
+    Processes financial data at multiple temporal resolutions simultaneously:
+    - Fine: individual bars/ticks
+    - Medium: aggregated hours/half-days
+    - Coarse: daily/weekly aggregates
+
+    Each level produces its own patch embeddings, which are then combined
+    using cross-scale attention.
+
+    Args:
+        d_model:       output embedding dimension
+        patch_sizes:   list of patch sizes for each level
+        n_features:    number of input features (OHLCV = 5)
+        n_cross_layers:layers of cross-scale attention
+
+    Example:
+        >>> tok = HierarchicalPatchTokenizer(
+        ...     d_model=256,
+        ...     patch_sizes=[5, 20, 80],
+        ...     n_features=5
+        ... )
+        >>> x = torch.randn(2, 400, 5)  # (B, T, F)
+        >>> fine, medium, coarse = tok(x)  # three levels of embeddings
+    """
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        patch_sizes: Optional[List[int]] = None,
+        n_features: int = 5,
+        n_cross_layers: int = 2,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        if patch_sizes is None:
+            patch_sizes = [5, 20, 80]
+        self.patch_sizes = patch_sizes
+        self.d_model = d_model
+        self.n_levels = len(patch_sizes)
+
+        # Per-level patch projections
+        self.level_projs = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(n_features * ps, d_model),
+                nn.LayerNorm(d_model),
+                nn.SiLU(),
+            )
+            for ps in patch_sizes
+        ])
+
+        # Level embedding
+        self.level_emb = nn.Embedding(self.n_levels, d_model)
+
+        # Cross-scale attention layers
+        self.cross_layers = nn.ModuleList([
+            nn.TransformerEncoderLayer(
+                d_model=d_model,
+                nhead=min(4, d_model // 64),
+                dim_feedforward=d_model * 2,
+                dropout=dropout,
+                batch_first=True,
+                norm_first=True,
+            )
+            for _ in range(n_cross_layers)
+        ])
+
+    def _make_patches(
+        self,
+        x: torch.Tensor,
+        patch_size: int,
+    ) -> torch.Tensor:
+        """Create non-overlapping patches.
+
+        Args:
+            x:          (B, T, F)
+            patch_size: patch size
+
+        Returns:
+            patches: (B, T//patch_size, patch_size * F)
+        """
+        B, T, F = x.shape
+        T_p = T // patch_size
+        return x[:, :T_p * patch_size, :].reshape(B, T_p, patch_size * F)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> List[torch.Tensor]:
+        """Tokenize at all levels.
+
+        Args:
+            x: (B, T, n_features)
+
+        Returns:
+            level_embeddings: list of (B, T_level, d_model) tensors, one per level
+        """
+        level_embeddings = []
+
+        for level_idx, (ps, proj) in enumerate(zip(self.patch_sizes, self.level_projs)):
+            patches = self._make_patches(x, ps)  # (B, T//ps, ps*F)
+            emb = proj(patches)  # (B, T//ps, d_model)
+
+            # Add level embedding
+            lev_emb = self.level_emb(
+                torch.full((1, 1), level_idx, dtype=torch.long, device=x.device)
+            )  # (1, 1, d_model)
+            emb = emb + lev_emb
+            level_embeddings.append(emb)
+
+        # Cross-scale attention: concatenate all levels and apply attention
+        # This allows information to flow between time scales
+        max_len = max(e.shape[1] for e in level_embeddings)
+        padded = []
+        for emb in level_embeddings:
+            if emb.shape[1] < max_len:
+                pad_size = max_len - emb.shape[1]
+                emb = torch.cat([
+                    emb,
+                    emb[:, -1:, :].expand(-1, pad_size, -1)
+                ], dim=1)
+            padded.append(emb)
+
+        combined = torch.cat(padded, dim=1)  # (B, n_levels * max_len, d_model)
+        for cross_layer in self.cross_layers:
+            combined = cross_layer(combined)
+
+        # Split back
+        split_sizes = [e.shape[1] for e in padded]
+        result = torch.split(combined, split_sizes, dim=1)
+        return [r[:, :level_embeddings[i].shape[1], :] for i, r in enumerate(result)]
+
+
+# ---------------------------------------------------------------------------
+# Multi-Resolution Tokenizer
+# ---------------------------------------------------------------------------
+
+class MultiResolutionTokenizer(nn.Module):
+    """Tokenizer that simultaneously processes multiple temporal resolutions.
+
+    Unlike HierarchicalPatchTokenizer (which stacks levels), this tokenizer
+    processes multiple resolutions in parallel and produces a single unified
+    output sequence by interpolating and adding representations.
+
+    This is inspired by the multi-scale processing in ViT/DeiT but adapted
+    for 1D financial time series.
+
+    Args:
+        d_model:       output embedding dimension
+        resolutions:   dict of resolution name → patch_size
+        n_features:    number of input features
+
+    Example:
+        >>> tok = MultiResolutionTokenizer(
+        ...     d_model=256,
+        ...     resolutions={"tick": 1, "5min": 5, "hourly": 60},
+        ...     n_features=5,
+        ... )
+        >>> x = torch.randn(2, 300, 5)
+        >>> out = tok(x)  # (2, 300, 256)
+    """
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        resolutions: Optional[Dict[str, int]] = None,
+        n_features: int = 5,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        if resolutions is None:
+            resolutions = {"fine": 1, "medium": 5, "coarse": 20}
+
+        self.resolutions = resolutions
+        self.d_model = d_model
+
+        # Per-resolution projections
+        self.res_projs = nn.ModuleDict({
+            name: nn.Sequential(
+                nn.Linear(n_features * ps, d_model),
+                nn.LayerNorm(d_model),
+                nn.SiLU(),
+            )
+            for name, ps in resolutions.items()
+        })
+
+        # Gated fusion
+        self.gate = nn.Parameter(
+            torch.ones(len(resolutions)) / len(resolutions)
+        )
+        self.res_names = list(resolutions.keys())
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Multi-resolution tokenization with gated fusion.
+
+        Args:
+            x: (B, T, n_features)
+
+        Returns:
+            out: (B, T, d_model) — fused multi-resolution tokens
+        """
+        B, T, F = x.shape
+        gate_w = torch.softmax(self.gate, dim=0)
+
+        outputs = []
+        min_T = T  # will be updated
+
+        for name, ps in self.resolutions.items():
+            T_p = T // ps
+            if T_p == 0:
+                T_p = 1
+                patches = x.view(B, 1, T * F)
+                if patches.shape[-1] < F * ps:
+                    patches = F.pad(patches, (0, F * ps - patches.shape[-1]))
+                patches = patches[:, :, :F * ps]
+            else:
+                patches = x[:, :T_p * ps, :].reshape(B, T_p, ps * F)
+
+            emb = self.res_projs[name](patches)  # (B, T_p, d_model)
+
+            # Upsample to original T if needed
+            if T_p < T:
+                factor = T // T_p
+                emb = emb.unsqueeze(2).expand(-1, -1, factor, -1)
+                emb = emb.reshape(B, T_p * factor, self.d_model)[:, :T, :]
+
+            outputs.append(emb[:, :T, :])
+
+        # Gated fusion
+        fused = torch.zeros_like(outputs[0])
+        for w, out in zip(gate_w, outputs):
+            fused = fused + w * out
+
+        return self.norm(fused)

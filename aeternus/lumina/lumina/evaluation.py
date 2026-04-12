@@ -1,737 +1,2103 @@
 """
 lumina/evaluation.py
 
-Evaluation suite for Lumina:
+Evaluation suite for Lumina Financial Foundation Model:
 
-  - zero_shot_regime_transfer()
-  - crisis_detection_benchmark()
-  - volatility_forecast_benchmark()
-  - return_direction_benchmark()
-  - perplexity()
-  - attention_visualization()
-  - probing_analysis()
-
-All results are saved to aeternus/lumina/results/
+  - InformationCoefficient (IC)   : Spearman rank correlation of forecasts
+  - DirectionalAccuracy           : hit rate on direction predictions
+  - SharpeAttribution             : Sharpe ratio decomposition
+  - CalibrationMetrics            : reliability / ECE / MCE
+  - BenchmarkComparison           : compare vs baselines
+  - FinancialMetrics              : Sharpe, Sortino, Calmar, max drawdown
+  - ModelEvaluation               : unified evaluation framework
 """
 
 from __future__ import annotations
 
-import json
 import math
-import os
-import time
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.linear_model import LogisticRegression, Ridge
-from sklearn.metrics import (
-    accuracy_score,
-    f1_score,
-    precision_score,
-    recall_score,
-    mean_squared_error,
-)
-from sklearn.preprocessing import StandardScaler
-from torch.utils.data import DataLoader
-
-RESULTS_DIR = Path("aeternus/lumina/results")
-
-
-def _ensure_results_dir():
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def _save_results(name: str, results: dict):
-    _ensure_results_dir()
-    out_path = RESULTS_DIR / f"{name}.json"
-    with open(out_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"[Lumina Eval] Results saved to {out_path}")
 
 
 # ---------------------------------------------------------------------------
-# Baseline helpers
+# Information Coefficient (IC)
 # ---------------------------------------------------------------------------
-def _vix_threshold_crisis_baseline(
-    features: np.ndarray,
-    labels: np.ndarray,
-    vol_col: int = 0,
-    threshold: float = 0.25,
-) -> Dict[str, float]:
-    """Simple VIX-threshold baseline: flag crisis if rolling vol > threshold."""
-    vol = features[:, vol_col]
-    preds = (vol > threshold).astype(int)
-    return {
-        "precision": precision_score(labels, preds, zero_division=0),
-        "recall": recall_score(labels, preds, zero_division=0),
-        "f1": f1_score(labels, preds, zero_division=0),
-        "accuracy": accuracy_score(labels, preds),
-    }
 
-
-def _correlation_spike_baseline(
-    features: np.ndarray,
-    labels: np.ndarray,
-    window: int = 20,
-    threshold: float = 0.7,
-) -> Dict[str, float]:
-    """Correlation spike baseline: flag when cross-asset correlation > threshold."""
-    # Simulate: use rolling std as proxy for correlation spike
-    N = len(features)
-    preds = np.zeros(N, dtype=int)
-    for i in range(window, N):
-        window_std = features[i - window:i, 0].std()
-        if window_std > threshold * features[:, 0].std():
-            preds[i] = 1
-    return {
-        "precision": precision_score(labels, preds, zero_division=0),
-        "recall": recall_score(labels, preds, zero_division=0),
-        "f1": f1_score(labels, preds, zero_division=0),
-        "accuracy": accuracy_score(labels, preds),
-    }
-
-
-def _cusum_baseline(
-    features: np.ndarray,
-    labels: np.ndarray,
-    vol_col: int = 0,
-    k: float = 0.5,
-    h: float = 5.0,
-) -> Dict[str, float]:
-    """CUSUM change detection baseline."""
-    series = features[:, vol_col]
-    mu = series[:20].mean()
-    sigma = series[:20].std() + 1e-8
-    S_pos = 0.0
-    S_neg = 0.0
-    preds = np.zeros(len(series), dtype=int)
-    for i in range(len(series)):
-        z = (series[i] - mu) / sigma
-        S_pos = max(0, S_pos + z - k)
-        S_neg = max(0, S_neg - z - k)
-        if S_pos > h or S_neg > h:
-            preds[i] = 1
-            S_pos = 0.0
-            S_neg = 0.0
-    return {
-        "precision": precision_score(labels, preds, zero_division=0),
-        "recall": recall_score(labels, preds, zero_division=0),
-        "f1": f1_score(labels, preds, zero_division=0),
-        "accuracy": accuracy_score(labels, preds),
-    }
-
-
-def _garch_vol_baseline(returns: np.ndarray, horizon: int = 5) -> np.ndarray:
+def spearman_rank_ic(
+    forecasts: np.ndarray,   # (T, N) T time steps, N assets
+    returns:   np.ndarray,   # (T, N) realized returns
+) -> np.ndarray:
     """
-    Simplified GARCH(1,1) volatility forecast.
-    σ²_t+1 = ω + α * ε²_t + β * σ²_t
+    Compute Spearman rank IC cross-sectionally at each time step.
+    Returns array of shape (T,) with IC at each step.
     """
-    omega = 0.000001
-    alpha = 0.1
-    beta = 0.85
-    T = len(returns)
-    sigma2 = np.zeros(T)
-    sigma2[0] = returns[:20].var() if len(returns) >= 20 else 0.01
-
-    for t in range(1, T):
-        sigma2[t] = omega + alpha * returns[t - 1] ** 2 + beta * sigma2[t - 1]
-
-    # Forecast h steps ahead (constant: sigma2_T for all horizons)
-    forecasts = np.sqrt(sigma2[:-1])  # realized vol as target proxy
-    return forecasts
-
-
-def _realized_vol_persistence_baseline(returns: np.ndarray, window: int = 20) -> np.ndarray:
-    """Persistence baseline: forecast future vol = current rolling realized vol."""
-    T = len(returns)
-    preds = np.zeros(T)
-    for t in range(window, T):
-        preds[t] = np.std(returns[t - window:t])
-    return preds[window:]
+    from scipy.stats import spearmanr
+    T = forecasts.shape[0]
+    ics = np.zeros(T)
+    for t in range(T):
+        fc = forecasts[t]
+        rt = returns[t]
+        valid = ~np.isnan(fc) & ~np.isnan(rt)
+        if valid.sum() < 3:
+            ics[t] = np.nan
+            continue
+        ic, _ = spearmanr(fc[valid], rt[valid])
+        ics[t] = ic
+    return ics
 
 
-def _momentum_direction_baseline(returns: np.ndarray, lookback: int = 5) -> np.ndarray:
-    """Momentum baseline for direction: sign of sum of last lookback returns."""
-    T = len(returns)
-    preds = np.zeros(T, dtype=int)
-    for t in range(lookback, T):
-        mom = returns[t - lookback:t].sum()
-        if mom > 0.001:
-            preds[t] = 2   # UP
-        elif mom < -0.001:
-            preds[t] = 0   # DOWN
-        else:
-            preds[t] = 1   # FLAT
-    return preds[lookback:]
+def pearson_ic(
+    forecasts: np.ndarray,
+    returns:   np.ndarray,
+) -> np.ndarray:
+    """Pearson correlation-based IC."""
+    T = forecasts.shape[0]
+    ics = np.zeros(T)
+    for t in range(T):
+        fc = forecasts[t]
+        rt = returns[t]
+        valid = ~np.isnan(fc) & ~np.isnan(rt)
+        if valid.sum() < 3:
+            ics[t] = np.nan
+            continue
+        fc_v, rt_v = fc[valid], rt[valid]
+        if fc_v.std() < 1e-8 or rt_v.std() < 1e-8:
+            ics[t] = 0.0
+            continue
+        ics[t] = np.corrcoef(fc_v, rt_v)[0, 1]
+    return ics
+
+
+def icir(ics: np.ndarray) -> float:
+    """Information Coefficient Information Ratio: mean(IC) / std(IC)."""
+    valid = ics[~np.isnan(ics)]
+    if len(valid) < 2:
+        return 0.0
+    return float(valid.mean() / (valid.std() + 1e-8))
+
+
+def compute_ic_metrics(
+    forecasts: np.ndarray,
+    returns:   np.ndarray,
+) -> Dict[str, float]:
+    """Compute comprehensive IC metrics."""
+    rank_ics  = spearman_rank_ic(forecasts, returns)
+    pear_ics  = pearson_ic(forecasts, returns)
+    valid_r   = rank_ics[~np.isnan(rank_ics)]
+    valid_p   = pear_ics[~np.isnan(pear_ics)]
+
+    return {
+        "rank_ic_mean":    float(np.nanmean(rank_ics)),
+        "rank_ic_std":     float(np.nanstd(rank_ics)),
+        "rank_icir":       icir(rank_ics),
+        "rank_ic_positive_frac": float((valid_r > 0).mean()) if len(valid_r) > 0 else 0.0,
+        "pearson_ic_mean": float(np.nanmean(pear_ics)),
+        "pearson_icir":    icir(pear_ics),
+    }
 
 
 # ---------------------------------------------------------------------------
-# Benchmark functions
+# Directional Accuracy
 # ---------------------------------------------------------------------------
+
+def directional_accuracy(
+    forecasts:  np.ndarray,   # (T,) or (T, N) point forecasts
+    returns:    np.ndarray,   # (T,) or (T, N) realized returns
+    threshold:  float = 0.0,  # minimum return magnitude to count
+) -> float:
+    """
+    Directional accuracy: fraction of times the forecast got the direction right.
+    Optionally filters out near-zero returns below threshold.
+    """
+    fc, rt = np.asarray(forecasts), np.asarray(returns)
+    mask   = np.abs(rt) > threshold
+
+    if mask.sum() == 0:
+        return 0.5  # no signal
+
+    fc_sign = np.sign(fc[mask])
+    rt_sign = np.sign(rt[mask])
+    return float((fc_sign == rt_sign).mean())
+
+
+def hit_rate_by_confidence(
+    forecasts:    np.ndarray,   # (T,) or (T, N)
+    returns:      np.ndarray,
+    n_bins:       int = 10,
+) -> Dict[str, np.ndarray]:
+    """
+    Hit rate stratified by forecast confidence (magnitude).
+    Returns dict with 'confidence_bins' and 'hit_rates'.
+    """
+    fc = np.asarray(forecasts).flatten()
+    rt = np.asarray(returns).flatten()
+
+    confidence = np.abs(fc)
+    percentiles = np.linspace(0, 100, n_bins + 1)
+    bin_edges   = np.percentile(confidence, percentiles)
+
+    hit_rates = np.zeros(n_bins)
+    counts    = np.zeros(n_bins)
+
+    for i in range(n_bins):
+        lo, hi    = bin_edges[i], bin_edges[i + 1]
+        in_bin    = (confidence >= lo) & (confidence < hi) if i < n_bins - 1 else (confidence >= lo)
+        if in_bin.sum() > 0:
+            hit_rates[i] = (np.sign(fc[in_bin]) == np.sign(rt[in_bin])).mean()
+            counts[i]    = in_bin.sum()
+
+    return {
+        "bin_edges":   bin_edges,
+        "hit_rates":   hit_rates,
+        "counts":      counts,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Financial Performance Metrics
+# ---------------------------------------------------------------------------
+
+def sharpe_ratio(
+    returns:    np.ndarray,
+    freq:       int   = 252,   # annualization factor
+    risk_free:  float = 0.0,
+) -> float:
+    """Annualized Sharpe ratio."""
+    excess = returns - risk_free / freq
+    if excess.std() < 1e-8:
+        return 0.0
+    return float(excess.mean() / excess.std() * math.sqrt(freq))
+
+
+def sortino_ratio(
+    returns:    np.ndarray,
+    freq:       int   = 252,
+    target:     float = 0.0,
+) -> float:
+    """Sortino ratio: Sharpe using only downside deviation."""
+    excess    = returns - target / freq
+    downside  = excess[excess < 0]
+    if len(downside) < 2 or downside.std() < 1e-8:
+        return 0.0
+    downside_std = downside.std()
+    return float(excess.mean() / downside_std * math.sqrt(freq))
+
+
+def calmar_ratio(returns: np.ndarray, freq: int = 252) -> float:
+    """Calmar ratio: annualized return / maximum drawdown."""
+    ann_ret = returns.mean() * freq
+    cum     = np.cumprod(1 + returns)
+    rolling_max = np.maximum.accumulate(cum)
+    drawdown    = (rolling_max - cum) / rolling_max
+    max_dd      = drawdown.max()
+    if max_dd < 1e-8:
+        return 0.0
+    return float(ann_ret / max_dd)
+
+
+def max_drawdown(returns: np.ndarray) -> float:
+    """Maximum drawdown of a return series."""
+    cum         = np.cumprod(1 + returns)
+    rolling_max = np.maximum.accumulate(cum)
+    drawdown    = (rolling_max - cum) / rolling_max
+    return float(drawdown.max())
+
+
+def drawdown_series(returns: np.ndarray) -> np.ndarray:
+    """Return the full drawdown time series."""
+    cum         = np.cumprod(1 + returns)
+    rolling_max = np.maximum.accumulate(cum)
+    return (rolling_max - cum) / rolling_max
+
+
+def var_cvar(
+    returns:    np.ndarray,
+    confidence: float = 0.95,
+) -> Tuple[float, float]:
+    """Value-at-Risk and Conditional Value-at-Risk (Expected Shortfall)."""
+    alpha = 1 - confidence
+    var   = float(np.percentile(returns, alpha * 100))
+    cvar  = float(returns[returns <= var].mean())
+    return var, cvar
+
+
+def omega_ratio(
+    returns:   np.ndarray,
+    threshold: float = 0.0,
+) -> float:
+    """Omega ratio: ratio of gains to losses above/below threshold."""
+    above = np.maximum(returns - threshold, 0).sum()
+    below = np.maximum(threshold - returns, 0).sum()
+    if below < 1e-8:
+        return float('inf')
+    return float(above / below)
+
+
+def compute_financial_metrics(
+    returns:    np.ndarray,
+    freq:       int = 252,
+) -> Dict[str, float]:
+    """Comprehensive set of financial performance metrics."""
+    var_95, cvar_95 = var_cvar(returns, 0.95)
+    return {
+        "annualized_return": float(returns.mean() * freq),
+        "annualized_vol":    float(returns.std() * math.sqrt(freq)),
+        "sharpe_ratio":      sharpe_ratio(returns, freq),
+        "sortino_ratio":     sortino_ratio(returns, freq),
+        "calmar_ratio":      calmar_ratio(returns, freq),
+        "max_drawdown":      max_drawdown(returns),
+        "var_95":            var_95,
+        "cvar_95":           cvar_95,
+        "omega_ratio":       omega_ratio(returns),
+        "hit_rate":          float((returns > 0).mean()),
+        "avg_win":           float(returns[returns > 0].mean()) if (returns > 0).any() else 0.0,
+        "avg_loss":          float(returns[returns < 0].mean()) if (returns < 0).any() else 0.0,
+        "win_loss_ratio":    float(abs(returns[returns > 0].mean() / (returns[returns < 0].mean() + 1e-8)))
+                             if (returns > 0).any() and (returns < 0).any() else 0.0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Calibration metrics
+# ---------------------------------------------------------------------------
+
+def expected_calibration_error(
+    probs:    np.ndarray,   # (N, C) predicted probabilities
+    labels:   np.ndarray,   # (N,) true class labels
+    n_bins:   int = 10,
+) -> Dict[str, float]:
+    """
+    Compute Expected Calibration Error (ECE) and Maximum Calibration Error (MCE).
+
+    ECE measures whether predicted confidence matches empirical accuracy.
+    """
+    confidences  = probs.max(-1)
+    predictions  = probs.argmax(-1)
+    accuracies   = (predictions == labels).astype(float)
+
+    bin_edges = np.linspace(0, 1, n_bins + 1)
+    ece, mce  = 0.0, 0.0
+
+    bin_stats = []
+    for i in range(n_bins):
+        lo, hi   = bin_edges[i], bin_edges[i + 1]
+        in_bin   = (confidences >= lo) & (confidences < hi)
+        n_in_bin = in_bin.sum()
+        if n_in_bin == 0:
+            bin_stats.append({"n": 0, "acc": 0.0, "conf": 0.0, "weight": 0.0})
+            continue
+        avg_acc  = accuracies[in_bin].mean()
+        avg_conf = confidences[in_bin].mean()
+        cal_err  = abs(avg_acc - avg_conf)
+        weight   = n_in_bin / len(labels)
+        ece     += weight * cal_err
+        mce      = max(mce, cal_err)
+        bin_stats.append({"n": n_in_bin, "acc": avg_acc, "conf": avg_conf, "weight": weight})
+
+    # Brier score
+    one_hot = np.zeros_like(probs)
+    one_hot[np.arange(len(labels)), labels] = 1
+    brier = ((probs - one_hot) ** 2).sum(-1).mean()
+
+    return {
+        "ece":         ece,
+        "mce":         mce,
+        "brier_score": float(brier),
+        "bin_stats":   bin_stats,
+    }
+
+
+def reliability_diagram_data(
+    probs:  np.ndarray,
+    labels: np.ndarray,
+    n_bins: int = 10,
+) -> Dict[str, np.ndarray]:
+    """Return data needed for plotting a reliability diagram."""
+    cal = expected_calibration_error(probs, labels, n_bins)
+    stats = cal["bin_stats"]
+
+    confs   = np.array([s["conf"] for s in stats])
+    accs    = np.array([s["acc"]  for s in stats])
+    weights = np.array([s["weight"] for s in stats])
+
+    return {"confidences": confs, "accuracies": accs, "weights": weights, "ece": cal["ece"]}
+
+
+# ---------------------------------------------------------------------------
+# Sharpe Attribution
+# ---------------------------------------------------------------------------
+
+class SharpeAttribution:
+    """
+    Decompose portfolio Sharpe ratio into factor contributions.
+    Uses Brinson-Hood-Beebower style attribution.
+    """
+
+    @staticmethod
+    def factor_attribution(
+        portfolio_returns: np.ndarray,    # (T,)
+        factor_returns:    np.ndarray,    # (T, K) K factors
+        factor_names:      Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Regress portfolio returns on factor returns.
+        Returns factor betas, R-squared, and Sharpe attribution per factor.
+        """
+        from numpy.linalg import lstsq
+
+        T, K   = factor_returns.shape
+        X      = np.hstack([np.ones((T, 1)), factor_returns])
+        y      = portfolio_returns
+
+        betas, _, _, _ = lstsq(X, y, rcond=None)
+        alpha          = betas[0]
+        factor_betas   = betas[1:]
+
+        # Fitted returns
+        y_hat = X @ betas
+        ss_res = ((y - y_hat) ** 2).sum()
+        ss_tot = ((y - y.mean()) ** 2).sum()
+        r2     = 1 - ss_res / (ss_tot + 1e-8)
+
+        # Factor Sharpe attribution
+        factor_names = factor_names or [f"factor_{i}" for i in range(K)]
+        attribution  = {}
+        for i, (name, beta) in enumerate(zip(factor_names, factor_betas)):
+            factor_contribution = beta * factor_returns[:, i]
+            attribution[name]   = {
+                "beta":   float(beta),
+                "sharpe": sharpe_ratio(factor_contribution),
+                "t_stat": float(beta / (factor_returns[:, i].std() + 1e-8) * math.sqrt(T)),
+            }
+
+        return {
+            "alpha":          float(alpha),
+            "r_squared":      float(r2),
+            "factor_betas":   factor_betas.tolist(),
+            "attribution":    attribution,
+            "residual_sharpe": sharpe_ratio(y - y_hat),
+        }
+
+    @staticmethod
+    def time_varying_sharpe(
+        returns:     np.ndarray,
+        window:      int = 63,
+        freq:        int = 252,
+    ) -> np.ndarray:
+        """Rolling Sharpe ratio over a window."""
+        T       = len(returns)
+        rolling = np.full(T, np.nan)
+        for t in range(window, T):
+            seg        = returns[t - window:t]
+            rolling[t] = sharpe_ratio(seg, freq)
+        return rolling
+
+
+# ---------------------------------------------------------------------------
+# Benchmark comparisons
+# ---------------------------------------------------------------------------
+
+class BenchmarkComparison:
+    """Compare model predictions against standard baselines."""
+
+    @staticmethod
+    def momentum_baseline(
+        prices:     np.ndarray,   # (T,)
+        lookback:   int   = 20,
+        horizon:    int   = 1,
+    ) -> np.ndarray:
+        """Simple momentum: buy if past `lookback` return is positive."""
+        T       = len(prices)
+        signals = np.zeros(T)
+        for t in range(lookback, T - horizon):
+            past_ret = (prices[t] - prices[t - lookback]) / prices[t - lookback]
+            signals[t] = 1.0 if past_ret > 0 else -1.0
+        return signals
+
+    @staticmethod
+    def mean_reversion_baseline(
+        prices:   np.ndarray,
+        window:   int = 20,
+        n_std:    float = 1.0,
+    ) -> np.ndarray:
+        """Mean reversion: buy below lower Bollinger band, sell above upper."""
+        T       = len(prices)
+        signals = np.zeros(T)
+        for t in range(window, T):
+            seg   = prices[t - window:t]
+            mean  = seg.mean()
+            std   = seg.std()
+            if prices[t] < mean - n_std * std:
+                signals[t] = 1.0
+            elif prices[t] > mean + n_std * std:
+                signals[t] = -1.0
+        return signals
+
+    @staticmethod
+    def buy_and_hold_baseline(T: int) -> np.ndarray:
+        """Always long."""
+        return np.ones(T)
+
+    @staticmethod
+    def compare(
+        model_signals:    np.ndarray,
+        realized_returns: np.ndarray,
+        baselines:        Dict[str, np.ndarray],
+        freq:             int = 252,
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Compare model against baselines.
+        Signals are in {-1, 0, 1}; returns are daily returns.
+        """
+        results = {}
+
+        # Model strategy
+        model_rets = model_signals * realized_returns
+        results["model"] = compute_financial_metrics(model_rets, freq)
+        results["model"]["directional_acc"] = directional_accuracy(model_signals, realized_returns)
+
+        for name, signals in baselines.items():
+            strat_rets = signals * realized_returns
+            results[name] = compute_financial_metrics(strat_rets, freq)
+            results[name]["directional_acc"] = directional_accuracy(signals, realized_returns)
+
+        return results
+
+
+# ---------------------------------------------------------------------------
+# Benchmark tasks (from __init__.py imports)
+# ---------------------------------------------------------------------------
+
 def crisis_detection_benchmark(
-    model,
-    test_loader: DataLoader,
-    device: torch.device,
-    vol_threshold: float = 0.25,
-    results_name: str = "crisis_detection_benchmark",
-) -> Dict[str, Dict[str, float]]:
+    model:    nn.Module,
+    data:     Dict[str, Any],
+    device:   str = "cpu",
+) -> Dict[str, float]:
     """
-    Precision / Recall / F1 on crisis detection.
-    Compares Lumina vs VIX threshold, correlation spike, CUSUM.
-
-    Args:
-        model: LuminaInference or LuminaModel
-        test_loader: yields dicts with 'price_tokens', 'is_crisis', 'features'
-        device: torch device
-
-    Returns:
-        results dict with model and baseline metrics
+    Evaluate model on financial crisis detection.
+    Returns precision, recall, F1 for crisis vs. normal regime.
     """
-    from .inference import LuminaInference
+    model.eval()
+    results = {"precision": 0.0, "recall": 0.0, "f1": 0.0}
 
-    all_labels = []
-    all_lumina_probs = []
-    all_features = []
+    if "ohlcv" not in data or "crisis_labels" not in data:
+        return results
 
-    if hasattr(model, "crisis_score"):
-        inf = model
-    else:
-        inf = LuminaInference(model, device=str(device))
+    ohlcv  = torch.from_numpy(data["ohlcv"]).float().to(device)
+    labels = data["crisis_labels"]
 
-    for batch in test_loader:
-        tokens = batch["price_tokens"].to(device)
-        labels = batch["is_crisis"].numpy()
-        attn_mask = batch.get("attention_mask")
-        if attn_mask is not None:
-            attn_mask = attn_mask.to(device)
+    with torch.no_grad():
+        enc  = model(ohlcv)
+        if isinstance(enc, dict):
+            emb = enc.get("cls_emb", enc["hidden"][:, 0])
+        else:
+            emb = enc
 
-        with torch.no_grad():
-            probs = inf.crisis_score(tokens, attn_mask).cpu().numpy()
+    # Simple thresholding on embedding norm as crisis signal
+    scores = emb.norm(dim=-1).cpu().numpy()
+    threshold = np.percentile(scores, 90)
+    preds  = (scores > threshold).astype(int)
 
-        # Extract vol features for baselines
-        feats = tokens.mean(dim=1).cpu().numpy()  # (B, D) — proxy features
+    if isinstance(labels, torch.Tensor):
+        labels = labels.numpy()
+    labels = np.asarray(labels).astype(int).flatten()
+    preds  = preds.flatten()
 
-        all_labels.append(labels)
-        all_lumina_probs.append(probs)
-        all_features.append(feats)
+    min_len = min(len(preds), len(labels))
+    preds   = preds[:min_len]
+    labels  = labels[:min_len]
 
-    labels_arr = np.concatenate(all_labels)
-    probs_arr = np.concatenate(all_lumina_probs)
-    feats_arr = np.concatenate(all_features)
+    tp = ((preds == 1) & (labels == 1)).sum()
+    fp = ((preds == 1) & (labels == 0)).sum()
+    fn = ((preds == 0) & (labels == 1)).sum()
 
-    # Threshold probabilities
-    lumina_preds = (probs_arr > 0.5).astype(int)
+    precision = tp / (tp + fp + 1e-8)
+    recall    = tp / (tp + fn + 1e-8)
+    f1        = 2 * precision * recall / (precision + recall + 1e-8)
 
-    results = {
-        "lumina": {
-            "precision": float(precision_score(labels_arr, lumina_preds, zero_division=0)),
-            "recall": float(recall_score(labels_arr, lumina_preds, zero_division=0)),
-            "f1": float(f1_score(labels_arr, lumina_preds, zero_division=0)),
-            "accuracy": float(accuracy_score(labels_arr, lumina_preds)),
-        },
-        "vix_threshold": _vix_threshold_crisis_baseline(feats_arr, labels_arr),
-        "correlation_spike": _correlation_spike_baseline(feats_arr, labels_arr),
-        "cusum": _cusum_baseline(feats_arr, labels_arr),
-    }
-
-    _save_results(results_name, results)
-    return results
+    return {"precision": float(precision), "recall": float(recall), "f1": float(f1)}
 
 
 def volatility_forecast_benchmark(
-    model,
-    test_loader: DataLoader,
-    device: torch.device,
-    horizon: int = 5,
-    results_name: str = "volatility_forecast_benchmark",
-) -> Dict[str, Dict[str, float]]:
-    """
-    RMSE comparison: Lumina vs GARCH(1,1) vs realized vol persistence.
+    model:     nn.Module,
+    data:      Dict[str, Any],
+    device:    str = "cpu",
+    vol_head:  Optional[nn.Module] = None,
+) -> Dict[str, float]:
+    """Evaluate volatility forecasting performance."""
+    model.eval()
+    results = {"mae": 0.0, "rmse": 0.0, "qlike": 0.0}
 
-    Returns:
-        results dict with RMSE and MAE for each method
-    """
-    from .inference import LuminaInference
+    if "ohlcv" not in data or "vol_targets" not in data:
+        return results
 
-    if hasattr(model, "volatility_forecast"):
-        inf = model
-    else:
-        inf = LuminaInference(model, device=str(device))
+    ohlcv      = torch.from_numpy(data["ohlcv"]).float().to(device)
+    vol_targets = np.asarray(data["vol_targets"])
 
-    all_lumina_preds = []
-    all_targets = []
-    all_returns = []
+    with torch.no_grad():
+        enc = model(ohlcv)
+        if isinstance(enc, dict):
+            emb = enc.get("cls_emb", enc["hidden"][:, 0])
+        else:
+            emb = enc
 
-    for batch in test_loader:
-        tokens = batch["price_tokens"].to(device)
-        # Target: actual realized vol (from batch, or compute from returns)
-        target_vol = batch.get("target_vol")
-        if target_vol is None:
-            # Use std of token features as proxy
-            target_vol = tokens.std(dim=1).mean(dim=-1, keepdim=True).expand(-1, horizon)
+        if vol_head is not None:
+            preds = vol_head(emb).cpu().numpy().flatten()
+        else:
+            # Proxy: use embedding norm as vol signal
+            preds = emb.norm(dim=-1).cpu().numpy() * 0.01
 
-        attn_mask = batch.get("attention_mask")
-        if attn_mask is not None:
-            attn_mask = attn_mask.to(device)
+    min_len    = min(len(preds), len(vol_targets))
+    preds      = preds[:min_len]
+    vol_targets = vol_targets[:min_len]
 
-        with torch.no_grad():
-            mean_vol, _ = inf.volatility_forecast(tokens, horizon=horizon, attention_mask=attn_mask)
+    mae   = float(np.abs(preds - vol_targets).mean())
+    rmse  = float(np.sqrt(((preds - vol_targets) ** 2).mean()))
+    qlike = float((vol_targets / (preds + 1e-8) - np.log(vol_targets / (preds + 1e-8)) - 1).mean())
 
-        all_lumina_preds.append(mean_vol.cpu().numpy())
-        all_targets.append(target_vol.cpu().numpy() if torch.is_tensor(target_vol) else target_vol)
-        # Proxy returns from token embeddings
-        returns_proxy = tokens.mean(dim=-1).cpu().numpy()  # (B, T)
-        all_returns.append(returns_proxy)
-
-    lumina_preds = np.concatenate(all_lumina_preds)    # (N, horizon)
-    targets = np.concatenate(all_targets)               # (N, horizon) or (N,)
-    if targets.ndim == 1:
-        targets = np.stack([targets] * horizon, axis=1)
-
-    # Flatten for RMSE
-    lumina_flat = lumina_preds.flatten()
-    target_flat = targets.flatten()
-
-    lumina_rmse = float(np.sqrt(mean_squared_error(target_flat, lumina_flat)))
-    lumina_mae = float(np.mean(np.abs(lumina_flat - target_flat)))
-
-    # GARCH baseline
-    all_returns_concat = np.concatenate(all_returns, axis=0)
-    returns_1d = all_returns_concat.mean(axis=0)  # average across batch
-    garch_preds = _garch_vol_baseline(returns_1d, horizon)[:len(lumina_flat)]
-    target_trimmed = target_flat[:len(garch_preds)]
-
-    garch_rmse = float(np.sqrt(mean_squared_error(target_trimmed, garch_preds)))
-    garch_mae = float(np.mean(np.abs(garch_preds - target_trimmed)))
-
-    # Persistence baseline
-    persist_preds = _realized_vol_persistence_baseline(returns_1d)[:len(lumina_flat)]
-    target_persist = target_flat[:len(persist_preds)]
-    persist_rmse = float(np.sqrt(mean_squared_error(target_persist, persist_preds)))
-    persist_mae = float(np.mean(np.abs(persist_preds - target_persist)))
-
-    results = {
-        "lumina": {"rmse": lumina_rmse, "mae": lumina_mae},
-        "garch_1_1": {"rmse": garch_rmse, "mae": garch_mae},
-        "realized_vol_persistence": {"rmse": persist_rmse, "mae": persist_mae},
-    }
-
-    _save_results(results_name, results)
-    return results
+    return {"mae": mae, "rmse": rmse, "qlike": qlike}
 
 
 def return_direction_benchmark(
-    model,
-    test_loader: DataLoader,
-    device: torch.device,
-    results_name: str = "return_direction_benchmark",
-) -> Dict[str, Dict[str, float]]:
-    """
-    Accuracy comparison: Lumina vs momentum baseline for return direction.
-    """
-    from .inference import LuminaInference
-    from .finetuning import ReturnDirectionHead
-
-    if hasattr(model, "_encode"):
-        inf = model
-    else:
-        inf = LuminaInference(model, device=str(device))
-
-    all_lumina_preds = []
-    all_labels = []
-    all_returns = []
-
-    for batch in test_loader:
-        tokens = batch["price_tokens"].to(device)
-        labels = batch.get("direction_labels")
-        if labels is None:
-            # Create proxy labels from token variance
-            returns_proxy = tokens.std(dim=-1).mean(dim=-1)  # (B,)
-            labels = ReturnDirectionHead.returns_to_labels(returns_proxy)
-        elif torch.is_tensor(labels):
-            pass
-        else:
-            labels = torch.tensor(labels, dtype=torch.long)
-
-        attn_mask = batch.get("attention_mask")
-        if attn_mask is not None:
-            attn_mask = attn_mask.to(device)
-
-        with torch.no_grad():
-            out = inf._encode(tokens, attn_mask) if hasattr(inf, "_encode") else \
-                  model(tokens, attention_mask=attn_mask)
-            # Use cls_logits or hidden mean for direction
-            if "cls_logits" in out and out["cls_logits"].shape[-1] >= 3:
-                logits = out["cls_logits"][:, :3]
-                preds = logits.argmax(dim=-1).cpu()
-            else:
-                hidden = out["hidden"].mean(1)  # (B, d_model)
-                # Fallback random direction based on sign of first dim
-                preds = (hidden[:, 0] > 0).long().cpu() * 2  # UP=2 or DOWN=0
-
-        all_lumina_preds.append(preds.numpy())
-        all_labels.append(labels.numpy() if torch.is_tensor(labels) else labels)
-        returns_proxy = tokens.mean(dim=-1).mean(dim=-1).cpu().numpy()
-        all_returns.append(returns_proxy)
-
-    lumina_preds = np.concatenate(all_lumina_preds)
-    labels_arr = np.concatenate(all_labels)
-
-    lumina_acc = float(accuracy_score(labels_arr, lumina_preds))
-
-    # Momentum baseline
-    returns_concat = np.concatenate(all_returns)
-    # Ensure enough data for momentum
-    if len(returns_concat) > 10:
-        mom_preds = _momentum_direction_baseline(returns_concat, lookback=5)
-        labels_trimmed = labels_arr[-len(mom_preds):]
-        mom_acc = float(accuracy_score(labels_trimmed, mom_preds))
-    else:
-        mom_acc = 1.0 / 3  # random baseline
-
-    results = {
-        "lumina": {"accuracy": lumina_acc},
-        "momentum_baseline": {"accuracy": mom_acc},
-        "random_baseline": {"accuracy": 1.0 / 3},
-    }
-
-    _save_results(results_name, results)
-    return results
-
-
-def zero_shot_regime_transfer(
-    model,
-    held_out_loader: DataLoader,
-    device: torch.device,
-    held_out_regime: int = 7,
-    n_regimes: int = 8,
-    results_name: str = "zero_shot_regime_transfer",
+    model:       nn.Module,
+    data:        Dict[str, Any],
+    device:      str = "cpu",
+    class_head:  Optional[nn.Module] = None,
 ) -> Dict[str, float]:
-    """
-    Test on a regime type not seen during fine-tuning.
+    """Evaluate direction prediction accuracy."""
+    model.eval()
+    results = {"accuracy": 0.0, "directional_acc": 0.0}
 
-    Evaluates how well Lumina generalizes to unseen market conditions.
-    Uses cosine similarity of representations as a zero-shot proximity measure.
-    """
-    from .inference import LuminaInference
+    if "ohlcv" not in data or "direction_labels" not in data:
+        return results
 
-    if hasattr(model, "regime_probabilities"):
-        inf = model
+    ohlcv  = torch.from_numpy(data["ohlcv"]).float().to(device)
+    labels = np.asarray(data["direction_labels"])
+
+    with torch.no_grad():
+        enc = model(ohlcv)
+        if isinstance(enc, dict):
+            emb = enc.get("cls_emb", enc["hidden"][:, 0])
+        else:
+            emb = enc
+
+        if class_head is not None:
+            logits = class_head(emb)
+            probs  = F.softmax(logits, dim=-1).cpu().numpy()
+            preds  = logits.argmax(-1).cpu().numpy()
+        else:
+            # Default: use sign of first embedding dim
+            preds = (emb[:, 0] > 0).long().cpu().numpy()
+            probs = None
+
+    min_len = min(len(preds), len(labels))
+    preds   = preds[:min_len]
+    labels  = labels[:min_len]
+
+    acc = float((preds == labels).mean())
+
+    # Direction acc ignoring "flat" class (label = 2)
+    not_flat = labels != 2
+    if not_flat.sum() > 0:
+        dir_acc = float((preds[not_flat] == labels[not_flat]).mean())
     else:
-        inf = LuminaInference(model, device=str(device))
+        dir_acc = acc
 
-    all_regime_probs = []
-    all_true_regimes = []
+    result = {"accuracy": acc, "directional_acc": dir_acc}
 
-    for batch in held_out_loader:
-        tokens = batch["price_tokens"].to(device)
-        true_regimes = batch.get("regime")
-        attn_mask = batch.get("attention_mask")
-        if attn_mask is not None:
-            attn_mask = attn_mask.to(device)
+    if probs is not None:
+        cal = expected_calibration_error(probs[:min_len], labels)
+        result["ece"]         = cal["ece"]
+        result["brier_score"] = cal["brier_score"]
 
-        with torch.no_grad():
-            regime_probs = inf.regime_probabilities(tokens, attn_mask, n_regimes=n_regimes)
-
-        all_regime_probs.append(regime_probs.cpu().numpy())
-        if true_regimes is not None:
-            all_true_regimes.append(
-                true_regimes.numpy() if torch.is_tensor(true_regimes) else np.array(true_regimes)
-            )
-
-    all_regime_probs = np.concatenate(all_regime_probs)  # (N, n_regimes)
-    pred_regimes = all_regime_probs.argmax(axis=1)
-
-    results = {
-        "held_out_regime": int(held_out_regime),
-        "mean_prob_held_out_regime": float(all_regime_probs[:, held_out_regime].mean()),
-        "pred_regime_distribution": {
-            str(i): float((pred_regimes == i).mean())
-            for i in range(n_regimes)
-        },
-    }
-
-    if all_true_regimes:
-        true_arr = np.concatenate(all_true_regimes)
-        # Filter to held-out regime samples
-        mask = true_arr == held_out_regime
-        if mask.sum() > 0:
-            held_out_probs = all_regime_probs[mask, held_out_regime]
-            results["held_out_top1_recall"] = float(
-                (pred_regimes[mask] == held_out_regime).mean()
-            )
-            results["held_out_avg_prob"] = float(held_out_probs.mean())
-        overall_acc = float(accuracy_score(true_arr, pred_regimes))
-        results["overall_accuracy"] = overall_acc
-
-    _save_results(results_name, results)
-    return results
+    return result
 
 
 def perplexity(
-    model,
-    test_loader: DataLoader,
-    device: torch.device,
-    results_name: str = "perplexity",
+    model:   nn.Module,
+    loader:  Any,
+    device:  str = "cpu",
 ) -> float:
     """
-    Language model perplexity on held-out return sequences.
-
+    Compute perplexity for a causal language / next-patch-prediction model.
     Perplexity = exp(mean NLL per token).
-    For continuous tokens: use MSE-based NLL proxy
-    (treat each predicted embedding as Gaussian with unit variance).
     """
     model.eval()
-    total_nll = 0.0
-    total_tokens = 0
+    total_nll  = 0.0
+    total_toks = 0
 
     with torch.no_grad():
-        for batch in test_loader:
-            tokens = batch["price_tokens"].to(device)
-            attn_mask = batch.get("attention_mask")
-            if attn_mask is not None:
-                attn_mask = attn_mask.to(device)
+        for batch in loader:
+            ohlcv = batch["ohlcv"].to(device) if isinstance(batch, dict) else batch.to(device)
 
-            out = model(tokens, attention_mask=attn_mask)
-            lm_out = out.get("lm_output")
+            out = model(ohlcv)
+            if isinstance(out, dict) and "logits" in out:
+                logits = out["logits"][:, :-1]
+                targets = ohlcv[:, 1:, 3].long()  # close price as proxy
+                nll     = F.cross_entropy(logits.reshape(-1, logits.size(-1)),
+                                          targets.reshape(-1), reduction="sum")
+                total_nll  += nll.item()
+                total_toks += targets.numel()
+            elif isinstance(out, dict) and "hidden" in out:
+                # NPP-style: use reconstruction loss
+                hidden  = out["hidden"]
+                loss    = (hidden ** 2).mean()
+                total_nll  += loss.item()
+                total_toks += 1
 
-            if lm_out is not None:
-                # Predict token at t from hidden at t-1
-                preds = lm_out[:, :-1]     # (B, T-1, D)
-                targets = tokens[:, 1:]    # (B, T-1, D)
-
-                if attn_mask is not None:
-                    valid = attn_mask[:, 1:].bool()
-                else:
-                    valid = torch.ones(preds.shape[:2], dtype=torch.bool, device=device)
-
-                # Gaussian NLL proxy: 0.5 * ||pred - target||^2 per token
-                sq_err = (preds - targets).pow(2).mean(dim=-1)  # (B, T-1)
-                nll = 0.5 * sq_err[valid].sum().item()
-                total_nll += nll
-                total_tokens += valid.sum().item()
-
-    if total_tokens == 0:
-        return float("inf")
-
-    avg_nll = total_nll / total_tokens
-    ppl = math.exp(min(avg_nll, 300))  # cap to avoid overflow
-
-    results = {"perplexity": ppl, "avg_nll_per_token": avg_nll, "total_tokens": total_tokens}
-    _save_results(results_name, results)
-    return ppl
+    if total_toks == 0:
+        return float('inf')
+    return float(math.exp(total_nll / total_toks))
 
 
-def attention_visualization(
-    model,
-    sample_batch: dict,
-    device: torch.device,
-    layer_idx: int = -1,
-    head_idx: int = 0,
-    results_name: str = "attention_maps",
-) -> np.ndarray:
+# ---------------------------------------------------------------------------
+# Unified evaluation framework
+# ---------------------------------------------------------------------------
+
+class ModelEvaluator:
     """
-    Extract and save attention maps from a transformer layer.
-
-    Args:
-        model: LuminaModel
-        sample_batch: batch dict with 'price_tokens'
-        layer_idx: which transformer layer (default: last)
-        head_idx: which attention head
-
-    Returns:
-        attn_map: (T, T) numpy array of attention weights
+    Unified evaluator for Lumina models.
+    Runs all benchmark tasks and returns comprehensive metrics.
     """
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
 
-    model.eval()
-    tokens = sample_batch["price_tokens"][:1].to(device)  # use first sample
-    attn_mask = sample_batch.get("attention_mask")
-    if attn_mask is not None:
-        attn_mask = attn_mask[:1].to(device)
+    def __init__(
+        self,
+        model:   nn.Module,
+        device:  str = "cpu",
+        heads:   Optional[Dict[str, nn.Module]] = None,
+    ):
+        self.model  = model.to(device)
+        self.device = device
+        self.heads  = heads or {}
 
-    # Hook to capture attention weights
-    attn_weights_store = {}
+    def evaluate_all(
+        self,
+        test_data: Dict[str, Any],
+        freq:      int = 252,
+    ) -> Dict[str, Any]:
+        """Run all evaluation benchmarks."""
+        results = {}
 
-    def _hook(name):
-        def hook(module, input, output):
-            # output[0] = attended output, not weights directly
-            # We need to capture inside the attention module
-            pass
-        return hook
+        # Crisis detection
+        results["crisis"] = crisis_detection_benchmark(self.model, test_data, self.device)
 
-    # Alternative: monkey-patch the attention module temporarily
-    # Find target layer
-    if hasattr(model, "transformer") and hasattr(model.transformer, "blocks"):
-        blocks = model.transformer.blocks
-        target_idx = layer_idx if layer_idx >= 0 else len(blocks) + layer_idx
-        target_block = blocks[target_idx]
-        target_attn = target_block.attn
-    else:
-        target_attn = None
+        # Volatility forecasting
+        results["volatility"] = volatility_forecast_benchmark(
+            self.model, test_data, self.device,
+            vol_head=self.heads.get("volatility"),
+        )
 
-    attn_map = None
+        # Direction prediction
+        results["direction"] = return_direction_benchmark(
+            self.model, test_data, self.device,
+            class_head=self.heads.get("direction"),
+        )
 
-    if target_attn is not None:
-        original_forward = target_attn.forward
+        # IC metrics if forecasts available
+        if "forecasts" in test_data and "returns" in test_data:
+            results["ic"] = compute_ic_metrics(
+                test_data["forecasts"], test_data["returns"]
+            )
 
-        def patched_forward(*args, **kwargs):
-            # Capture attention weights
-            x = args[0]
-            B, T, _ = x.shape
-            n_heads = target_attn.n_heads
-            head_dim = target_attn.head_dim
-            scale = head_dim ** -0.5
+        # Financial metrics if strategy returns available
+        if "strategy_returns" in test_data:
+            results["financial"] = compute_financial_metrics(
+                test_data["strategy_returns"], freq
+            )
 
-            Q = target_attn.q_proj(x)
-            K = target_attn.k_proj(x)
-            from einops import rearrange
-            Q = rearrange(Q, "b t (h d) -> b h t d", h=n_heads)
-            K = rearrange(K, "b t (h d) -> b h t d", h=n_heads)
-            scores = torch.matmul(Q, K.transpose(-2, -1)) * scale
-            weights = F.softmax(scores, dim=-1)
-            attn_weights_store["weights"] = weights.detach().cpu()
-            return original_forward(*args, **kwargs)
+        return results
 
-        target_attn.forward = patched_forward
+    def evaluate_ic(
+        self,
+        ohlcv:    np.ndarray,   # (T, window, 5)
+        returns:  np.ndarray,   # (T, N) cross-sectional returns
+    ) -> Dict[str, float]:
+        """Evaluate information coefficient."""
+        self.model.eval()
+        all_forecasts = []
 
         with torch.no_grad():
-            try:
-                model(tokens, attention_mask=attn_mask)
-            finally:
-                target_attn.forward = original_forward
+            for i in range(len(ohlcv)):
+                x   = torch.from_numpy(ohlcv[i]).float().unsqueeze(0).to(self.device)
+                enc = self.model(x)
+                if isinstance(enc, dict):
+                    emb = enc.get("cls_emb", enc["hidden"][:, 0])
+                else:
+                    emb = enc
+                all_forecasts.append(emb.cpu().numpy())
 
-        if "weights" in attn_weights_store:
-            w = attn_weights_store["weights"]  # (B, n_heads, T, T)
-            attn_map = w[0, head_idx].numpy()  # (T, T)
+        forecasts = np.array(all_forecasts).squeeze(1)[:, 0]   # use first dim as signal
 
-            # Save visualization
-            _ensure_results_dir()
-            fig, ax = plt.subplots(figsize=(10, 8))
-            im = ax.imshow(attn_map, aspect="auto", cmap="viridis")
-            plt.colorbar(im, ax=ax)
-            ax.set_title(f"Attention Map — Layer {target_idx}, Head {head_idx}")
-            ax.set_xlabel("Key position")
-            ax.set_ylabel("Query position")
-            save_path = RESULTS_DIR / f"{results_name}_layer{target_idx}_head{head_idx}.png"
-            plt.savefig(save_path, dpi=100, bbox_inches="tight")
-            plt.close()
-            print(f"[Lumina Eval] Attention map saved to {save_path}")
+        if returns.ndim == 1:
+            returns = returns.reshape(-1, 1)
 
-    return attn_map if attn_map is not None else np.zeros((1, 1))
+        if forecasts.ndim == 1:
+            forecasts = forecasts.reshape(-1, 1)
+
+        return compute_ic_metrics(forecasts, returns)
 
 
-def probing_analysis(
-    model,
-    test_loader: DataLoader,
-    device: torch.device,
-    probe_tasks: Optional[List[str]] = None,
-    results_name: str = "probing_analysis",
-) -> Dict[str, Dict[str, float]]:
+# ---------------------------------------------------------------------------
+# Exports
+# ---------------------------------------------------------------------------
+
+__all__ = [
+    "spearman_rank_ic",
+    "pearson_ic",
+    "icir",
+    "compute_ic_metrics",
+    "directional_accuracy",
+    "hit_rate_by_confidence",
+    "sharpe_ratio",
+    "sortino_ratio",
+    "calmar_ratio",
+    "max_drawdown",
+    "drawdown_series",
+    "var_cvar",
+    "omega_ratio",
+    "compute_financial_metrics",
+    "expected_calibration_error",
+    "reliability_diagram_data",
+    "SharpeAttribution",
+    "BenchmarkComparison",
+    "ModelEvaluator",
+    "PortfolioBacktester",
+    "RiskMetrics",
+    "FactorEvaluator",
+    "StatisticalTests",
+    "crisis_detection_benchmark",
+    "volatility_forecast_benchmark",
+    "return_direction_benchmark",
+    "perplexity",
+]
+
+
+# ---------------------------------------------------------------------------
+# Portfolio Backtester
+# ---------------------------------------------------------------------------
+
+class PortfolioBacktester:
+    """Backtest a portfolio strategy using model-generated signals.
+
+    Simulates portfolio performance given:
+    - Predicted signal/alpha scores (cross-sectional)
+    - Actual realized returns
+    - Transaction costs
+    - Portfolio constraints (long-only, max weight, etc.)
+
+    Supports:
+    - Equal-weight top-N long-only strategy
+    - Signal-weighted long-short strategy
+    - Risk-parity weighting
+    - Maximum Sharpe portfolio (simplified)
+
+    Args:
+        strategy:         "top_n" | "signal_weighted" | "risk_parity"
+        top_n:            for "top_n": number of stocks to hold long
+        transaction_cost: per-trade cost as fraction (e.g., 0.001 = 10bps)
+        rebalance_freq:   rebalance every N periods
+        max_weight:       maximum weight per asset (for diversification)
+        min_weight:       minimum weight per asset
+
+    Example:
+        >>> backtester = PortfolioBacktester(strategy="top_n", top_n=20)
+        >>> signals = np.random.randn(252, 100)  # (T, N) signal matrix
+        >>> returns = np.random.randn(252, 100) * 0.01
+        >>> metrics = backtester.run(signals, returns)
+        >>> print(metrics["sharpe_ratio"])
     """
-    Linear probing analysis: train linear classifiers on frozen representations
-    to test what information is encoded in the hidden states.
 
-    Probe tasks: 'regime', 'crisis', 'volatility_level', 'trend_direction'
+    def __init__(
+        self,
+        strategy: str = "signal_weighted",
+        top_n: int = 20,
+        transaction_cost: float = 0.001,
+        rebalance_freq: int = 1,
+        max_weight: float = 0.10,
+        min_weight: float = 0.0,
+        annualization: float = 252.0,
+    ):
+        self.strategy = strategy
+        self.top_n = top_n
+        self.transaction_cost = transaction_cost
+        self.rebalance_freq = rebalance_freq
+        self.max_weight = max_weight
+        self.min_weight = min_weight
+        self.annualization = annualization
 
-    Returns:
-        dict mapping probe_task → metrics
+    def _compute_weights(
+        self,
+        signal: np.ndarray,
+        prev_weights: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Compute portfolio weights from signal vector.
+
+        Args:
+            signal:       (N,) signal for one time period
+            prev_weights: (N,) previous period weights
+
+        Returns:
+            weights: (N,) portfolio weights
+        """
+        N = len(signal)
+
+        if self.strategy == "top_n":
+            # Equal-weight top-N long
+            top_idx = np.argsort(signal)[-self.top_n:]
+            weights = np.zeros(N)
+            weights[top_idx] = 1.0 / self.top_n
+
+        elif self.strategy == "signal_weighted":
+            # Long-short, signal proportional weighting
+            weights = signal.copy()
+            # Normalize: long leg and short leg separately
+            pos_mask = weights > 0
+            neg_mask = weights < 0
+            if pos_mask.any():
+                weights[pos_mask] /= weights[pos_mask].sum()
+            if neg_mask.any():
+                weights[neg_mask] /= -weights[neg_mask].sum()
+            weights *= 0.5  # 50% long, 50% short
+
+        elif self.strategy == "risk_parity":
+            # Naive risk parity: equal weight (simplified, no vol estimates)
+            weights = np.ones(N) / N
+
+        else:
+            weights = np.ones(N) / N
+
+        # Apply constraints
+        weights = np.clip(weights, self.min_weight, self.max_weight)
+
+        # Renormalize long side
+        pos_sum = weights[weights > 0].sum()
+        if pos_sum > 0:
+            weights[weights > 0] /= pos_sum
+
+        return weights
+
+    def _compute_turnover(
+        self,
+        new_weights: np.ndarray,
+        old_weights: np.ndarray,
+    ) -> float:
+        """Compute portfolio turnover (sum of absolute weight changes / 2)."""
+        return np.abs(new_weights - old_weights).sum() / 2.0
+
+    def run(
+        self,
+        signals: np.ndarray,
+        returns: np.ndarray,
+    ) -> Dict[str, Any]:
+        """Run full backtest.
+
+        Args:
+            signals: (T, N) signal matrix (one row per time period)
+            returns: (T, N) realized return matrix
+
+        Returns:
+            results: dict with performance metrics and time series
+        """
+        T, N = signals.shape
+        assert returns.shape == (T, N), f"Shape mismatch: signals={signals.shape}, returns={returns.shape}"
+
+        portfolio_returns = np.zeros(T)
+        weights = np.zeros(N)
+        all_weights = np.zeros((T, N))
+        turnovers = np.zeros(T)
+
+        for t in range(T):
+            if t % self.rebalance_freq == 0:
+                new_weights = self._compute_weights(signals[t], weights)
+                turnover = self._compute_turnover(new_weights, weights)
+                turnovers[t] = turnover
+                weights = new_weights
+
+            all_weights[t] = weights
+            gross_return = (weights * returns[t]).sum()
+            tc = self.transaction_cost * turnovers[t]
+            portfolio_returns[t] = gross_return - tc
+
+        # Compute metrics
+        cumulative = np.cumprod(1 + portfolio_returns)
+        total_return = cumulative[-1] - 1.0
+        ann_return = (cumulative[-1]) ** (self.annualization / T) - 1.0
+        ann_vol = portfolio_returns.std() * np.sqrt(self.annualization)
+        sr = ann_return / (ann_vol + 1e-10)
+        dd_series = 1 - cumulative / np.maximum.accumulate(cumulative)
+        max_dd = dd_series.max()
+
+        return {
+            "portfolio_returns": portfolio_returns,
+            "cumulative_returns": cumulative,
+            "weights": all_weights,
+            "turnovers": turnovers,
+            "total_return": total_return,
+            "annualized_return": ann_return,
+            "annualized_volatility": ann_vol,
+            "sharpe_ratio": sr,
+            "max_drawdown": max_dd,
+            "avg_turnover": turnovers[turnovers > 0].mean() if (turnovers > 0).any() else 0.0,
+            "total_transaction_costs": (turnovers * self.transaction_cost).sum(),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Risk Metrics
+# ---------------------------------------------------------------------------
+
+class RiskMetrics:
+    """Comprehensive risk metrics for financial portfolios.
+
+    Computes both standard and advanced risk measures.
+
+    Standard metrics:
+    - Volatility (annualized)
+    - Value at Risk (VaR) at multiple confidence levels
+    - Conditional VaR (CVaR) / Expected Shortfall
+    - Maximum Drawdown and Recovery Time
+
+    Advanced metrics:
+    - Downside Deviation and Sortino Ratio
+    - Ulcer Index
+    - Sterling Ratio
+    - Pain Index
+    - Tail Ratio (95th / 5th percentile)
+    - Gain-to-Pain Ratio
+
+    Args:
+        annualization: periods per year (252 for daily, 52 for weekly)
+        risk_free_rate: annualized risk-free rate
+
+    Example:
+        >>> rm = RiskMetrics(annualization=252)
+        >>> returns = np.random.randn(252) * 0.01
+        >>> metrics = rm.compute_all(returns)
     """
-    if probe_tasks is None:
-        probe_tasks = ["regime", "crisis"]
 
-    model.eval()
-    all_hiddens = []
-    all_regime_labels = []
-    all_crisis_labels = []
+    def __init__(
+        self,
+        annualization: float = 252.0,
+        risk_free_rate: float = 0.05,
+    ):
+        self.annualization = annualization
+        self.risk_free_rate = risk_free_rate
+        self._daily_rf = risk_free_rate / annualization
 
-    with torch.no_grad():
-        for batch in test_loader:
-            tokens = batch["price_tokens"].to(device)
-            attn_mask = batch.get("attention_mask")
-            if attn_mask is not None:
-                attn_mask = attn_mask.to(device)
+    def volatility(self, returns: np.ndarray) -> float:
+        """Annualized volatility (standard deviation of returns)."""
+        return returns.std() * np.sqrt(self.annualization)
 
-            out = model(tokens, attention_mask=attn_mask)
-            hidden = out["hidden"]
+    def downside_deviation(
+        self,
+        returns: np.ndarray,
+        threshold: Optional[float] = None,
+    ) -> float:
+        """Downside deviation (volatility of negative returns only).
 
-            # Mean pool
-            if attn_mask is not None:
-                m = attn_mask.float().to(device).unsqueeze(-1)
-                pooled = (hidden * m).sum(1) / (m.sum(1) + 1e-8)
+        Args:
+            returns:   (T,) return series
+            threshold: minimum acceptable return (defaults to daily risk-free)
+
+        Returns:
+            downside_dev: annualized downside deviation
+        """
+        if threshold is None:
+            threshold = self._daily_rf
+        downside = np.minimum(returns - threshold, 0.0)
+        return np.sqrt((downside ** 2).mean()) * np.sqrt(self.annualization)
+
+    def ulcer_index(self, returns: np.ndarray) -> float:
+        """Ulcer Index: RMS of drawdowns.
+
+        Measures 'pain' by RMS of all drawdowns (not just maximum).
+        """
+        cum = np.cumprod(1 + returns)
+        peak = np.maximum.accumulate(cum)
+        drawdown_pct = (cum - peak) / (peak + 1e-10) * 100
+        return np.sqrt((drawdown_pct ** 2).mean())
+
+    def pain_index(self, returns: np.ndarray) -> float:
+        """Pain Index: mean of all drawdowns."""
+        cum = np.cumprod(1 + returns)
+        peak = np.maximum.accumulate(cum)
+        drawdown_pct = np.abs((cum - peak) / (peak + 1e-10)) * 100
+        return drawdown_pct.mean()
+
+    def tail_ratio(self, returns: np.ndarray, percentile: float = 95.0) -> float:
+        """Tail ratio: upper tail / lower tail return magnitude ratio."""
+        upper = np.percentile(returns, percentile)
+        lower = np.percentile(returns, 100 - percentile)
+        return abs(upper / (lower + 1e-10))
+
+    def gain_to_pain(self, returns: np.ndarray) -> float:
+        """Gain-to-Pain ratio: sum of gains / sum of |losses|."""
+        gains = returns[returns > 0].sum()
+        losses = -returns[returns < 0].sum()
+        return gains / (losses + 1e-10)
+
+    def var(
+        self,
+        returns: np.ndarray,
+        confidence_level: float = 0.95,
+        method: str = "historical",
+    ) -> float:
+        """Value at Risk.
+
+        Args:
+            returns:          (T,) return series
+            confidence_level: e.g., 0.95 for 95% VaR
+            method:           "historical" | "parametric"
+
+        Returns:
+            var: VaR at given confidence level (positive number)
+        """
+        if method == "historical":
+            return -np.percentile(returns, (1 - confidence_level) * 100)
+        elif method == "parametric":
+            import scipy.stats as stats
+            mu = returns.mean()
+            sigma = returns.std()
+            z = stats.norm.ppf(1 - confidence_level)
+            return -(mu + z * sigma)
+        else:
+            return -np.percentile(returns, (1 - confidence_level) * 100)
+
+    def cvar(
+        self,
+        returns: np.ndarray,
+        confidence_level: float = 0.95,
+    ) -> float:
+        """Conditional VaR (Expected Shortfall).
+
+        Average of returns below VaR threshold.
+        """
+        var = self.var(returns, confidence_level, "historical")
+        tail = returns[returns <= -var]
+        if len(tail) == 0:
+            return var
+        return -tail.mean()
+
+    def sterling_ratio(self, returns: np.ndarray, period_years: float = 1.0) -> float:
+        """Sterling Ratio: annualized return / average annual max drawdown."""
+        ann_ret = returns.mean() * self.annualization
+        cum = np.cumprod(1 + returns)
+        peak = np.maximum.accumulate(cum)
+        mdd = ((peak - cum) / peak).max()
+        return ann_ret / (mdd + 0.10 + 1e-10)  # +10% penalty per Sterling's original formula
+
+    def compute_all(self, returns: np.ndarray) -> Dict[str, float]:
+        """Compute all risk metrics.
+
+        Args:
+            returns: (T,) return series
+
+        Returns:
+            metrics: dict of metric name → value
+        """
+        ann_ret = returns.mean() * self.annualization
+        ann_vol = self.volatility(returns)
+        sortino = (ann_ret - self.risk_free_rate) / (self.downside_deviation(returns) + 1e-10)
+        cum = np.cumprod(1 + returns)
+        peak = np.maximum.accumulate(cum)
+        mdd = ((peak - cum) / peak).max()
+
+        return {
+            "annualized_return": ann_ret,
+            "annualized_volatility": ann_vol,
+            "sharpe_ratio": (ann_ret - self.risk_free_rate) / (ann_vol + 1e-10),
+            "sortino_ratio": sortino,
+            "max_drawdown": mdd,
+            "calmar_ratio": ann_ret / (mdd + 1e-10),
+            "var_95": self.var(returns, 0.95),
+            "var_99": self.var(returns, 0.99),
+            "cvar_95": self.cvar(returns, 0.95),
+            "cvar_99": self.cvar(returns, 0.99),
+            "downside_deviation": self.downside_deviation(returns),
+            "ulcer_index": self.ulcer_index(returns),
+            "pain_index": self.pain_index(returns),
+            "tail_ratio": self.tail_ratio(returns),
+            "gain_to_pain": self.gain_to_pain(returns),
+            "sterling_ratio": self.sterling_ratio(returns),
+            "n_periods": len(returns),
+            "n_positive": (returns > 0).sum(),
+            "hit_rate": (returns > 0).mean(),
+            "skewness": float(np.mean(((returns - returns.mean()) / (returns.std() + 1e-10)) ** 3)),
+            "kurtosis": float(np.mean(((returns - returns.mean()) / (returns.std() + 1e-10)) ** 4) - 3),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Factor Evaluator
+# ---------------------------------------------------------------------------
+
+class FactorEvaluator:
+    """Evaluate a financial factor/alpha signal.
+
+    Computes standard quantitative finance factor evaluation metrics:
+    - Information Coefficient (IC) and IC IR
+    - Quantile analysis (factor sorted returns by quintile)
+    - Monotonicity tests
+    - Turnover and capacity estimates
+    - Factor decay analysis (IC at multiple horizons)
+
+    Args:
+        n_quantiles:   number of quantile buckets for sorting
+        annualization: periods per year
+
+    Example:
+        >>> evaluator = FactorEvaluator(n_quantiles=5)
+        >>> T, N = 252, 100
+        >>> factors = np.random.randn(T, N)   # (time, assets) factor scores
+        >>> returns = np.random.randn(T, N) * 0.01
+        >>> results = evaluator.evaluate(factors, returns)
+    """
+
+    def __init__(self, n_quantiles: int = 5, annualization: float = 252.0):
+        self.n_quantiles = n_quantiles
+        self.annualization = annualization
+
+    def ic_series(
+        self, factors: np.ndarray, returns: np.ndarray, method: str = "spearman"
+    ) -> np.ndarray:
+        """Compute IC time series.
+
+        Args:
+            factors: (T, N) factor matrix
+            returns: (T, N) forward return matrix
+            method:  "spearman" or "pearson"
+
+        Returns:
+            ic: (T,) IC series (NaN where computation not possible)
+        """
+        from scipy import stats
+        T, N = factors.shape
+        ic = np.full(T, np.nan)
+        for t in range(T):
+            f = factors[t]
+            r = returns[t]
+            valid = ~np.isnan(f) & ~np.isnan(r)
+            if valid.sum() < 3:
+                continue
+            if method == "spearman":
+                ic[t] = stats.spearmanr(f[valid], r[valid])[0]
             else:
-                pooled = hidden.mean(1)
+                ic[t] = stats.pearsonr(f[valid], r[valid])[0]
+        return ic
 
-            all_hiddens.append(pooled.cpu().numpy())
-            all_regime_labels.append(batch["regime"].numpy())
-            all_crisis_labels.append(batch["is_crisis"].numpy())
+    def quantile_returns(
+        self, factors: np.ndarray, returns: np.ndarray
+    ) -> np.ndarray:
+        """Compute mean returns by factor quantile.
 
-    hiddens = np.concatenate(all_hiddens)        # (N, d_model)
-    regime_labels = np.concatenate(all_regime_labels)
-    crisis_labels = np.concatenate(all_crisis_labels)
+        Args:
+            factors: (T, N) factor matrix
+            returns: (T, N) return matrix
 
-    # Standardize features
-    scaler = StandardScaler()
-    hiddens_scaled = scaler.fit_transform(hiddens)
+        Returns:
+            quantile_returns: (T, n_quantiles) returns per quantile per period
+        """
+        T, N = factors.shape
+        q_returns = np.full((T, self.n_quantiles), np.nan)
 
-    results = {}
+        for t in range(T):
+            f = factors[t]
+            r = returns[t]
+            valid = ~np.isnan(f) & ~np.isnan(r)
+            if valid.sum() < self.n_quantiles:
+                continue
+            f_v = f[valid]
+            r_v = r[valid]
+            # Sort by factor and split into quantiles
+            sort_idx = np.argsort(f_v)
+            q_size = len(sort_idx) // self.n_quantiles
+            for q in range(self.n_quantiles):
+                start = q * q_size
+                end = (q + 1) * q_size if q < self.n_quantiles - 1 else len(sort_idx)
+                q_returns[t, q] = r_v[sort_idx[start:end]].mean()
 
-    # Split train/test
-    N = len(hiddens_scaled)
-    n_train = int(0.8 * N)
-    X_train = hiddens_scaled[:n_train]
-    X_test = hiddens_scaled[n_train:]
+        return q_returns
 
-    if "regime" in probe_tasks:
-        y_train = regime_labels[:n_train]
-        y_test = regime_labels[n_train:]
-        probe = LogisticRegression(max_iter=500, C=1.0, multi_class="multinomial")
-        probe.fit(X_train, y_train)
-        preds = probe.predict(X_test)
-        results["regime"] = {
-            "accuracy": float(accuracy_score(y_test, preds)),
-            "f1_macro": float(f1_score(y_test, preds, average="macro", zero_division=0)),
+    def evaluate(
+        self,
+        factors: np.ndarray,
+        returns: np.ndarray,
+    ) -> Dict[str, Any]:
+        """Comprehensive factor evaluation.
+
+        Args:
+            factors: (T, N) factor scores (pre-normalized)
+            returns: (T, N) one-period-ahead returns
+
+        Returns:
+            results: dict with all evaluation metrics
+        """
+        T, N = factors.shape
+
+        # IC metrics
+        ic = self.ic_series(factors, returns, method="spearman")
+        ic_valid = ic[~np.isnan(ic)]
+
+        ic_mean = ic_valid.mean() if len(ic_valid) > 0 else np.nan
+        ic_std = ic_valid.std() if len(ic_valid) > 0 else np.nan
+        ic_ir = ic_mean / (ic_std + 1e-10)
+        ic_positive_frac = (ic_valid > 0).mean() if len(ic_valid) > 0 else np.nan
+
+        # Quantile returns
+        q_rets = self.quantile_returns(factors, returns)
+        q_means = np.nanmean(q_rets, axis=0)
+        q_ann = q_means * self.annualization
+
+        # Monotonicity: correlation of quantile index with mean return
+        if not np.any(np.isnan(q_means)):
+            from scipy.stats import spearmanr
+            mono_corr = spearmanr(np.arange(self.n_quantiles), q_means)[0]
+        else:
+            mono_corr = np.nan
+
+        # Long-short spread (top - bottom quantile)
+        ls_spread = q_ann[-1] - q_ann[0]
+
+        return {
+            "ic_mean": ic_mean,
+            "ic_std": ic_std,
+            "ic_ir": ic_ir,
+            "ic_positive_fraction": ic_positive_frac,
+            "ic_series": ic,
+            "quantile_annualized_returns": q_ann.tolist(),
+            "long_short_spread": ls_spread,
+            "monotonicity_correlation": mono_corr,
+            "n_periods": T,
+            "n_assets": N,
         }
 
-    if "crisis" in probe_tasks:
-        y_train = crisis_labels[:n_train]
-        y_test = crisis_labels[n_train:]
-        probe = LogisticRegression(max_iter=500, C=1.0)
-        probe.fit(X_train, y_train)
-        preds = probe.predict(X_test)
-        results["crisis"] = {
-            "accuracy": float(accuracy_score(y_test, preds)),
-            "f1": float(f1_score(y_test, preds, zero_division=0)),
+
+# ---------------------------------------------------------------------------
+# Statistical Tests
+# ---------------------------------------------------------------------------
+
+class StatisticalTests:
+    """Statistical significance tests for financial model evaluation.
+
+    Tests:
+    - t-test on IC series (H0: mean IC = 0)
+    - Diebold-Mariano test (compare forecast accuracy)
+    - White's Reality Check (data snooping correction)
+    - Walk-forward statistical significance
+
+    Example:
+        >>> st = StatisticalTests()
+        >>> ic_series = np.random.randn(252) * 0.05 + 0.02
+        >>> result = st.ic_ttest(ic_series)
+        >>> print(f"t-stat: {result['t_stat']:.3f}, p-value: {result['p_value']:.4f}")
+    """
+
+    @staticmethod
+    def ic_ttest(
+        ic_series: np.ndarray,
+        null_ic: float = 0.0,
+    ) -> Dict[str, float]:
+        """One-sample t-test on IC series.
+
+        Tests H0: mean(IC) = null_ic against H1: mean(IC) != null_ic.
+
+        Args:
+            ic_series: (T,) IC series
+            null_ic:   null hypothesis IC value (default 0)
+
+        Returns:
+            result: dict with t_stat, p_value, mean_ic, std_ic, n
+        """
+        from scipy import stats
+        valid = ic_series[~np.isnan(ic_series)]
+        if len(valid) < 2:
+            return {"t_stat": np.nan, "p_value": np.nan, "mean_ic": np.nan}
+
+        t_stat, p_value = stats.ttest_1samp(valid, null_ic)
+        return {
+            "t_stat": t_stat,
+            "p_value": p_value,
+            "mean_ic": valid.mean(),
+            "std_ic": valid.std(),
+            "n": len(valid),
+            "significant_5pct": p_value < 0.05,
+            "significant_1pct": p_value < 0.01,
         }
 
-    if "volatility_level" in probe_tasks:
-        # Use token variance as proxy volatility target
-        vol_proxy = np.array([hiddens[i].var() for i in range(N)])
-        vol_train = vol_proxy[:n_train]
-        vol_test = vol_proxy[n_train:]
-        probe = Ridge(alpha=1.0)
-        probe.fit(X_train, vol_train)
-        preds = probe.predict(X_test)
-        rmse = float(np.sqrt(mean_squared_error(vol_test, preds)))
-        results["volatility_level"] = {"rmse": rmse}
+    @staticmethod
+    def sharpe_significance(
+        returns: np.ndarray,
+        target_sharpe: float = 0.0,
+        annualization: float = 252.0,
+    ) -> Dict[str, float]:
+        """Test if Sharpe ratio is significantly different from target.
 
-    if "trend_direction" in probe_tasks:
-        # Proxy: use first PC direction as trend
-        trend_proxy = (hiddens[:, 0] > np.median(hiddens[:, 0])).astype(int)
-        y_train = trend_proxy[:n_train]
-        y_test = trend_proxy[n_train:]
-        probe = LogisticRegression(max_iter=200, C=1.0)
-        probe.fit(X_train, y_train)
-        preds = probe.predict(X_test)
-        results["trend_direction"] = {
-            "accuracy": float(accuracy_score(y_test, preds)),
+        Uses the modified t-test accounting for non-normality
+        (Lo 2002 approach).
+
+        Args:
+            returns:        (T,) return series
+            target_sharpe: null hypothesis Sharpe ratio
+            annualization:  periods per year
+
+        Returns:
+            result: dict with t_stat, p_value, sharpe_ratio
+        """
+        from scipy import stats
+
+        T = len(returns)
+        mu = returns.mean()
+        sigma = returns.std()
+        sr = mu / (sigma + 1e-10) * np.sqrt(annualization)
+
+        # Lo (2002) asymptotic distribution accounting for non-normality
+        skew = float(np.mean(((returns - mu) / (sigma + 1e-10)) ** 3))
+        kurt = float(np.mean(((returns - mu) / (sigma + 1e-10)) ** 4))
+        sr_var = (1 / T) * (1 - skew * sr / np.sqrt(annualization) + (kurt - 1) / 4 * (sr / np.sqrt(annualization)) ** 2)
+        t_stat = (sr - target_sharpe) / (np.sqrt(sr_var) + 1e-10)
+        p_value = 2 * (1 - stats.norm.cdf(abs(t_stat)))
+
+        return {
+            "sharpe_ratio": sr,
+            "t_stat": t_stat,
+            "p_value": p_value,
+            "significant_5pct": p_value < 0.05,
+            "n_periods": T,
         }
 
-    _save_results(results_name, results)
-    return results
+    @staticmethod
+    def diebold_mariano(
+        errors1: np.ndarray,
+        errors2: np.ndarray,
+        loss_fn: str = "mse",
+        h: int = 1,
+    ) -> Dict[str, float]:
+        """Diebold-Mariano test for equal predictive accuracy.
+
+        Tests H0: E[d_t] = 0, where d_t = L(e1_t) - L(e2_t).
+        H0 says both models have equal predictive accuracy.
+        H1: model 2 is significantly better than model 1.
+
+        Args:
+            errors1: (T,) forecast errors from model 1
+            errors2: (T,) forecast errors from model 2
+            loss_fn: "mse" | "mae" | "absolute"
+            h:       forecast horizon
+
+        Returns:
+            result: dict with DM statistic and p-value
+        """
+        from scipy import stats
+
+        if loss_fn == "mse":
+            d = errors1 ** 2 - errors2 ** 2
+        elif loss_fn == "mae":
+            d = np.abs(errors1) - np.abs(errors2)
+        else:
+            d = np.abs(errors1) - np.abs(errors2)
+
+        T = len(d)
+        d_mean = d.mean()
+
+        # HAC variance (Newey-West with h-1 lags)
+        gamma0 = np.var(d)
+        lags = h - 1
+        long_run_var = gamma0
+        for lag in range(1, lags + 1):
+            gamma_lag = np.mean((d[lag:] - d_mean) * (d[:-lag] - d_mean))
+            long_run_var += 2 * (1 - lag / h) * gamma_lag
+
+        dm_stat = d_mean / np.sqrt(max(long_run_var / T, 1e-10))
+        p_value = 2 * (1 - stats.norm.cdf(abs(dm_stat)))
+
+        return {
+            "dm_statistic": dm_stat,
+            "p_value": p_value,
+            "mean_loss_diff": d_mean,
+            "model1_better": dm_stat < 0,
+            "model2_better": dm_stat > 0,
+            "significant_5pct": p_value < 0.05,
+        }
+
+
+# =============================================================================
+# SECTION: Advanced Portfolio Analytics
+# =============================================================================
+
+class AttributionAnalyzer:
+    """Brinson-Hood-Beebower (BHB) performance attribution.
+
+    Decomposes portfolio excess return into:
+    - Allocation effect: over/underweighting sector vs benchmark
+    - Selection effect: stock selection within sectors
+    - Interaction effect: joint allocation and selection
+
+    Reference: Brinson & Beebower, "Determinants of Portfolio Performance"
+    Financial Analysts Journal 1986.
+
+    Args:
+        frequency: Data frequency ('daily', 'weekly', 'monthly')
+    """
+
+    def __init__(self, frequency: str = "daily") -> None:
+        self.frequency = frequency
+        self._annualization = {"daily": 252, "weekly": 52, "monthly": 12}.get(frequency, 252)
+
+    def compute_bhb(
+        self,
+        portfolio_weights: np.ndarray,
+        benchmark_weights: np.ndarray,
+        asset_returns: np.ndarray,
+        sector_map: Dict[int, str],
+    ) -> Dict[str, float]:
+        """Compute BHB attribution decomposition.
+
+        Args:
+            portfolio_weights: (N,) portfolio asset weights
+            benchmark_weights: (N,) benchmark asset weights
+            asset_returns: (N,) realized asset returns this period
+            sector_map: Dict mapping asset index to sector name
+        Returns:
+            Dict with allocation, selection, interaction, total effects
+        """
+        sectors = list(set(sector_map.values()))
+        alloc, select, interact = 0.0, 0.0, 0.0
+
+        for sector in sectors:
+            mask = np.array([sector_map.get(i, "") == sector for i in range(len(asset_returns))])
+            if mask.sum() == 0:
+                continue
+
+            wp = portfolio_weights[mask].sum()  # Portfolio sector weight
+            wb = benchmark_weights[mask].sum()   # Benchmark sector weight
+
+            # Sector returns
+            rp = (portfolio_weights[mask] * asset_returns[mask]).sum() / (wp + 1e-10)
+            rb = (benchmark_weights[mask] * asset_returns[mask]).sum() / (wb + 1e-10)
+            rb_total = (benchmark_weights * asset_returns).sum()  # Total benchmark return
+
+            # BHB effects
+            alloc += (wp - wb) * (rb - rb_total)
+            select += wb * (rp - rb)
+            interact += (wp - wb) * (rp - rb)
+
+        total = alloc + select + interact
+        return {
+            "allocation_effect": alloc,
+            "selection_effect": select,
+            "interaction_effect": interact,
+            "total_active_return": total,
+        }
+
+    def rolling_attribution(
+        self,
+        portfolio_weights: np.ndarray,
+        benchmark_weights: np.ndarray,
+        asset_returns: np.ndarray,
+        sector_map: Dict[int, str],
+        window: int = 21,
+    ) -> Dict[str, np.ndarray]:
+        """Rolling BHB attribution over time.
+
+        Args:
+            portfolio_weights: (T, N)
+            benchmark_weights: (T, N)
+            asset_returns: (T, N)
+            sector_map: Dict
+            window: Rolling window
+        Returns:
+            Dict of (T,) attribution time series
+        """
+        T = len(asset_returns)
+        allocs = np.zeros(T)
+        selects = np.zeros(T)
+        interacts = np.zeros(T)
+
+        for t in range(window, T):
+            w_start = max(0, t - window)
+            pw_avg = portfolio_weights[w_start:t].mean(axis=0)
+            bw_avg = benchmark_weights[w_start:t].mean(axis=0)
+            r_avg = asset_returns[w_start:t].mean(axis=0)
+            result = self.compute_bhb(pw_avg, bw_avg, r_avg, sector_map)
+            allocs[t] = result["allocation_effect"]
+            selects[t] = result["selection_effect"]
+            interacts[t] = result["interaction_effect"]
+
+        return {
+            "allocation": allocs,
+            "selection": selects,
+            "interaction": interacts,
+            "total": allocs + selects + interacts,
+        }
+
+
+class FactorExposureAnalyzer:
+    """Analyze factor exposures and alpha decomposition.
+
+    Regresses portfolio returns on systematic risk factors
+    to identify alpha (unexplained return) and beta exposures.
+
+    Supported factor models:
+    - CAPM: single market factor
+    - Fama-French 3-factor
+    - Carhart 4-factor (FF3 + momentum)
+    - Custom factor models
+
+    Args:
+        factors: (T, F) factor return matrix
+        factor_names: List of factor names
+    """
+
+    def __init__(
+        self,
+        factors: np.ndarray,
+        factor_names: Optional[List[str]] = None,
+    ) -> None:
+        self.factors = factors
+        T, F = factors.shape
+        self.factor_names = factor_names or [f"factor_{i}" for i in range(F)]
+
+    def estimate_betas(
+        self,
+        portfolio_returns: np.ndarray,
+    ) -> Dict[str, float]:
+        """OLS regression of portfolio on factors.
+
+        Args:
+            portfolio_returns: (T,) portfolio return series
+        Returns:
+            Dict with alpha, betas, r_squared, t_stats
+        """
+        T = len(portfolio_returns)
+        # Add intercept
+        X = np.column_stack([np.ones(T), self.factors])  # (T, 1+F)
+        y = portfolio_returns
+
+        # OLS: beta = (X'X)^-1 X'y
+        try:
+            XtX_inv = np.linalg.pinv(X.T @ X)
+            beta = XtX_inv @ X.T @ y
+        except np.linalg.LinAlgError:
+            return {"error": "singular matrix"}
+
+        # Residuals and stats
+        y_hat = X @ beta
+        resid = y - y_hat
+        ss_res = (resid ** 2).sum()
+        ss_tot = ((y - y.mean()) ** 2).sum()
+        r2 = 1 - ss_res / (ss_tot + 1e-10)
+
+        # Standard errors
+        sigma2 = ss_res / max(1, T - len(beta))
+        try:
+            se = np.sqrt(np.diag(sigma2 * XtX_inv))
+        except Exception:
+            se = np.zeros(len(beta))
+
+        t_stats = beta / (se + 1e-10)
+
+        result = {
+            "alpha": beta[0],
+            "alpha_t_stat": t_stats[0],
+            "r_squared": r2,
+            "annualized_alpha": beta[0] * 252,
+        }
+        for i, name in enumerate(self.factor_names):
+            result[f"beta_{name}"] = beta[i + 1]
+            result[f"t_{name}"] = t_stats[i + 1]
+
+        return result
+
+    def tracking_error(
+        self,
+        portfolio_returns: np.ndarray,
+        benchmark_returns: np.ndarray,
+    ) -> Dict[str, float]:
+        """Compute tracking error and information ratio.
+
+        Args:
+            portfolio_returns: (T,) portfolio returns
+            benchmark_returns: (T,) benchmark returns
+        Returns:
+            Dict with tracking_error, information_ratio, active_return
+        """
+        active_returns = portfolio_returns - benchmark_returns
+        te = active_returns.std() * np.sqrt(252)
+        ar = active_returns.mean() * 252
+        ir = ar / (te + 1e-10)
+        return {
+            "tracking_error": te,
+            "annualized_active_return": ar,
+            "information_ratio": ir,
+            "active_return_t_stat": ar / (te / np.sqrt(max(1, len(active_returns))) + 1e-10),
+        }
+
+
+class MarketImpactModel:
+    """Market impact model for realistic transaction cost estimation.
+
+    Implements multiple market impact models:
+    - Linear: impact proportional to trade size
+    - Square root (Almgren): impact ~ sigma * sqrt(ADV * participation_rate)
+    - Power law: impact ~ (order_size / ADV)^alpha
+
+    Reference: Almgren et al., "Direct Estimation of Equity Market Impact"
+    (2005)
+
+    Args:
+        model_type: 'linear', 'sqrt', or 'power'
+        eta: Linear impact coefficient
+        sigma: Volatility scaling
+    """
+
+    def __init__(
+        self,
+        model_type: str = "sqrt",
+        eta: float = 0.1,
+        sigma: float = 0.02,
+        alpha: float = 0.6,
+    ) -> None:
+        self.model_type = model_type
+        self.eta = eta
+        self.sigma = sigma
+        self.alpha = alpha
+
+    def estimate_impact(
+        self,
+        order_size: float,
+        adv: float,
+        price: float,
+        volatility: float,
+        side: str = "buy",
+    ) -> Dict[str, float]:
+        """Estimate market impact for a single trade.
+
+        Args:
+            order_size: Trade size in shares
+            adv: Average daily volume in shares
+            price: Current price per share
+            volatility: Daily return volatility
+            side: 'buy' or 'sell'
+        Returns:
+            Dict with impact_bps, total_cost_usd, effective_spread
+        """
+        participation = order_size / max(1, adv)
+
+        if self.model_type == "linear":
+            impact = self.eta * participation
+        elif self.model_type == "sqrt":
+            # Almgren square root model
+            impact = self.sigma * np.sqrt(participation) * np.sign(1 if side == "buy" else -1)
+            impact = abs(impact)
+        elif self.model_type == "power":
+            impact = self.sigma * (participation ** self.alpha)
+        else:
+            impact = self.eta * participation
+
+        impact_bps = impact * 10000
+        total_cost = impact * price * order_size
+
+        return {
+            "impact_fraction": impact,
+            "impact_bps": impact_bps,
+            "total_cost_usd": total_cost,
+            "participation_rate": participation,
+        }
+
+
+class RegimeDetectionBacktest:
+    """Backtesting framework with regime-conditional analysis.
+
+    Splits backtest periods by detected market regime and reports
+    performance metrics separately for each regime. Enables
+    understanding of strategy behavior across market conditions.
+
+    Args:
+        regime_labels: (T,) integer regime labels
+        regime_names: Optional mapping from label to name
+    """
+
+    def __init__(
+        self,
+        regime_labels: np.ndarray,
+        regime_names: Optional[Dict[int, str]] = None,
+    ) -> None:
+        self.regime_labels = regime_labels
+        unique_regimes = sorted(set(regime_labels))
+        if regime_names is None:
+            regime_names = {r: f"regime_{r}" for r in unique_regimes}
+        self.regime_names = regime_names
+
+    def compute_regime_metrics(
+        self,
+        returns: np.ndarray,
+        benchmark_returns: Optional[np.ndarray] = None,
+    ) -> Dict[str, Dict[str, float]]:
+        """Compute performance metrics within each regime.
+
+        Args:
+            returns: (T,) portfolio return series
+            benchmark_returns: (T,) optional benchmark returns
+        Returns:
+            Dict of {regime_name: {metric: value}}
+        """
+        results = {}
+        for regime_id, regime_name in self.regime_names.items():
+            mask = self.regime_labels == regime_id
+            if mask.sum() < 5:
+                continue
+            r = returns[mask]
+            ann_ret = r.mean() * 252
+            ann_vol = r.std() * np.sqrt(252)
+            sharpe = ann_ret / (ann_vol + 1e-10)
+            max_dd = self._max_drawdown(r)
+            calmar = ann_ret / (abs(max_dd) + 1e-10)
+            results[regime_name] = {
+                "num_days": int(mask.sum()),
+                "ann_return": ann_ret,
+                "ann_volatility": ann_vol,
+                "sharpe_ratio": sharpe,
+                "max_drawdown": max_dd,
+                "calmar_ratio": calmar,
+                "hit_rate": float((r > 0).mean()),
+                "avg_return": float(r.mean()),
+            }
+            if benchmark_returns is not None:
+                bm = benchmark_returns[mask]
+                active = r - bm
+                results[regime_name]["active_return"] = active.mean() * 252
+                te = active.std() * np.sqrt(252)
+                results[regime_name]["tracking_error"] = te
+                results[regime_name]["information_ratio"] = results[regime_name]["active_return"] / (te + 1e-10)
+
+        return results
+
+    @staticmethod
+    def _max_drawdown(returns: np.ndarray) -> float:
+        cum = (1 + returns).cumprod()
+        rolling_max = np.maximum.accumulate(cum)
+        drawdowns = (cum - rolling_max) / (rolling_max + 1e-10)
+        return float(drawdowns.min())
+
+
+class TransactionCostModel:
+    """Realistic transaction cost model for backtesting.
+
+    Components:
+    - Bid-ask spread (proportional to volatility and market cap)
+    - Commission: fixed per-share or percentage
+    - Market impact: function of order size relative to ADV
+    - Short borrow rate: for short positions
+
+    Args:
+        commission_rate: Fixed commission as fraction of trade value
+        spread_model: 'fixed', 'vol_proportional', or 'cap_based'
+        fixed_spread_bps: Fixed spread if spread_model='fixed'
+        vol_spread_mult: Multiplier for vol-proportional spread
+        short_borrow_rate: Annual short borrow rate (e.g., 0.01 = 1%)
+    """
+
+    def __init__(
+        self,
+        commission_rate: float = 0.0001,
+        spread_model: str = "fixed",
+        fixed_spread_bps: float = 10.0,
+        vol_spread_mult: float = 0.5,
+        short_borrow_rate: float = 0.02,
+    ) -> None:
+        self.commission_rate = commission_rate
+        self.spread_model = spread_model
+        self.fixed_spread_bps = fixed_spread_bps
+        self.vol_spread_mult = vol_spread_mult
+        self.short_borrow_rate = short_borrow_rate / 252  # Daily
+
+    def estimate_spread(
+        self,
+        volatility: float,
+        market_cap: Optional[float] = None,
+    ) -> float:
+        """Estimate bid-ask spread in basis points.
+
+        Args:
+            volatility: Daily return volatility
+            market_cap: Optional market cap for size-based spread
+        Returns:
+            Estimated spread in bps
+        """
+        if self.spread_model == "fixed":
+            return self.fixed_spread_bps
+        elif self.spread_model == "vol_proportional":
+            return volatility * self.vol_spread_mult * 10000
+        elif self.spread_model == "cap_based" and market_cap is not None:
+            # Smaller caps have wider spreads
+            if market_cap > 10e9:
+                return 3.0
+            elif market_cap > 1e9:
+                return 8.0
+            else:
+                return 20.0
+        return self.fixed_spread_bps
+
+    def compute_round_trip_cost(
+        self,
+        trade_value: float,
+        volatility: float = 0.02,
+        market_cap: Optional[float] = None,
+        is_short: bool = False,
+        holding_days: int = 1,
+    ) -> Dict[str, float]:
+        """Compute total round-trip transaction cost.
+
+        Args:
+            trade_value: Absolute trade value in dollars
+            volatility: Daily return volatility
+            market_cap: Optional for spread model
+            is_short: Whether this is a short position
+            holding_days: Days held (for short borrow cost)
+        Returns:
+            Dict with component costs and total
+        """
+        spread_bps = self.estimate_spread(volatility, market_cap)
+        spread_cost = spread_bps / 10000 * trade_value * 2  # 2-way
+        commission = self.commission_rate * trade_value * 2
+        borrow_cost = 0.0
+        if is_short:
+            borrow_cost = self.short_borrow_rate * holding_days * trade_value
+        total = spread_cost + commission + borrow_cost
+        return {
+            "spread_cost": spread_cost,
+            "commission": commission,
+            "borrow_cost": borrow_cost,
+            "total": total,
+            "total_bps": total / (trade_value + 1e-10) * 10000,
+        }
+
+
+class BootstrapMetricCalculator:
+    """Bootstrap resampling for robust statistical inference on metrics.
+
+    Computes bootstrap confidence intervals for performance metrics
+    (Sharpe, Sortino, IC, etc.) to assess statistical significance.
+
+    Args:
+        num_bootstrap: Number of bootstrap samples
+        confidence_level: Confidence level for intervals (e.g., 0.95)
+        random_seed: Reproducibility seed
+        block_size: Block size for block bootstrap (preserves autocorrelation)
+    """
+
+    def __init__(
+        self,
+        num_bootstrap: int = 1000,
+        confidence_level: float = 0.95,
+        random_seed: int = 42,
+        block_size: int = 10,
+    ) -> None:
+        self.num_bootstrap = num_bootstrap
+        self.confidence_level = confidence_level
+        self.block_size = block_size
+        np.random.seed(random_seed)
+
+    def _block_bootstrap(self, data: np.ndarray) -> np.ndarray:
+        """Generate block bootstrap sample."""
+        T = len(data)
+        num_blocks = T // self.block_size + 1
+        block_starts = np.random.randint(0, max(1, T - self.block_size), size=num_blocks)
+        blocks = [data[s:s + self.block_size] for s in block_starts]
+        sample = np.concatenate(blocks)[:T]
+        return sample
+
+    def bootstrap_metric(
+        self,
+        returns: np.ndarray,
+        metric_fn: Callable,
+        use_block: bool = True,
+    ) -> Dict[str, float]:
+        """Bootstrap a scalar metric.
+
+        Args:
+            returns: (T,) return series
+            metric_fn: Function that takes (T,) returns and returns scalar
+            use_block: Use block bootstrap (True) or iid (False)
+        Returns:
+            Dict with mean, std, ci_lower, ci_upper, p_value_positive
+        """
+        bootstrap_values = []
+        for _ in range(self.num_bootstrap):
+            if use_block:
+                sample = self._block_bootstrap(returns)
+            else:
+                sample = returns[np.random.randint(0, len(returns), len(returns))]
+            try:
+                val = metric_fn(sample)
+                bootstrap_values.append(val)
+            except Exception:
+                continue
+
+        if not bootstrap_values:
+            return {"error": "metric computation failed"}
+
+        bv = np.array(bootstrap_values)
+        alpha = (1 - self.confidence_level) / 2
+        ci_lower = np.quantile(bv, alpha)
+        ci_upper = np.quantile(bv, 1 - alpha)
+        p_positive = float((bv > 0).mean())
+
+        return {
+            "mean": float(bv.mean()),
+            "std": float(bv.std()),
+            f"ci_{int(self.confidence_level*100)}_lower": ci_lower,
+            f"ci_{int(self.confidence_level*100)}_upper": ci_upper,
+            "p_value_positive": p_positive,
+            "original_value": float(metric_fn(returns)),
+        }
+
+    def bootstrap_sharpe(self, returns: np.ndarray) -> Dict[str, float]:
+        """Bootstrap Sharpe ratio."""
+        def sharpe_fn(r):
+            return r.mean() * 252 / (r.std() * np.sqrt(252) + 1e-10)
+        return self.bootstrap_metric(returns, sharpe_fn)
+
+    def bootstrap_ic(
+        self,
+        predictions: np.ndarray,
+        realized: np.ndarray,
+    ) -> Dict[str, float]:
+        """Bootstrap Information Coefficient (rank correlation)."""
+        from scipy import stats
+
+        def ic_fn_inner(idx):
+            p, r = predictions[idx], realized[idx]
+            return stats.spearmanr(p, r).correlation
+
+        def ic_bootstrap(dummy_r):
+            # Hack: resample by index
+            return ic_fn_inner(slice(None))  # Just return the full IC
+
+        # Manual bootstrap
+        T = len(predictions)
+        bootstrap_values = []
+        for _ in range(self.num_bootstrap):
+            if self.block_size > 1:
+                num_blocks = T // self.block_size + 1
+                starts = np.random.randint(0, max(1, T - self.block_size), size=num_blocks)
+                idx = np.concatenate([np.arange(s, min(s + self.block_size, T)) for s in starts])[:T]
+            else:
+                idx = np.random.randint(0, T, T)
+            try:
+                from scipy import stats as scipy_stats
+                ic = scipy_stats.spearmanr(predictions[idx], realized[idx]).correlation
+                bootstrap_values.append(float(ic))
+            except Exception:
+                pass
+
+        if not bootstrap_values:
+            return {}
+        bv = np.array(bootstrap_values)
+        alpha = (1 - self.confidence_level) / 2
+        return {
+            "ic_mean": float(bv.mean()),
+            "ic_std": float(bv.std()),
+            "ic_ci_lower": float(np.quantile(bv, alpha)),
+            "ic_ci_upper": float(np.quantile(bv, 1 - alpha)),
+            "ic_t_stat": float(bv.mean() / (bv.std() / np.sqrt(len(bv)) + 1e-10)),
+        }
+
+
+class RollingSharpeAnalysis:
+    """Rolling Sharpe ratio and drawdown analysis utilities.
+
+    Provides time series of risk-adjusted performance metrics
+    to identify periods of strategy degradation or improvement.
+
+    Args:
+        window: Rolling window in trading days
+        annualization: Trading days per year for annualization
+    """
+
+    def __init__(self, window: int = 63, annualization: int = 252) -> None:
+        self.window = window
+        self.annualization = annualization
+
+    def rolling_sharpe(self, returns: np.ndarray) -> np.ndarray:
+        """Compute rolling Sharpe ratio."""
+        T = len(returns)
+        sharpes = np.full(T, np.nan)
+        for t in range(self.window, T):
+            r = returns[t - self.window:t]
+            ann_ret = r.mean() * self.annualization
+            ann_vol = r.std() * np.sqrt(self.annualization)
+            sharpes[t] = ann_ret / (ann_vol + 1e-10)
+        return sharpes
+
+    def rolling_sortino(self, returns: np.ndarray, mar: float = 0.0) -> np.ndarray:
+        """Compute rolling Sortino ratio."""
+        T = len(returns)
+        sortinos = np.full(T, np.nan)
+        for t in range(self.window, T):
+            r = returns[t - self.window:t]
+            ann_ret = r.mean() * self.annualization - mar
+            downside = r[r < mar / self.annualization] - mar / self.annualization
+            dd_std = np.sqrt((downside ** 2).mean()) * np.sqrt(self.annualization)
+            sortinos[t] = ann_ret / (dd_std + 1e-10)
+        return sortinos
+
+    def rolling_max_drawdown(self, returns: np.ndarray) -> np.ndarray:
+        """Compute rolling maximum drawdown."""
+        T = len(returns)
+        mdd = np.full(T, np.nan)
+        for t in range(self.window, T):
+            r = returns[t - self.window:t]
+            cum = (1 + r).cumprod()
+            roll_max = np.maximum.accumulate(cum)
+            dd = (cum - roll_max) / (roll_max + 1e-10)
+            mdd[t] = dd.min()
+        return mdd
+
+    def rolling_calmar(self, returns: np.ndarray) -> np.ndarray:
+        """Compute rolling Calmar ratio."""
+        T = len(returns)
+        calmar = np.full(T, np.nan)
+        sharpes = self.rolling_sharpe(returns)
+        mdd = self.rolling_max_drawdown(returns)
+        for t in range(self.window, T):
+            r = returns[t - self.window:t]
+            ann_ret = r.mean() * self.annualization
+            dd = abs(mdd[t])
+            calmar[t] = ann_ret / (dd + 1e-10)
+        return calmar
+
+    def regime_performance_summary(
+        self,
+        returns: np.ndarray,
+        regime_labels: np.ndarray,
+    ) -> Dict[str, Dict[str, float]]:
+        """Summary statistics per regime."""
+        regimes = {}
+        for r_id in sorted(set(regime_labels)):
+            mask = regime_labels == r_id
+            r = returns[mask]
+            if len(r) < 2:
+                continue
+            regimes[f"regime_{r_id}"] = {
+                "n": int(len(r)),
+                "mean": float(r.mean() * self.annualization),
+                "vol": float(r.std() * np.sqrt(self.annualization)),
+                "sharpe": float(r.mean() * self.annualization / (r.std() * np.sqrt(self.annualization) + 1e-10)),
+                "hit_rate": float((r > 0).mean()),
+                "skew": float(((r - r.mean()) ** 3).mean() / (r.std() ** 3 + 1e-10)),
+                "kurt": float(((r - r.mean()) ** 4).mean() / (r.std() ** 4 + 1e-10) - 3),
+            }
+        return regimes
+
+
+_NEW_EVALUATION_EXPORTS = [
+    "AttributionAnalyzer", "FactorExposureAnalyzer", "MarketImpactModel",
+    "RegimeDetectionBacktest", "TransactionCostModel",
+    "BootstrapMetricCalculator", "RollingSharpeAnalysis",
+]
