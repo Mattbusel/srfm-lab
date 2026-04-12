@@ -2101,3 +2101,529 @@ _NEW_EVALUATION_EXPORTS = [
     "RegimeDetectionBacktest", "TransactionCostModel",
     "BootstrapMetricCalculator", "RollingSharpeAnalysis",
 ]
+
+
+# =============================================================================
+# SECTION: Advanced Evaluation and Backtesting (Part 3)
+# =============================================================================
+
+import torch
+import torch.nn as nn
+import numpy as np
+from typing import Optional, List, Dict, Tuple
+import math
+
+
+class MonteCarloBacktest:
+    """Monte Carlo simulation-based backtesting.
+
+    Runs multiple market scenarios to stress test strategy performance.
+    Computes distribution of outcomes and tail risk metrics.
+    """
+
+    def __init__(
+        self,
+        n_simulations: int = 1000,
+        horizon_days: int = 252,
+        confidence_levels: List[float] = None,
+        seed: int = 42,
+    ):
+        self.n_simulations = n_simulations
+        self.horizon_days = horizon_days
+        self.confidence_levels = confidence_levels or [0.01, 0.05, 0.10, 0.25]
+        self.seed = seed
+
+    def simulate_returns(
+        self,
+        mean: float,
+        std: float,
+        skew: float = 0.0,
+        kurt: float = 3.0,
+    ) -> np.ndarray:
+        """Simulate return paths with given moments."""
+        np.random.seed(self.seed)
+        # Use moment matching: normal if skew=0, kurt=3
+        if abs(skew) < 0.01 and abs(kurt - 3.0) < 0.01:
+            returns = np.random.normal(mean, std, (self.n_simulations, self.horizon_days))
+        else:
+            # Simple skew-t approximation
+            t_df = 6.0 / (kurt - 3.0 + 1e-6) + 4
+            t_df = max(4.01, min(t_df, 1000))
+            from scipy import stats
+            returns = stats.t.rvs(t_df, loc=mean, scale=std, size=(self.n_simulations, self.horizon_days))
+        return returns
+
+    def run(
+        self,
+        strategy_returns: np.ndarray,
+        market_returns: np.ndarray = None,
+    ) -> dict:
+        """Run Monte Carlo backtest and compute risk metrics."""
+        # Fit moments from historical returns
+        mu = strategy_returns.mean()
+        sigma = strategy_returns.std()
+        skew = float(((strategy_returns - mu) ** 3).mean() / (sigma ** 3 + 1e-8))
+        kurt = float(((strategy_returns - mu) ** 4).mean() / (sigma ** 4 + 1e-8))
+
+        sim_returns = self.simulate_returns(mu, sigma, skew, kurt)
+
+        # Compute cumulative returns for each path
+        cum_returns = (1 + sim_returns).cumprod(axis=1) - 1
+
+        # Final wealth distribution
+        final_wealth = cum_returns[:, -1]
+
+        results = {
+            "mean_final_wealth": final_wealth.mean(),
+            "std_final_wealth": final_wealth.std(),
+            "median_final_wealth": np.median(final_wealth),
+            "skewness": skew,
+            "excess_kurtosis": kurt - 3,
+        }
+
+        for cl in self.confidence_levels:
+            var = np.percentile(final_wealth, cl * 100)
+            cvar = final_wealth[final_wealth <= var].mean() if (final_wealth <= var).any() else var
+            results[f"VaR_{int(cl*100)}pct"] = var
+            results[f"CVaR_{int(cl*100)}pct"] = cvar
+
+        # Probability of loss
+        results["prob_loss"] = (final_wealth < 0).mean()
+        results["prob_loss_10pct"] = (final_wealth < -0.10).mean()
+        results["prob_loss_20pct"] = (final_wealth < -0.20).mean()
+
+        # Max drawdown distribution
+        def max_drawdown(path):
+            cummax = np.maximum.accumulate(path + 1)
+            drawdown = (path + 1) / cummax - 1
+            return drawdown.min()
+
+        mdd_dist = np.array([max_drawdown(sim_returns[i]) for i in range(min(self.n_simulations, 100))])
+        results["expected_max_drawdown"] = mdd_dist.mean()
+        results["worst_10pct_max_drawdown"] = np.percentile(mdd_dist, 10)
+
+        return results
+
+
+class FactorModelEvaluator:
+    """Evaluate factor model performance: IC, ICIR, factor returns, etc.
+
+    Implements standard quantitative equity research metrics.
+    """
+
+    def __init__(
+        self,
+        n_quantiles: int = 5,
+        holding_period: int = 1,
+        transaction_cost_bps: float = 5.0,
+    ):
+        self.n_quantiles = n_quantiles
+        self.holding_period = holding_period
+        self.tc_bps = transaction_cost_bps / 10000
+
+    def compute_ic(
+        self,
+        factor_scores: np.ndarray,
+        forward_returns: np.ndarray,
+        method: str = "spearman",
+    ) -> float:
+        """Compute Information Coefficient (IC)."""
+        from scipy import stats
+        valid = ~(np.isnan(factor_scores) | np.isnan(forward_returns))
+        if valid.sum() < 5:
+            return float("nan")
+
+        f = factor_scores[valid]
+        r = forward_returns[valid]
+
+        if method == "spearman":
+            ic, _ = stats.spearmanr(f, r)
+        elif method == "pearson":
+            ic, _ = stats.pearsonr(f, r)
+        else:
+            ic, _ = stats.spearmanr(f, r)
+
+        return float(ic)
+
+    def compute_ic_series(
+        self,
+        factor_panel: np.ndarray,
+        return_panel: np.ndarray,
+    ) -> Dict[str, float]:
+        """Compute IC series metrics over time."""
+        T = factor_panel.shape[0]
+        ic_series = []
+
+        for t in range(T):
+            ic = self.compute_ic(factor_panel[t], return_panel[t])
+            if not np.isnan(ic):
+                ic_series.append(ic)
+
+        ic_arr = np.array(ic_series)
+        if len(ic_arr) == 0:
+            return {}
+
+        return {
+            "mean_ic": float(ic_arr.mean()),
+            "icir": float(ic_arr.mean() / (ic_arr.std() + 1e-8)),
+            "ic_positive_pct": float((ic_arr > 0).mean()),
+            "ic_greater_02": float((ic_arr > 0.02).mean()),
+            "ic_t_stat": float(ic_arr.mean() / (ic_arr.std() / (len(ic_arr) ** 0.5) + 1e-8)),
+        }
+
+    def quantile_returns(
+        self,
+        factor_scores: np.ndarray,
+        forward_returns: np.ndarray,
+    ) -> np.ndarray:
+        """Compute mean forward return by factor quantile."""
+        valid = ~(np.isnan(factor_scores) | np.isnan(forward_returns))
+        f = factor_scores[valid]
+        r = forward_returns[valid]
+
+        quantile_edges = np.linspace(0, 100, self.n_quantiles + 1)
+        quantile_returns = []
+
+        for i in range(self.n_quantiles):
+            lo = np.percentile(f, quantile_edges[i])
+            hi = np.percentile(f, quantile_edges[i + 1])
+            mask = (f >= lo) & (f < hi)
+            if mask.any():
+                quantile_returns.append(r[mask].mean())
+            else:
+                quantile_returns.append(float("nan"))
+
+        return np.array(quantile_returns)
+
+    def long_short_return(
+        self,
+        factor_scores: np.ndarray,
+        forward_returns: np.ndarray,
+    ) -> float:
+        """Compute long-short return: top quintile minus bottom quintile."""
+        q_returns = self.quantile_returns(factor_scores, forward_returns)
+        if np.isnan(q_returns[0]) or np.isnan(q_returns[-1]):
+            return float("nan")
+        return float(q_returns[-1] - q_returns[0]) - 2 * self.tc_bps
+
+    def factor_decay(
+        self,
+        factor_scores: np.ndarray,
+        returns_multi_horizon: np.ndarray,
+    ) -> np.ndarray:
+        """Compute IC decay across multiple forward horizons."""
+        n_horizons = returns_multi_horizon.shape[1]
+        ics = []
+        for h in range(n_horizons):
+            ic = self.compute_ic(factor_scores, returns_multi_horizon[:, h])
+            ics.append(ic)
+        return np.array(ics)
+
+
+class WalkForwardValidator:
+    """Walk-forward validation for time series models.
+
+    Simulates real deployment:
+    - Train on past N years
+    - Validate on next M months
+    - Roll forward M months at a time
+    """
+
+    def __init__(
+        self,
+        train_window: int = 252 * 3,
+        val_window: int = 21,
+        step_size: int = 21,
+        min_train_samples: int = 252,
+    ):
+        self.train_window = train_window
+        self.val_window = val_window
+        self.step_size = step_size
+        self.min_train_samples = min_train_samples
+
+    def split(self, T: int) -> List[Tuple[range, range]]:
+        """Generate (train_idx, val_idx) splits for walk-forward validation."""
+        splits = []
+        pos = 0
+
+        while pos + self.train_window + self.val_window <= T:
+            train_start = max(0, pos)
+            train_end = pos + self.train_window
+            val_start = train_end
+            val_end = min(T, val_start + self.val_window)
+
+            if train_end - train_start >= self.min_train_samples:
+                splits.append((
+                    range(train_start, train_end),
+                    range(val_start, val_end),
+                ))
+
+            pos += self.step_size
+
+        return splits
+
+    def evaluate(
+        self,
+        model_fn,
+        X: np.ndarray,
+        y: np.ndarray,
+        metric_fn,
+    ) -> Dict[str, np.ndarray]:
+        """Run walk-forward evaluation.
+
+        Args:
+            model_fn: callable(X_train, y_train, X_val) -> predictions
+            X: [T, n_features] features
+            y: [T] targets
+            metric_fn: callable(y_true, y_pred) -> float
+        """
+        splits = self.split(len(X))
+        metrics = []
+        train_sizes = []
+
+        for train_idx, val_idx in splits:
+            X_train = X[list(train_idx)]
+            y_train = y[list(train_idx)]
+            X_val = X[list(val_idx)]
+            y_val = y[list(val_idx)]
+
+            y_pred = model_fn(X_train, y_train, X_val)
+            m = metric_fn(y_val, y_pred)
+            metrics.append(m)
+            train_sizes.append(len(train_idx))
+
+        return {
+            "metrics": np.array(metrics),
+            "mean_metric": np.nanmean(metrics),
+            "std_metric": np.nanstd(metrics),
+            "n_splits": len(splits),
+            "train_sizes": np.array(train_sizes),
+        }
+
+
+class PerformanceAttributionSuite:
+    """Comprehensive performance attribution for portfolio strategies.
+
+    Includes:
+    - Brinson-Hood-Beebower (BHB) attribution
+    - Factor-based attribution (Fama-French, BARRA)
+    - Risk-adjusted return attribution
+    - Style box analysis
+    """
+
+    def __init__(self, risk_free_rate: float = 0.02):
+        self.risk_free_rate = risk_free_rate
+
+    def brinson_attribution(
+        self,
+        portfolio_weights: np.ndarray,
+        benchmark_weights: np.ndarray,
+        portfolio_returns: np.ndarray,
+        benchmark_returns: np.ndarray,
+        sector_map: Dict[int, str] = None,
+    ) -> dict:
+        """Compute BHB attribution: allocation + selection + interaction effects."""
+        n_assets = len(portfolio_weights)
+        total_port_return = (portfolio_weights * portfolio_returns).sum()
+        total_bench_return = (benchmark_weights * benchmark_returns).sum()
+        excess = total_port_return - total_bench_return
+
+        allocation = (portfolio_weights - benchmark_weights) * (benchmark_returns - total_bench_return)
+        selection = benchmark_weights * (portfolio_returns - benchmark_returns)
+        interaction = (portfolio_weights - benchmark_weights) * (portfolio_returns - benchmark_returns)
+
+        result = {
+            "total_excess": float(excess),
+            "allocation_effect": float(allocation.sum()),
+            "selection_effect": float(selection.sum()),
+            "interaction_effect": float(interaction.sum()),
+            "attribution_sum": float(allocation.sum() + selection.sum() + interaction.sum()),
+        }
+
+        if sector_map:
+            sector_attribution = {}
+            for asset_idx, sector in sector_map.items():
+                if sector not in sector_attribution:
+                    sector_attribution[sector] = {"allocation": 0.0, "selection": 0.0}
+                if asset_idx < n_assets:
+                    sector_attribution[sector]["allocation"] += float(allocation[asset_idx])
+                    sector_attribution[sector]["selection"] += float(selection[asset_idx])
+            result["sector_attribution"] = sector_attribution
+
+        return result
+
+    def factor_attribution(
+        self,
+        portfolio_returns: np.ndarray,
+        factor_returns: Dict[str, np.ndarray],
+        risk_free_rate: float = None,
+    ) -> dict:
+        """Attribute portfolio returns to risk factors via OLS regression."""
+        rf = risk_free_rate or self.risk_free_rate / 252
+        excess_returns = portfolio_returns - rf
+
+        factor_matrix = np.column_stack(list(factor_returns.values()))
+        factor_names = list(factor_returns.keys())
+
+        A = np.hstack([factor_matrix, np.ones((len(excess_returns), 1))])
+        try:
+            betas, _, _, _ = np.linalg.lstsq(A, excess_returns, rcond=None)
+        except np.linalg.LinAlgError:
+            return {"error": "Regression failed"}
+
+        factor_betas = {name: float(b) for name, b in zip(factor_names, betas[:-1])}
+        alpha = float(betas[-1])
+
+        # Factor contributions
+        contributions = {
+            name: float(betas[i] * factor_returns[name].mean())
+            for i, name in enumerate(factor_names)
+        }
+
+        pred = A @ betas
+        ss_res = ((excess_returns - pred) ** 2).sum()
+        ss_tot = ((excess_returns - excess_returns.mean()) ** 2).sum()
+        r2 = float(1 - ss_res / max(ss_tot, 1e-10))
+
+        return {
+            "alpha_annualized": alpha * 252,
+            "factor_betas": factor_betas,
+            "factor_contributions": contributions,
+            "r_squared": r2,
+            "specific_return": float(excess_returns.mean() - sum(contributions.values())),
+        }
+
+    def style_box_analysis(
+        self,
+        portfolio_weights: np.ndarray,
+        market_caps: np.ndarray,
+        pb_ratios: np.ndarray,
+    ) -> dict:
+        """Compute Morningstar-style style box position (size x value/growth)."""
+        # Size dimension: small/mid/large
+        weighted_mcap = (portfolio_weights * market_caps).sum() / portfolio_weights.sum()
+        total_mcap = market_caps.sum()
+        relative_size = weighted_mcap / (total_mcap / len(market_caps))
+
+        if relative_size > 2.0:
+            size_style = "large"
+        elif relative_size > 0.5:
+            size_style = "mid"
+        else:
+            size_style = "small"
+
+        # Value/growth dimension: P/B ratio
+        weighted_pb = (portfolio_weights * pb_ratios).sum() / portfolio_weights.sum()
+        universe_pb = pb_ratios.mean()
+
+        if weighted_pb < universe_pb * 0.8:
+            value_style = "value"
+        elif weighted_pb > universe_pb * 1.2:
+            value_style = "growth"
+        else:
+            value_style = "blend"
+
+        return {
+            "size_style": size_style,
+            "value_style": value_style,
+            "relative_size": float(relative_size),
+            "portfolio_pb": float(weighted_pb),
+            "universe_pb": float(universe_pb),
+        }
+
+
+class TailRiskMetrics:
+    """Compute tail risk metrics for financial strategies.
+
+    Includes:
+    - Value at Risk (VaR) - parametric and historical
+    - Expected Shortfall (ES / CVaR)
+    - Conditional Drawdown at Risk (CDaR)
+    - Omega ratio
+    - Upside/Downside capture ratios
+    """
+
+    def __init__(self, confidence_levels: List[float] = None):
+        self.confidence_levels = confidence_levels or [0.01, 0.05, 0.10]
+
+    def historical_var(
+        self,
+        returns: np.ndarray,
+        confidence: float = 0.05,
+    ) -> float:
+        """Historical simulation VaR."""
+        return float(np.percentile(returns, confidence * 100))
+
+    def parametric_var(
+        self,
+        returns: np.ndarray,
+        confidence: float = 0.05,
+    ) -> float:
+        """Parametric (normal) VaR."""
+        from scipy import stats
+        mu = returns.mean()
+        sigma = returns.std()
+        return float(stats.norm.ppf(confidence, mu, sigma))
+
+    def expected_shortfall(
+        self,
+        returns: np.ndarray,
+        confidence: float = 0.05,
+    ) -> float:
+        """Expected Shortfall (CVaR): mean loss beyond VaR."""
+        var = self.historical_var(returns, confidence)
+        tail = returns[returns <= var]
+        return float(tail.mean()) if len(tail) > 0 else var
+
+    def omega_ratio(
+        self,
+        returns: np.ndarray,
+        threshold: float = 0.0,
+    ) -> float:
+        """Omega ratio: probability-weighted gain/loss ratio above/below threshold."""
+        gains = (returns[returns > threshold] - threshold).sum()
+        losses = (threshold - returns[returns <= threshold]).sum()
+        return float(gains / max(losses, 1e-10))
+
+    def capture_ratios(
+        self,
+        portfolio_returns: np.ndarray,
+        benchmark_returns: np.ndarray,
+    ) -> dict:
+        """Upside and downside capture ratios."""
+        up_mask = benchmark_returns > 0
+        down_mask = benchmark_returns < 0
+
+        if up_mask.any():
+            upside_capture = float(portfolio_returns[up_mask].mean() / (benchmark_returns[up_mask].mean() + 1e-10))
+        else:
+            upside_capture = float("nan")
+
+        if down_mask.any():
+            downside_capture = float(portfolio_returns[down_mask].mean() / (benchmark_returns[down_mask].mean() + 1e-10))
+        else:
+            downside_capture = float("nan")
+
+        return {
+            "upside_capture": upside_capture,
+            "downside_capture": downside_capture,
+            "capture_ratio": upside_capture / max(abs(downside_capture), 1e-10) if not (
+                math.isnan(upside_capture) or math.isnan(downside_capture)
+            ) else float("nan"),
+        }
+
+    def full_tail_risk_report(self, returns: np.ndarray) -> dict:
+        """Compute all tail risk metrics."""
+        result = {}
+        for cl in self.confidence_levels:
+            result[f"hist_VaR_{int(cl*100)}"] = self.historical_var(returns, cl)
+            result[f"param_VaR_{int(cl*100)}"] = self.parametric_var(returns, cl)
+            result[f"ES_{int(cl*100)}"] = self.expected_shortfall(returns, cl)
+
+        result["omega_ratio"] = self.omega_ratio(returns)
+        result["skewness"] = float(((returns - returns.mean()) ** 3).mean() / (returns.std() ** 3 + 1e-8))
+        result["excess_kurtosis"] = float(
+            ((returns - returns.mean()) ** 4).mean() / (returns.std() ** 4 + 1e-8) - 3
+        )
+
+        return result

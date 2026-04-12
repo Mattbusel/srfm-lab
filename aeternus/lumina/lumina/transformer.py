@@ -3407,3 +3407,843 @@ _NEW_TRANSFORMER_EXPORTS = [
     "get_parameter_groups_for_optimizer", "freeze_layers",
     "get_attention_patterns", "TransformerForSequenceClassification",
 ]
+
+
+# =============================================================================
+# SECTION: Extended Transformer Architectures (Part 3)
+# =============================================================================
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+from typing import Optional, Tuple, List, Dict
+
+
+class SwiGLUFFN(nn.Module):
+    """Feed-forward network with SwiGLU activation (Shazeer 2020, PaLM-style).
+
+    FFN(x) = (SiLU(W_gate * x) * (W_up * x)) @ W_down
+    Uses 2/3 of base FFN size to maintain parameter count.
+    """
+
+    def __init__(self, d_model: int, expansion: float = 8.0 / 3.0, bias: bool = False):
+        super().__init__()
+        d_ff = int(d_model * expansion)
+        # Round to multiple of 64 for efficiency
+        d_ff = (d_ff + 63) // 64 * 64
+
+        self.gate = nn.Linear(d_model, d_ff, bias=bias)
+        self.up = nn.Linear(d_model, d_ff, bias=bias)
+        self.down = nn.Linear(d_ff, d_model, bias=bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.down(F.silu(self.gate(x)) * self.up(x))
+
+
+class GeGLUFFN(nn.Module):
+    """Feed-forward network with GeGLU activation (Noam Shazeer 2020).
+
+    FFN(x) = (GELU(W1 * x) * (W2 * x)) @ W3
+    """
+
+    def __init__(self, d_model: int, expansion: float = 4.0, bias: bool = True, dropout: float = 0.0):
+        super().__init__()
+        d_ff = int(d_model * expansion)
+        self.gate = nn.Linear(d_model, d_ff, bias=bias)
+        self.up = nn.Linear(d_model, d_ff, bias=bias)
+        self.down = nn.Linear(d_ff, d_model, bias=bias)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.dropout(self.down(F.gelu(self.gate(x)) * self.up(x)))
+
+
+class ReGLUFFN(nn.Module):
+    """Feed-forward network with ReGLU activation.
+
+    Uses ReLU gating: FFN(x) = (ReLU(W1*x) * W2*x) @ W3
+    """
+
+    def __init__(self, d_model: int, expansion: float = 4.0, bias: bool = True):
+        super().__init__()
+        d_ff = int(d_model * expansion)
+        self.gate = nn.Linear(d_model, d_ff, bias=bias)
+        self.up = nn.Linear(d_model, d_ff, bias=bias)
+        self.down = nn.Linear(d_ff, d_model, bias=bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.down(F.relu(self.gate(x)) * self.up(x))
+
+
+class SparseMoEFFN(nn.Module):
+    """Sparse MoE FFN: top-k routing over expert feed-forward networks.
+
+    Each token routes to the top-k experts by learned router weights.
+    Implements standard noisy top-k gating with load balancing.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_experts: int = 8,
+        k: int = 2,
+        d_ff: int = None,
+        dropout: float = 0.1,
+        noise_std: float = 0.1,
+    ):
+        super().__init__()
+        d_ff = d_ff or (d_model * 4)
+        self.k = k
+        self.noise_std = noise_std
+        self.n_experts = n_experts
+
+        self.router = nn.Linear(d_model, n_experts, bias=False)
+        self.experts = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(d_model, d_ff),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(d_ff, d_model),
+            )
+            for _ in range(n_experts)
+        ])
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        B, T, D = x.shape
+        flat_x = x.view(B * T, D)
+
+        # Noisy gating
+        logits = self.router(flat_x)
+        if self.training and self.noise_std > 0:
+            logits = logits + torch.randn_like(logits) * self.noise_std
+
+        # Top-k selection
+        topk_vals, topk_idx = torch.topk(logits, self.k, dim=-1)
+        gates = F.softmax(topk_vals, dim=-1)
+
+        # Expert dispatch
+        out = torch.zeros_like(flat_x)
+        for k_idx in range(self.k):
+            expert_ids = topk_idx[:, k_idx]
+            for e in range(self.n_experts):
+                mask = (expert_ids == e)
+                if mask.any():
+                    expert_out = self.experts[e](flat_x[mask])
+                    out[mask] += gates[mask, k_idx:k_idx+1] * expert_out
+
+        # Load balancing auxiliary loss
+        token_probs = F.softmax(logits, dim=-1)
+        fraction_per_expert = (topk_idx == torch.arange(self.n_experts, device=x.device).unsqueeze(0).unsqueeze(0)).float().mean(dim=(0, 1))
+        mean_gate = token_probs.mean(dim=0)
+        aux_loss = (mean_gate * fraction_per_expert).sum() * self.n_experts
+
+        return out.view(B, T, D), aux_loss
+
+
+class RMSNorm(nn.Module):
+    """Root Mean Square Layer Normalization (Zhang & Sennrich 2019).
+
+    Simpler than LayerNorm: no mean centering, just RMS scaling.
+    Used in LLaMA, Mistral, and other modern LLMs.
+    """
+
+    def __init__(self, d_model: int, eps: float = 1e-6):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(d_model))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        rms = x.pow(2).mean(dim=-1, keepdim=True).add(self.eps).sqrt()
+        return self.weight * (x / rms)
+
+
+class PreNormTransformerBlock(nn.Module):
+    """Standard pre-norm transformer block (GPT-2 / LLaMA style).
+
+    Uses RMSNorm before attention and FFN for training stability.
+    Architecture: x + Attn(Norm(x)), x + FFN(Norm(x))
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        n_heads: int = 8,
+        d_ff: int = 2048,
+        ffn_type: str = "swiglu",
+        dropout: float = 0.1,
+        causal: bool = False,
+    ):
+        super().__init__()
+        self.norm1 = RMSNorm(d_model)
+        self.norm2 = RMSNorm(d_model)
+
+        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+
+        if ffn_type == "swiglu":
+            self.ffn = SwiGLUFFN(d_model)
+        elif ffn_type == "geglu":
+            self.ffn = GeGLUFFN(d_model, dropout=dropout)
+        elif ffn_type == "reglu":
+            self.ffn = ReGLUFFN(d_model)
+        else:
+            self.ffn = nn.Sequential(
+                nn.Linear(d_model, d_ff),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(d_ff, d_model),
+            )
+
+        self.drop = nn.Dropout(dropout)
+        self.causal = causal
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor = None,
+        key_padding_mask: torch.Tensor = None,
+    ) -> torch.Tensor:
+        # Attention with pre-norm
+        h = self.norm1(x)
+        T = h.shape[1]
+        causal_mask = None
+        if self.causal:
+            causal_mask = torch.triu(torch.ones(T, T, device=x.device), diagonal=1).bool()
+
+        attn_out, _ = self.attn(h, h, h, attn_mask=causal_mask, key_padding_mask=key_padding_mask)
+        x = x + self.drop(attn_out)
+
+        # FFN with pre-norm
+        x = x + self.drop(self.ffn(self.norm2(x)))
+        return x
+
+
+class PostNormTransformerBlock(nn.Module):
+    """Post-norm transformer block (original Attention Is All You Need style).
+
+    Architecture: Norm(x + Attn(x)), Norm(x + FFN(x))
+    Less stable than pre-norm but sometimes achieves better performance.
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        n_heads: int = 8,
+        d_ff: int = 2048,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+
+        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, d_ff),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_ff, d_model),
+        )
+        self.drop = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
+        attn_out, _ = self.attn(x, x, x)
+        x = self.norm1(x + self.drop(attn_out))
+        x = self.norm2(x + self.drop(self.ffn(x)))
+        return x
+
+
+class DeepNormTransformerBlock(nn.Module):
+    """DeepNorm (Wang et al. 2022): rescale residual for stable deep training.
+
+    Modifies residual connection: Norm(alpha * x + F(x))
+    where alpha = (2 * N)^(1/4) and beta = (8 * N)^(-1/4) for initialization.
+    Enables training models with 1000+ layers.
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        n_heads: int = 8,
+        d_ff: int = 2048,
+        n_total_layers: int = 12,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        # DeepNorm scaling factors
+        self.alpha = (2.0 * n_total_layers) ** 0.25
+        beta = (8.0 * n_total_layers) ** (-0.25)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+
+        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, d_ff),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_ff, d_model),
+        )
+        self.drop = nn.Dropout(dropout)
+
+        # Initialize with scaled beta
+        with torch.no_grad():
+            for module in self.modules():
+                if isinstance(module, nn.Linear):
+                    module.weight.data.mul_(beta)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        attn_out, _ = self.attn(x, x, x)
+        x = self.norm1(self.alpha * x + self.drop(attn_out))
+        x = self.norm2(self.alpha * x + self.drop(self.ffn(x)))
+        return x
+
+
+class LlamaBlock(nn.Module):
+    """LLaMA-style transformer block.
+
+    Features:
+    - RMSNorm (no bias)
+    - SwiGLU FFN (no bias)
+    - Grouped Query Attention (GQA)
+    - RoPE positional encoding (applied externally)
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        n_heads: int = 8,
+        n_kv_heads: int = 4,
+        expansion: float = 8.0 / 3.0,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        assert n_heads % n_kv_heads == 0
+        self.n_heads = n_heads
+        self.n_kv_heads = n_kv_heads
+        self.n_rep = n_heads // n_kv_heads
+        self.d_head = d_model // n_heads
+
+        self.norm1 = RMSNorm(d_model)
+        self.norm2 = RMSNorm(d_model)
+
+        # GQA: Q has n_heads, K/V have n_kv_heads
+        self.q_proj = nn.Linear(d_model, n_heads * self.d_head, bias=False)
+        self.k_proj = nn.Linear(d_model, n_kv_heads * self.d_head, bias=False)
+        self.v_proj = nn.Linear(d_model, n_kv_heads * self.d_head, bias=False)
+        self.o_proj = nn.Linear(n_heads * self.d_head, d_model, bias=False)
+
+        self.ffn = SwiGLUFFN(d_model, expansion=expansion)
+        self.scale = math.sqrt(self.d_head)
+
+    def _repeat_kv(self, x: torch.Tensor) -> torch.Tensor:
+        """Repeat K/V heads to match Q heads for GQA."""
+        B, H, T, Dh = x.shape
+        if self.n_rep == 1:
+            return x
+        return x.unsqueeze(2).expand(-1, -1, self.n_rep, -1, -1).reshape(B, H * self.n_rep, T, Dh)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor = None,
+    ) -> torch.Tensor:
+        B, T, D = x.shape
+
+        # Attention
+        h = self.norm1(x)
+        Q = self.q_proj(h).view(B, T, self.n_heads, self.d_head).transpose(1, 2)
+        K = self.k_proj(h).view(B, T, self.n_kv_heads, self.d_head).transpose(1, 2)
+        V = self.v_proj(h).view(B, T, self.n_kv_heads, self.d_head).transpose(1, 2)
+
+        K = self._repeat_kv(K)
+        V = self._repeat_kv(V)
+
+        scores = (Q @ K.transpose(-2, -1)) / self.scale
+        if mask is not None:
+            scores = scores.masked_fill(mask, float("-inf"))
+
+        attn = F.softmax(scores, dim=-1)
+        out = (attn @ V).transpose(1, 2).contiguous().view(B, T, self.n_heads * self.d_head)
+        x = x + self.o_proj(out)
+
+        # FFN
+        x = x + self.ffn(self.norm2(x))
+        return x
+
+
+class MistralBlock(nn.Module):
+    """Mistral-style transformer block with sliding window attention.
+
+    Features:
+    - Sliding window attention for efficiency on long sequences
+    - Grouped query attention (GQA) with n_kv_heads
+    - SwiGLU FFN
+    - RMSNorm
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        n_heads: int = 8,
+        n_kv_heads: int = 2,
+        window_size: int = 128,
+        expansion: float = 8.0 / 3.0,
+    ):
+        super().__init__()
+        self.window_size = window_size
+        self.n_heads = n_heads
+        self.n_kv_heads = n_kv_heads
+        self.n_rep = n_heads // n_kv_heads
+        self.d_head = d_model // n_heads
+
+        self.norm1 = RMSNorm(d_model)
+        self.norm2 = RMSNorm(d_model)
+
+        self.q_proj = nn.Linear(d_model, n_heads * self.d_head, bias=False)
+        self.k_proj = nn.Linear(d_model, n_kv_heads * self.d_head, bias=False)
+        self.v_proj = nn.Linear(d_model, n_kv_heads * self.d_head, bias=False)
+        self.o_proj = nn.Linear(n_heads * self.d_head, d_model, bias=False)
+
+        self.ffn = SwiGLUFFN(d_model, expansion=expansion)
+        self.scale = math.sqrt(self.d_head)
+
+    def _sliding_window_mask(self, T: int, device: torch.device) -> torch.Tensor:
+        """Create sliding window attention mask."""
+        mask = torch.ones(T, T, device=device).bool()
+        for i in range(T):
+            mask[i, max(0, i - self.window_size):i + 1] = False
+        return mask
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        h = self.norm1(x)
+
+        Q = self.q_proj(h).view(B, T, self.n_heads, self.d_head).transpose(1, 2)
+        K = self.k_proj(h).view(B, T, self.n_kv_heads, self.d_head).transpose(1, 2)
+        V = self.v_proj(h).view(B, T, self.n_kv_heads, self.d_head).transpose(1, 2)
+
+        if self.n_rep > 1:
+            K = K.unsqueeze(2).expand(-1, -1, self.n_rep, -1, -1).reshape(B, self.n_heads, T, self.d_head)
+            V = V.unsqueeze(2).expand(-1, -1, self.n_rep, -1, -1).reshape(B, self.n_heads, T, self.d_head)
+
+        scores = (Q @ K.transpose(-2, -1)) / self.scale
+        window_mask = self._sliding_window_mask(T, x.device)
+        scores = scores.masked_fill(window_mask.unsqueeze(0).unsqueeze(0), float("-inf"))
+
+        attn = F.softmax(scores, dim=-1)
+        out = (attn @ V).transpose(1, 2).contiguous().view(B, T, self.n_heads * self.d_head)
+        x = x + self.o_proj(out)
+        x = x + self.ffn(self.norm2(x))
+        return x
+
+
+class ChronologicalTransformer(nn.Module):
+    """Transformer designed for chronological financial event sequences.
+
+    Features:
+    - Time-aware positional encoding (continuous time)
+    - Causal attention mask (can only look backward)
+    - Irregular interval handling via learned time embeddings
+    - Return prediction head
+    """
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        n_heads: int = 8,
+        n_layers: int = 4,
+        d_ff: int = 1024,
+        max_seq_len: int = 512,
+        n_time_features: int = 32,
+        n_price_features: int = 64,
+        n_outputs: int = 5,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.d_model = d_model
+
+        # Feature projections
+        self.price_proj = nn.Linear(n_price_features, d_model - n_time_features)
+        self.time_proj = nn.Linear(1, n_time_features)
+
+        # Transformer layers
+        self.layers = nn.ModuleList([
+            PreNormTransformerBlock(d_model, n_heads, d_ff, causal=True, dropout=dropout)
+            for _ in range(n_layers)
+        ])
+
+        self.norm = RMSNorm(d_model)
+
+        # Multi-horizon output head
+        self.head = nn.Sequential(
+            nn.Linear(d_model, d_model // 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model // 2, n_outputs),
+        )
+
+        self.pos_emb = nn.Embedding(max_seq_len, d_model)
+
+    def forward(
+        self,
+        price_features: torch.Tensor,
+        timestamps: torch.Tensor,
+        mask: torch.Tensor = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            price_features: [B, T, n_price_features]
+            timestamps: [B, T] normalized timestamps in [0, 1]
+            mask: [B, T] valid position mask
+        Returns:
+            [B, T, n_outputs]
+        """
+        B, T, _ = price_features.shape
+
+        price_emb = self.price_proj(price_features)
+        time_emb = self.time_proj(timestamps.unsqueeze(-1))
+        x = torch.cat([price_emb, time_emb], dim=-1)
+
+        pos = torch.arange(T, device=x.device)
+        x = x + self.pos_emb(pos).unsqueeze(0)
+
+        for layer in self.layers:
+            x = layer(x, key_padding_mask=(~mask if mask is not None else None))
+
+        x = self.norm(x)
+        return self.head(x)
+
+
+class FinancialBERTBlock(nn.Module):
+    """BERT-style bidirectional transformer block for financial text + data fusion.
+
+    Processes:
+    - Numerical features (returns, volatility, indicators)
+    - Text embeddings (news, analyst reports)
+    - Categorical features (sector, rating)
+
+    Uses segment embeddings to distinguish modality types.
+    """
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        n_heads: int = 8,
+        d_ff: int = 1024,
+        n_segments: int = 4,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.segment_emb = nn.Embedding(n_segments, d_model)
+
+        self.attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.ffn = GeGLUFFN(d_model, dropout=dropout)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.drop = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        segment_ids: torch.Tensor = None,
+        mask: torch.Tensor = None,
+    ) -> torch.Tensor:
+        if segment_ids is not None:
+            x = x + self.segment_emb(segment_ids)
+
+        h, _ = self.attn(x, x, x, key_padding_mask=(~mask if mask is not None else None))
+        x = self.norm1(x + self.drop(h))
+        x = self.norm2(x + self.drop(self.ffn(x)))
+        return x
+
+
+class AlphaGeneratingTransformer(nn.Module):
+    """Full transformer for alpha signal generation.
+
+    Takes multi-factor feature matrix and produces alpha forecasts,
+    uncertainty estimates, and factor attribution.
+    """
+
+    def __init__(
+        self,
+        n_factors: int = 50,
+        n_assets: int = 500,
+        d_model: int = 256,
+        n_heads: int = 8,
+        n_layers: int = 6,
+        d_ff: int = 1024,
+        forecast_horizon: int = 5,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.n_assets = n_assets
+        self.d_model = d_model
+        self.forecast_horizon = forecast_horizon
+
+        # Asset embedding
+        self.asset_emb = nn.Embedding(n_assets, d_model // 2)
+
+        # Factor projection
+        self.factor_proj = nn.Linear(n_factors, d_model // 2)
+
+        # Transformer encoder
+        self.layers = nn.ModuleList([
+            PreNormTransformerBlock(d_model, n_heads, d_ff, dropout=dropout)
+            for _ in range(n_layers)
+        ])
+        self.norm = RMSNorm(d_model)
+
+        # Output heads
+        self.alpha_head = nn.Linear(d_model, forecast_horizon)
+        self.vol_head = nn.Sequential(
+            nn.Linear(d_model, forecast_horizon),
+            nn.Softplus(),
+        )
+        self.factor_attribution = nn.Linear(d_model, n_factors)
+
+    def forward(
+        self,
+        factors: torch.Tensor,
+        asset_ids: torch.Tensor,
+        mask: torch.Tensor = None,
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Args:
+            factors: [B, N_assets, N_factors] factor exposures
+            asset_ids: [B, N_assets] asset indices
+            mask: [B, N_assets] valid asset mask
+        Returns:
+            dict with alpha, vol, attribution
+        """
+        B, N, _ = factors.shape
+
+        factor_emb = self.factor_proj(factors)
+        asset_emb = self.asset_emb(asset_ids)
+        x = torch.cat([factor_emb, asset_emb], dim=-1)
+
+        for layer in self.layers:
+            x = layer(x)
+
+        x = self.norm(x)
+
+        return {
+            "alpha": self.alpha_head(x),
+            "volatility": self.vol_head(x),
+            "factor_attribution": self.factor_attribution(x),
+        }
+
+
+class FinancialEncoderDecoder(nn.Module):
+    """Encoder-decoder transformer for sequence-to-sequence financial tasks.
+
+    Use cases:
+    - Historical price series -> Future price trajectory
+    - Factor exposures -> Returns decomposition
+    - Event sequences -> Prediction sequences
+    """
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        n_heads: int = 8,
+        n_encoder_layers: int = 4,
+        n_decoder_layers: int = 4,
+        d_ff: int = 1024,
+        max_encoder_len: int = 256,
+        max_decoder_len: int = 64,
+        n_outputs: int = 5,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.d_model = d_model
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model, n_heads, d_ff, dropout, batch_first=True
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, n_encoder_layers)
+
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model, n_heads, d_ff, dropout, batch_first=True
+        )
+        self.decoder = nn.TransformerDecoder(decoder_layer, n_decoder_layers)
+
+        self.encoder_pos = nn.Embedding(max_encoder_len, d_model)
+        self.decoder_pos = nn.Embedding(max_decoder_len, d_model)
+
+        self.out_proj = nn.Linear(d_model, n_outputs)
+        self.encoder_norm = nn.LayerNorm(d_model)
+        self.decoder_norm = nn.LayerNorm(d_model)
+
+    def encode(
+        self,
+        src: torch.Tensor,
+        src_mask: torch.Tensor = None,
+    ) -> torch.Tensor:
+        T = src.shape[1]
+        pos = torch.arange(T, device=src.device)
+        x = src + self.encoder_pos(pos).unsqueeze(0)
+        memory = self.encoder(x, src_key_padding_mask=src_mask)
+        return self.encoder_norm(memory)
+
+    def decode(
+        self,
+        tgt: torch.Tensor,
+        memory: torch.Tensor,
+        tgt_mask: torch.Tensor = None,
+        memory_mask: torch.Tensor = None,
+    ) -> torch.Tensor:
+        T = tgt.shape[1]
+        pos = torch.arange(T, device=tgt.device)
+        tgt = tgt + self.decoder_pos(pos).unsqueeze(0)
+        out = self.decoder(tgt, memory, tgt_mask=tgt_mask, memory_key_padding_mask=memory_mask)
+        return self.decoder_norm(out)
+
+    def forward(
+        self,
+        src: torch.Tensor,
+        tgt: torch.Tensor,
+        src_mask: torch.Tensor = None,
+        tgt_mask: torch.Tensor = None,
+        memory_mask: torch.Tensor = None,
+    ) -> torch.Tensor:
+        memory = self.encode(src, src_mask)
+        decoded = self.decode(tgt, memory, tgt_mask, memory_mask)
+        return self.out_proj(decoded)
+
+
+class PerceiverIOBlock(nn.Module):
+    """Perceiver IO-style block: cross-attention between latents and inputs.
+
+    Latent array acts as a bottleneck that queries input tokens.
+    Enables O(MN) attention where M << N (M = n_latents, N = input len).
+    """
+
+    def __init__(
+        self,
+        d_model: int = 256,
+        d_latent: int = 128,
+        n_latents: int = 64,
+        n_heads: int = 8,
+        n_self_attn_layers: int = 2,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.latents = nn.Parameter(torch.randn(n_latents, d_latent))
+        self.input_proj = nn.Linear(d_model, d_latent)
+
+        # Cross-attention: latents attend to inputs
+        self.cross_attn = nn.MultiheadAttention(d_latent, n_heads, dropout=dropout, batch_first=True)
+        self.cross_norm = nn.LayerNorm(d_latent)
+
+        # Self-attention between latents
+        encoder_layer = nn.TransformerEncoderLayer(d_latent, n_heads, d_latent * 4, dropout, batch_first=True)
+        self.self_attn = nn.TransformerEncoder(encoder_layer, n_self_attn_layers)
+
+        # Output projection
+        self.out_proj = nn.Linear(d_latent, d_model)
+        self.out_cross = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.out_norm = nn.LayerNorm(d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        n_lat = self.latents.shape[0]
+
+        # Cross-attend latents to inputs
+        latents = self.latents.unsqueeze(0).expand(B, -1, -1)
+        inp = self.input_proj(x)
+        ctx, _ = self.cross_attn(latents, inp, inp)
+        latents = self.cross_norm(latents + ctx)
+
+        # Process latents
+        latents = self.self_attn(latents)
+
+        # Cross-attend inputs to latents (decode)
+        latent_proj = self.out_proj(latents)
+        out, _ = self.out_cross(x, latent_proj, latent_proj)
+        return self.out_norm(x + out)
+
+
+class TimeSeriesPatchTransformer(nn.Module):
+    """Patch-based transformer for multivariate time series (PatchTST++).
+
+    Divides time series into non-overlapping patches and processes
+    each patch as a token. Channel-independent or channel-mixing variants.
+    """
+
+    def __init__(
+        self,
+        n_vars: int = 7,
+        patch_len: int = 16,
+        stride: int = 8,
+        d_model: int = 128,
+        n_heads: int = 8,
+        n_layers: int = 4,
+        d_ff: int = 512,
+        forecast_len: int = 96,
+        dropout: float = 0.1,
+        channel_independent: bool = True,
+    ):
+        super().__init__()
+        self.n_vars = n_vars
+        self.patch_len = patch_len
+        self.stride = stride
+        self.channel_independent = channel_independent
+        self.d_model = d_model
+
+        # Patch embedding
+        self.patch_emb = nn.Linear(patch_len, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+        # Transformer
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model, n_heads, d_ff, dropout, batch_first=True
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, n_layers)
+        self.norm = nn.LayerNorm(d_model)
+
+        # Output
+        self.head = nn.Linear(d_model, forecast_len)
+
+    def _patchify(self, x: torch.Tensor) -> Tuple[torch.Tensor, int]:
+        """Split time series into patches."""
+        B, T, C = x.shape
+        # Pad if needed
+        n_patches = (T - self.patch_len) // self.stride + 1
+        patches = []
+        for i in range(n_patches):
+            start = i * self.stride
+            end = start + self.patch_len
+            patches.append(x[:, start:end, :])
+        return torch.stack(patches, dim=2), n_patches
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: [B, T, C] multivariate time series
+        Returns:
+            [B, C, forecast_len] forecasts
+        """
+        B, T, C = x.shape
+        patches, n_patches = self._patchify(x)  # [B, patch_len, n_patches, C]
+
+        if self.channel_independent:
+            # Process each channel independently
+            x_pat = patches.permute(0, 3, 2, 1)  # [B, C, n_patches, patch_len]
+            x_pat = x_pat.reshape(B * C, n_patches, self.patch_len)
+            h = self.patch_emb(x_pat)
+            h = self.dropout(h)
+            h = self.encoder(h)
+            h = self.norm(h)
+            # Take mean over patches for forecast
+            h = h.mean(dim=1)  # [B*C, d_model]
+            out = self.head(h)  # [B*C, forecast_len]
+            return out.view(B, C, -1)
+        else:
+            # Channel mixing: process all channels together
+            x_pat = patches.permute(0, 2, 1, 3)  # [B, n_patches, patch_len, C]
+            x_pat = x_pat.reshape(B, n_patches, self.patch_len * C)
+            h = nn.Linear(self.patch_len * C, self.d_model)(x_pat)
+            h = self.encoder(h)
+            h = self.norm(h).mean(dim=1)
+            return self.head(h).unsqueeze(1).expand(-1, C, -1)

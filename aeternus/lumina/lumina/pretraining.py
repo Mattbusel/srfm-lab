@@ -2258,3 +2258,752 @@ _NEW_PRETRAINING_EXPORTS = [
     "FinancialPretrainingObjective", "PretrainingScheduler",
     "AugmentationPipeline", "SpanMaskingStrategy", "CrossModalMaskingStrategy",
 ]
+
+
+# =============================================================================
+# SECTION: Advanced Pretraining Methods (Part 3)
+# =============================================================================
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+from typing import Optional, List, Dict, Tuple
+
+
+class ElasticityAugmentation(nn.Module):
+    """Elastic deformation augmentation for financial time series.
+
+    Applies random warping along the time dimension using B-spline interpolation.
+    Creates plausible alternative paths consistent with the original data distribution.
+    """
+
+    def __init__(
+        self,
+        n_control_points: int = 8,
+        warp_std: float = 0.05,
+        p_apply: float = 0.5,
+    ):
+        super().__init__()
+        self.n_control_points = n_control_points
+        self.warp_std = warp_std
+        self.p_apply = p_apply
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.training or torch.rand(1).item() > self.p_apply:
+            return x
+
+        B, T, D = x.shape
+
+        # Generate control point displacements
+        ctrl_displace = torch.randn(B, self.n_control_points, device=x.device) * self.warp_std
+
+        # Interpolate to full time grid
+        ctrl_t = torch.linspace(0, T - 1, self.n_control_points, device=x.device)
+        full_t = torch.arange(T, dtype=torch.float32, device=x.device)
+
+        warped_results = []
+        for b in range(B):
+            # Interpolate displacement at each time step
+            displace = torch.zeros(T, device=x.device)
+            for i in range(self.n_control_points - 1):
+                mask = (full_t >= ctrl_t[i]) & (full_t < ctrl_t[i+1])
+                alpha = (full_t[mask] - ctrl_t[i]) / (ctrl_t[i+1] - ctrl_t[i] + 1e-8)
+                displace[mask] = ctrl_displace[b, i] * (1 - alpha) + ctrl_displace[b, i+1] * alpha
+
+            # Warp time indices
+            warp_t = (full_t + displace * T).clamp(0, T - 1)
+            warp_t_idx = warp_t.long()
+            warp_alpha = warp_t - warp_t_idx.float()
+
+            # Linear interpolation
+            warp_t_idx_next = (warp_t_idx + 1).clamp(0, T - 1)
+            warped = (
+                x[b][warp_t_idx] * (1 - warp_alpha.unsqueeze(-1)) +
+                x[b][warp_t_idx_next] * warp_alpha.unsqueeze(-1)
+            )
+            warped_results.append(warped)
+
+        return torch.stack(warped_results)
+
+
+class MixupAugmentation(nn.Module):
+    """Mixup augmentation for financial time series (Zhang et al. 2018).
+
+    Creates convex combinations of training examples and their labels.
+    Works both in input space and in hidden representation space (Manifold Mixup).
+    """
+
+    def __init__(self, alpha: float = 0.2, mode: str = "input"):
+        super().__init__()
+        self.alpha = alpha
+        self.mode = mode
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor = None,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[float]]:
+        if not self.training or self.alpha == 0:
+            return x, y, None, 1.0
+
+        import numpy as np
+        lam = float(np.random.beta(self.alpha, self.alpha))
+
+        B = x.shape[0]
+        idx = torch.randperm(B, device=x.device)
+
+        mixed_x = lam * x + (1 - lam) * x[idx]
+
+        if y is not None:
+            return mixed_x, y, y[idx], lam
+        return mixed_x, None, None, lam
+
+
+class CutMixAugmentation(nn.Module):
+    """CutMix augmentation adapted for time series.
+
+    Randomly cuts a contiguous temporal segment from one sample
+    and pastes it into another, mixing their labels proportionally.
+    """
+
+    def __init__(self, alpha: float = 1.0, p_apply: float = 0.5):
+        super().__init__()
+        self.alpha = alpha
+        self.p_apply = p_apply
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor = None,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[float]]:
+        if not self.training or torch.rand(1).item() > self.p_apply:
+            return x, y, None, 1.0
+
+        import numpy as np
+        B, T, D = x.shape
+        lam = float(np.random.beta(self.alpha, self.alpha))
+
+        cut_len = int(T * (1 - lam))
+        cut_start = torch.randint(0, T - cut_len + 1, (1,)).item()
+
+        idx = torch.randperm(B, device=x.device)
+        mixed_x = x.clone()
+        mixed_x[:, cut_start:cut_start + cut_len, :] = x[idx, cut_start:cut_start + cut_len, :]
+
+        lam_actual = 1.0 - cut_len / T
+
+        if y is not None:
+            return mixed_x, y, y[idx], lam_actual
+        return mixed_x, None, None, lam_actual
+
+
+class TimeFrequencyMasking(nn.Module):
+    """Time-frequency masking inspired by SpecAugment (Park et al. 2019).
+
+    Applies masks in both time and frequency (via FFT) dimensions.
+    Particularly useful for financial signals with periodic patterns.
+    """
+
+    def __init__(
+        self,
+        time_mask_pct: float = 0.15,
+        freq_mask_pct: float = 0.10,
+        n_time_masks: int = 2,
+        n_freq_masks: int = 2,
+    ):
+        super().__init__()
+        self.time_mask_pct = time_mask_pct
+        self.freq_mask_pct = freq_mask_pct
+        self.n_time_masks = n_time_masks
+        self.n_freq_masks = n_freq_masks
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.training:
+            return x
+
+        B, T, D = x.shape
+        x_aug = x.clone()
+
+        # Time masking
+        for _ in range(self.n_time_masks):
+            mask_len = int(T * self.time_mask_pct)
+            for b in range(B):
+                start = torch.randint(0, T - mask_len + 1, (1,)).item()
+                x_aug[b, start:start + mask_len, :] = 0.0
+
+        # Frequency masking (apply to each feature dimension via FFT)
+        n_freq = D // 2 + 1
+        for _ in range(self.n_freq_masks):
+            mask_len = int(n_freq * self.freq_mask_pct)
+            for b in range(B):
+                freq_start = torch.randint(0, n_freq - mask_len + 1, (1,)).item()
+                x_fft = torch.fft.rfft(x_aug[b], dim=0)
+                x_fft[freq_start:freq_start + mask_len, :] = 0.0
+                x_aug[b] = torch.fft.irfft(x_fft, n=T, dim=0)
+
+        return x_aug
+
+
+class SectorContrastiveLoss(nn.Module):
+    """Contrastive loss that leverages sector/industry labels as supervision.
+
+    Pull together representations from the same sector,
+    push apart representations from different sectors.
+    Uses a soft negative mining strategy.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        d_proj: int = 128,
+        temperature: float = 0.07,
+        n_sectors: int = 11,
+        hard_negative_weight: float = 2.0,
+    ):
+        super().__init__()
+        self.temperature = temperature
+        self.n_sectors = n_sectors
+        self.hard_negative_weight = hard_negative_weight
+
+        self.proj = nn.Sequential(
+            nn.Linear(d_model, d_proj),
+            nn.ReLU(),
+            nn.Linear(d_proj, d_proj),
+        )
+
+    def forward(
+        self,
+        embeddings: torch.Tensor,
+        sector_labels: torch.Tensor,
+    ) -> dict:
+        """
+        Args:
+            embeddings: [B, d_model]
+            sector_labels: [B] sector indices
+        """
+        z = F.normalize(self.proj(embeddings), dim=-1)
+        B = z.shape[0]
+
+        # Similarity matrix
+        sim = z @ z.T  # [B, B]
+        sim = sim / self.temperature
+
+        # Mask: positives are same sector, negatives are different sector
+        labels_equal = (sector_labels.unsqueeze(0) == sector_labels.unsqueeze(1))
+
+        # Remove diagonal
+        diag_mask = ~torch.eye(B, dtype=torch.bool, device=z.device)
+        labels_equal = labels_equal & diag_mask
+
+        # Loss: for each anchor, pull positives and push negatives
+        total_loss = torch.tensor(0.0, device=z.device)
+        n_valid = 0
+
+        for i in range(B):
+            pos_mask = labels_equal[i]
+            neg_mask = ~labels_equal[i] & diag_mask[i]
+
+            if not pos_mask.any():
+                continue
+
+            pos_sim = sim[i][pos_mask]
+            neg_sim = sim[i][neg_mask]
+
+            if not neg_mask.any():
+                continue
+
+            # Soft positive loss
+            logsumexp_neg = torch.logsumexp(neg_sim, dim=0)
+            pos_loss = (-pos_sim + logsumexp_neg).mean()
+
+            # Hard negative weighting
+            hard_neg_weight = torch.ones_like(neg_sim)
+            top_neg_idx = neg_sim.topk(min(3, neg_mask.sum().item())).indices
+            hard_neg_weight[top_neg_idx] = self.hard_negative_weight
+            weighted_neg = (neg_sim * hard_neg_weight).logsumexp(dim=0)
+            hard_loss = (-pos_sim.mean() + weighted_neg)
+
+            total_loss = total_loss + 0.5 * pos_loss + 0.5 * hard_loss
+            n_valid += 1
+
+        if n_valid == 0:
+            return {"loss": torch.tensor(0.0, device=z.device)}
+
+        return {"loss": total_loss / n_valid}
+
+
+class TimeSeriesGAN(nn.Module):
+    """GAN-based data augmentation for financial time series.
+
+    Generator: noise -> synthetic time series
+    Discriminator: real/synthetic classification
+    Uses WGAN-GP for stable training.
+    """
+
+    class Generator(nn.Module):
+        def __init__(self, n_latent: int, T: int, n_features: int, d_model: int):
+            super().__init__()
+            self.T = T
+            self.n_features = n_features
+            self.init_proj = nn.Linear(n_latent, d_model)
+            encoder_layer = nn.TransformerEncoderLayer(d_model, 4, d_model*2, 0.1, batch_first=True)
+            self.transformer = nn.TransformerEncoder(encoder_layer, 3)
+            self.out = nn.Linear(d_model, n_features)
+
+        def forward(self, z: torch.Tensor) -> torch.Tensor:
+            B = z.shape[0]
+            h = self.init_proj(z).unsqueeze(1).expand(-1, self.T, -1)
+            h = self.transformer(h)
+            return self.out(h)
+
+    class Discriminator(nn.Module):
+        def __init__(self, T: int, n_features: int, d_model: int):
+            super().__init__()
+            self.proj = nn.Linear(n_features, d_model)
+            encoder_layer = nn.TransformerEncoderLayer(d_model, 4, d_model*2, 0.1, batch_first=True)
+            self.transformer = nn.TransformerEncoder(encoder_layer, 3)
+            self.head = nn.Linear(d_model, 1)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            h = self.proj(x)
+            h = self.transformer(h)
+            return self.head(h[:, -1, :])
+
+    def __init__(
+        self,
+        n_latent: int = 64,
+        T: int = 64,
+        n_features: int = 10,
+        d_model: int = 128,
+        lambda_gp: float = 10.0,
+    ):
+        super().__init__()
+        self.n_latent = n_latent
+        self.lambda_gp = lambda_gp
+
+        self.generator = self.Generator(n_latent, T, n_features, d_model)
+        self.discriminator = self.Discriminator(T, n_features, d_model)
+
+    def generate(self, batch_size: int, device: str = "cpu") -> torch.Tensor:
+        z = torch.randn(batch_size, self.n_latent, device=device)
+        return self.generator(z)
+
+    def compute_gradient_penalty(
+        self,
+        real: torch.Tensor,
+        fake: torch.Tensor,
+    ) -> torch.Tensor:
+        B = real.shape[0]
+        alpha = torch.rand(B, 1, 1, device=real.device)
+        interpolated = alpha * real + (1 - alpha) * fake
+        interpolated.requires_grad_(True)
+        disc_out = self.discriminator(interpolated)
+        grad = torch.autograd.grad(
+            outputs=disc_out, inputs=interpolated,
+            grad_outputs=torch.ones_like(disc_out),
+            create_graph=True, retain_graph=True,
+        )[0]
+        grad_norm = grad.view(B, -1).norm(2, dim=1)
+        return ((grad_norm - 1) ** 2).mean() * self.lambda_gp
+
+    def discriminator_loss(self, real: torch.Tensor, fake: torch.Tensor) -> torch.Tensor:
+        real_loss = -self.discriminator(real).mean()
+        fake_loss = self.discriminator(fake.detach()).mean()
+        gp = self.compute_gradient_penalty(real, fake.detach())
+        return real_loss + fake_loss + gp
+
+    def generator_loss(self, fake: torch.Tensor) -> torch.Tensor:
+        return -self.discriminator(fake).mean()
+
+
+class TemporalContrastivePretraining(nn.Module):
+    """Temporal contrastive pretraining for financial models.
+
+    Creates positive pairs from nearby time windows (should be similar)
+    and negative pairs from distant windows (should be different).
+    Based on Temporal Contrastive Learning (TCL, Franceschi 2019).
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        d_proj: int = 128,
+        positive_window: int = 5,
+        negative_gap: int = 20,
+        temperature: float = 0.1,
+    ):
+        super().__init__()
+        self.positive_window = positive_window
+        self.negative_gap = negative_gap
+        self.temperature = temperature
+
+        self.proj = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.GELU(),
+            nn.Linear(d_model, d_proj),
+        )
+
+    def create_temporal_pairs(
+        self,
+        x: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample positive and negative pairs from a sequence."""
+        B, T, D = x.shape
+        anchors, positives, negatives = [], [], []
+
+        for b in range(B):
+            for t in range(self.negative_gap, T - self.positive_window):
+                anchor = x[b, t]
+                # Positive: nearby window
+                pos_t = torch.randint(
+                    max(0, t - self.positive_window),
+                    min(T, t + self.positive_window + 1),
+                    (1,),
+                ).item()
+                positive = x[b, pos_t]
+
+                # Negative: distant window
+                neg_t = torch.randint(0, max(1, t - self.negative_gap), (1,)).item()
+                negative = x[b, neg_t]
+
+                anchors.append(anchor)
+                positives.append(positive)
+                negatives.append(negative)
+
+        return (
+            torch.stack(anchors),
+            torch.stack(positives),
+            torch.stack(negatives),
+        )
+
+    def forward(
+        self,
+        anchor_emb: torch.Tensor,
+        positive_emb: torch.Tensor,
+        negative_embs: torch.Tensor,
+    ) -> dict:
+        """
+        Args:
+            anchor_emb: [N, d_model]
+            positive_emb: [N, d_model]
+            negative_embs: [N, K, d_model]
+        """
+        z_a = F.normalize(self.proj(anchor_emb), dim=-1)
+        z_p = F.normalize(self.proj(positive_emb), dim=-1)
+
+        pos_sim = (z_a * z_p).sum(dim=-1) / self.temperature
+
+        if negative_embs.ndim == 3:
+            B, K, D = negative_embs.shape
+            z_n = F.normalize(self.proj(negative_embs.view(B*K, D)), dim=-1).view(B, K, -1)
+            neg_sim = torch.einsum("bd,bkd->bk", z_a, z_n) / self.temperature
+            logits = torch.cat([pos_sim.unsqueeze(1), neg_sim], dim=1)
+            labels = torch.zeros(B, dtype=torch.long, device=z_a.device)
+            loss = F.cross_entropy(logits, labels)
+        else:
+            z_n = F.normalize(self.proj(negative_embs), dim=-1)
+            neg_sim = (z_a * z_n).sum(dim=-1) / self.temperature
+            loss = F.softplus(neg_sim - pos_sim).mean()
+
+        return {
+            "loss": loss,
+            "pos_sim_mean": pos_sim.mean().item(),
+        }
+
+
+class ReturnPredictionCurriculum:
+    """Curriculum learning strategy for return prediction tasks.
+
+    Gradually increases difficulty by:
+    1. Start with short-horizon, high-volatility, liquid assets
+    2. Progress to longer horizons and less predictable assets
+    3. Eventually train on full cross-section with all horizons
+    """
+
+    def __init__(
+        self,
+        n_horizons: int = 10,
+        n_stages: int = 5,
+        initial_horizon: int = 1,
+        steps_per_stage: int = 5000,
+    ):
+        self.n_horizons = n_horizons
+        self.n_stages = n_stages
+        self.initial_horizon = initial_horizon
+        self.steps_per_stage = steps_per_stage
+        self._step = 0
+
+    @property
+    def current_stage(self) -> int:
+        return min(self._step // self.steps_per_stage, self.n_stages - 1)
+
+    @property
+    def active_horizons(self) -> List[int]:
+        """Return list of horizon indices active at current stage."""
+        max_h = max(1, int(self.n_horizons * (self.current_stage + 1) / self.n_stages))
+        return list(range(min(self.initial_horizon, self.n_horizons), max_h + 1))
+
+    def step(self):
+        self._step += 1
+
+    def get_horizon_weights(self) -> torch.Tensor:
+        """Return loss weights for each horizon (active horizons get weight 1, others 0)."""
+        weights = torch.zeros(self.n_horizons)
+        for h in self.active_horizons:
+            if h - 1 < self.n_horizons:
+                weights[h - 1] = 1.0
+        return weights / weights.sum().clamp(min=1)
+
+    def info(self) -> dict:
+        return {
+            "step": self._step,
+            "stage": self.current_stage,
+            "active_horizons": self.active_horizons,
+        }
+
+
+class GradualPretrainingScheduler:
+    """Schedule pretraining objectives over the course of training.
+
+    Phase 1 (warmup): Only simple objectives (masked autoencoding)
+    Phase 2 (main): Full suite of objectives
+    Phase 3 (annealing): High-quality contrastive + downstream alignment
+    """
+
+    def __init__(
+        self,
+        total_steps: int = 100000,
+        warmup_fraction: float = 0.05,
+        anneal_fraction: float = 0.2,
+    ):
+        self.total_steps = total_steps
+        self.warmup_steps = int(total_steps * warmup_fraction)
+        self.anneal_start = int(total_steps * (1 - anneal_fraction))
+        self._step = 0
+
+    @property
+    def phase(self) -> str:
+        if self._step < self.warmup_steps:
+            return "warmup"
+        elif self._step < self.anneal_start:
+            return "main"
+        else:
+            return "anneal"
+
+    def get_objective_weights(self) -> dict:
+        """Return weights for each pretraining objective."""
+        if self.phase == "warmup":
+            return {"mrm": 1.0, "contrastive": 0.0, "npp": 0.0, "regime": 0.0}
+        elif self.phase == "main":
+            progress = (self._step - self.warmup_steps) / max(self.anneal_start - self.warmup_steps, 1)
+            return {
+                "mrm": 1.0,
+                "contrastive": progress,
+                "npp": 0.5 * progress,
+                "regime": 0.3 * progress,
+            }
+        else:
+            annealing = 1.0 - (self._step - self.anneal_start) / (self.total_steps - self.anneal_start)
+            return {
+                "mrm": 0.5 * annealing,
+                "contrastive": 1.0,
+                "npp": 0.5,
+                "regime": 0.5,
+            }
+
+    def step(self):
+        self._step += 1
+
+
+class RepresentationRegularizer(nn.Module):
+    """Regularize learned representations to prevent collapse and improve transfer.
+
+    Applies multiple representation regularization losses:
+    - Variance: prevent mode collapse (VICReg)
+    - Covariance: decorrelate features
+    - Entropy maximization: spread mass
+    - Invariance to augmentation
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        sim_weight: float = 25.0,
+        var_weight: float = 25.0,
+        cov_weight: float = 1.0,
+        gamma: float = 1.0,
+        eps: float = 1e-4,
+    ):
+        super().__init__()
+        self.sim_weight = sim_weight
+        self.var_weight = var_weight
+        self.cov_weight = cov_weight
+        self.gamma = gamma
+        self.eps = eps
+        self.d_model = d_model
+
+    def forward(self, z_a: torch.Tensor, z_b: torch.Tensor) -> dict:
+        """
+        Args:
+            z_a, z_b: [B, d_model] representations of augmented views
+        """
+        B, D = z_a.shape
+
+        # Invariance loss
+        inv_loss = F.mse_loss(z_a, z_b)
+
+        # Variance loss: std should be at least gamma
+        def var_loss(z):
+            std = z.std(dim=0).clamp(min=self.eps)
+            return F.relu(self.gamma - std).mean()
+
+        var_loss_a = var_loss(z_a)
+        var_loss_b = var_loss(z_b)
+
+        # Covariance loss: off-diagonal should be small
+        def cov_loss(z):
+            z_centered = z - z.mean(dim=0)
+            cov = (z_centered.T @ z_centered) / (B - 1)
+            off_diag = cov.pow(2).sum() - cov.diag().pow(2).sum()
+            return off_diag / D
+
+        cov_loss_total = cov_loss(z_a) + cov_loss(z_b)
+
+        total = (
+            self.sim_weight * inv_loss
+            + self.var_weight * (var_loss_a + var_loss_b)
+            + self.cov_weight * cov_loss_total
+        )
+
+        return {
+            "total": total,
+            "invariance": inv_loss.item(),
+            "variance": (var_loss_a + var_loss_b).item() / 2,
+            "covariance": cov_loss_total.item(),
+        }
+
+
+# Additional pretraining utility classes
+
+class NoisyLabelPretraining(nn.Module):
+    """Handle noisy labels in financial pretraining via noise-robust loss functions.
+
+    Financial returns are noisy labels (true alpha obscured by noise).
+    Uses:
+    - Symmetric cross entropy loss
+    - MAE loss (robust to outliers)
+    - Huber loss (combines MSE and MAE)
+    - Trimmed loss (ignore top-k loss samples)
+    """
+
+    def __init__(
+        self,
+        loss_type: str = "huber",
+        trim_fraction: float = 0.1,
+        label_smoothing: float = 0.1,
+        delta: float = 1.0,
+    ):
+        super().__init__()
+        self.loss_type = loss_type
+        self.trim_fraction = trim_fraction
+        self.label_smoothing = label_smoothing
+        self.delta = delta
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> dict:
+        if self.loss_type == "huber":
+            loss = F.huber_loss(pred, target, delta=self.delta)
+        elif self.loss_type == "mae":
+            loss = F.l1_loss(pred, target)
+        elif self.loss_type == "trimmed":
+            raw_loss = (pred - target).pow(2).view(-1)
+            k = int(len(raw_loss) * self.trim_fraction)
+            sorted_loss, _ = raw_loss.sort()
+            loss = sorted_loss[k:].mean()
+        elif self.loss_type == "sce":
+            # Symmetric cross-entropy for regression
+            loss = 0.5 * F.mse_loss(pred, target) + 0.5 * F.mse_loss(target, pred.detach())
+        else:
+            loss = F.mse_loss(pred, target)
+
+        return {"loss": loss, "loss_type": self.loss_type}
+
+
+class MultiTaskPretrainingObjective(nn.Module):
+    """Combine multiple pretraining objectives with dynamic weighting.
+
+    Uses gradient-based dynamic weighting (GradNorm) to balance
+    task losses automatically, preventing any single task from dominating.
+    """
+
+    def __init__(
+        self,
+        task_names: List[str],
+        alpha: float = 1.5,
+        use_gradnorm: bool = True,
+    ):
+        super().__init__()
+        self.task_names = task_names
+        self.alpha = alpha
+        self.use_gradnorm = use_gradnorm
+        self.n_tasks = len(task_names)
+
+        # Learnable task weights
+        self.log_weights = nn.Parameter(torch.zeros(self.n_tasks))
+        self._initial_losses = None
+
+    def forward(
+        self,
+        losses: Dict[str, torch.Tensor],
+        shared_params=None,
+    ) -> Tuple[torch.Tensor, dict]:
+        """Combine task losses with optional GradNorm weighting."""
+        weights = F.softmax(self.log_weights, dim=0)
+        task_losses = [losses.get(name, torch.tensor(0.0)) for name in self.task_names]
+
+        if self.use_gradnorm and self._initial_losses is None:
+            self._initial_losses = [l.item() for l in task_losses]
+
+        weighted_losses = {
+            name: w * l
+            for name, w, l in zip(self.task_names, weights, task_losses)
+        }
+        total = sum(weighted_losses.values())
+
+        return total, {
+            "weights": {name: w.item() for name, w in zip(self.task_names, weights)},
+            "weighted_losses": {name: l.item() for name, l in weighted_losses.items()},
+        }
+
+    def gradnorm_loss(
+        self,
+        losses: Dict[str, torch.Tensor],
+        shared_params,
+    ) -> torch.Tensor:
+        """Compute GradNorm auxiliary loss for weight update."""
+        weights = F.softmax(self.log_weights, dim=0)
+        task_losses = [losses.get(name, torch.tensor(0.0)) for name in self.task_names]
+
+        if self._initial_losses is None:
+            return torch.tensor(0.0)
+
+        # Gradient norms
+        grad_norms = []
+        for l in task_losses:
+            grad = torch.autograd.grad(l, shared_params, retain_graph=True, allow_unused=True)
+            g_norm = sum(g.norm() for g in grad if g is not None)
+            grad_norms.append(g_norm)
+
+        avg_norm = sum(grad_norms) / len(grad_norms)
+        loss_ratios = torch.tensor(
+            [l.item() / max(init, 1e-8) for l, init in zip(task_losses, self._initial_losses)],
+            device=weights.device
+        )
+        r = loss_ratios / loss_ratios.mean()
+        targets = [avg_norm * (r_i ** self.alpha) for r_i in r]
+
+        gn_loss = sum(
+            F.l1_loss(gn, tgt.detach())
+            for gn, tgt in zip(grad_norms, targets)
+        )
+        return gn_loss

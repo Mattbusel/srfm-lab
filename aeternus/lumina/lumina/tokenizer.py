@@ -2549,3 +2549,1309 @@ class MultiResolutionTokenizer(nn.Module):
             fused = fused + w * out
 
         return self.norm(fused)
+
+
+# =============================================================================
+# SECTION: Advanced Financial Data Tokenizers
+# =============================================================================
+
+
+
+class SentimentTokenizer(nn.Module):
+    """Tokenize news/social sentiment data.
+
+    Converts raw sentiment scores, article counts, and source metadata
+        into token embeddings suitable for financial transformer models.
+        Handles multi-source sentiment aggregation with uncertainty.
+
+    Args:
+        d_model (int): Constructor argument
+        num_sentiment_sources (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_sentiment_sources: int = 5,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_sentiment_sources = num_sentiment_sources
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_sentiment_sources
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize news/social sentiment data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class EarningsCallTokenizer(nn.Module):
+    """Tokenize earnings call transcript features.
+
+    Processes pre-extracted features from earnings call transcripts
+        including tone polarity, uncertainty markers, guidance language,
+        and management sentiment shifts.
+
+    Args:
+        d_model (int): Constructor argument
+        num_tone_features (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_tone_features: int = 32,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_tone_features = num_tone_features
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_tone_features
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize earnings call transcript features into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class CreditRatingTokenizer(nn.Module):
+    """Tokenize credit rating and CDS data.
+
+    Converts credit ratings (AAA-D scale), CDS spreads, and rating
+        outlook changes into continuous token embeddings. Handles ordinal
+        rating encoding and change detection.
+
+    Args:
+        d_model (int): Constructor argument
+        num_rating_levels (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_rating_levels: int = 22,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_rating_levels = num_rating_levels
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_rating_levels
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize credit rating and cds data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class InsiderTradingTokenizer(nn.Module):
+    """Tokenize insider trading signals.
+
+    Encodes SEC Form 4 insider trading data including trade direction,
+        size relative to holdings, executive role, and cluster buying/selling.
+
+    Args:
+        d_model (int): Constructor argument
+        num_executive_types (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_executive_types: int = 8,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_executive_types = num_executive_types
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_executive_types
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize insider trading signals into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class ETFFlowTokenizer(nn.Module):
+    """Tokenize ETF flow and positioning data.
+
+    Converts ETF creation/redemption flows, AUM changes, and sector
+        rotation signals into token representations.
+
+    Args:
+        d_model (int): Constructor argument
+        num_etf_categories (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_etf_categories: int = 20,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_etf_categories = num_etf_categories
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_etf_categories
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize etf flow and positioning data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class CommitmentOfTradersTokenizer(nn.Module):
+    """Tokenize CFTC Commitment of Traders reports.
+
+    Processes weekly COT data including commercial vs non-commercial
+        positioning, net positions, and changes for futures markets.
+
+    Args:
+        d_model (int): Constructor argument
+        num_commodities (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_commodities: int = 50,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_commodities = num_commodities
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_commodities
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize cftc commitment of traders reports into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class MarketBreadthTokenizer(nn.Module):
+    """Tokenize market breadth and internals.
+
+    Encodes market breadth indicators: advancing/declining stocks,
+        new highs/lows, McClellan oscillator, TRIN, and put/call ratios.
+
+    Args:
+        d_model (int): Constructor argument
+        num_breadth_features (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_breadth_features: int = 16,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_breadth_features = num_breadth_features
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_breadth_features
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize market breadth and internals into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class ShortInterestTokenizer(nn.Module):
+    """Tokenize short interest and borrow rate data.
+
+    Converts days-to-cover, short float percentage, borrow rate,
+        and short squeeze indicators into token embeddings.
+
+    Args:
+        d_model (int): Constructor argument
+        max_days_to_cover (float): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        max_days_to_cover: float = 30.0,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.max_days_to_cover = max_days_to_cover
+        self.dropout = dropout
+        d = d_model
+        num_feat = 8
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize short interest and borrow rate data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class AnalystRevisionsTokenizer(nn.Module):
+    """Tokenize analyst forecast revision data.
+
+    Encodes sell-side analyst estimate revisions for EPS, revenue,
+        and price targets, including revision breadth and magnitude.
+
+    Args:
+        d_model (int): Constructor argument
+        num_estimate_types (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_estimate_types: int = 6,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_estimate_types = num_estimate_types
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_estimate_types
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize analyst forecast revision data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class SupplyChainTokenizer(nn.Module):
+    """Tokenize supply chain relationship features.
+
+    Encodes customer/supplier relationships and their financial
+        health signals for propagation modeling.
+
+    Args:
+        d_model (int): Constructor argument
+        max_relationships (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        max_relationships: int = 100,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.max_relationships = max_relationships
+        self.dropout = dropout
+        d = d_model
+        num_feat = max_relationships
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize supply chain relationship features into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class PatentDataTokenizer(nn.Module):
+    """Tokenize patent filing and citation data.
+
+    Converts patent filing counts, citation networks, and technology
+        classification into embeddings for IP-based investing.
+
+    Args:
+        d_model (int): Constructor argument
+        num_tech_categories (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_tech_categories: int = 128,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_tech_categories = num_tech_categories
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_tech_categories
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize patent filing and citation data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class JobPostingTokenizer(nn.Module):
+    """Tokenize job posting and workforce data.
+
+    Alternative data tokenizer for indeed/LinkedIn-style signals:
+        hiring pace, role type distribution, geographic expansion.
+
+    Args:
+        d_model (int): Constructor argument
+        num_job_categories (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_job_categories: int = 50,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_job_categories = num_job_categories
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_job_categories
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize job posting and workforce data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class ESGTokenizer(nn.Module):
+    """Tokenize Environmental, Social, Governance scores.
+
+    Converts ESG ratings, controversy scores, and category-level
+        subscores into consistent token representations.
+
+    Args:
+        d_model (int): Constructor argument
+        num_esg_categories (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_esg_categories: int = 24,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_esg_categories = num_esg_categories
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_esg_categories
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize environmental, social, governance scores into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class WebTrafficTokenizer(nn.Module):
+    """Tokenize web traffic and digital engagement data.
+
+    Processes Alexa/SimilarWeb-style web traffic metrics including
+        unique visitors, page views, time on site, and bounce rates.
+
+    Args:
+        d_model (int): Constructor argument
+        num_traffic_metrics (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_traffic_metrics: int = 10,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_traffic_metrics = num_traffic_metrics
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_traffic_metrics
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize web traffic and digital engagement data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class SatelliteImageryTokenizer(nn.Module):
+    """Tokenize satellite imagery-derived features.
+
+    Encodes pre-extracted features from satellite imagery such as
+        parking lot occupancy, shipping container counts, crop health.
+
+    Args:
+        d_model (int): Constructor argument
+        num_image_features (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_image_features: int = 64,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_image_features = num_image_features
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_image_features
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize satellite imagery-derived features into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class WholesaleDataTokenizer(nn.Module):
+    """Tokenize wholesale price and inventory signals.
+
+    Converts manufacturer/distributor inventory levels and pricing
+        data into token representations for supply-side analysis.
+
+    Args:
+        d_model (int): Constructor argument
+        num_sectors (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_sectors: int = 12,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_sectors = num_sectors
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_sectors
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize wholesale price and inventory signals into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class CreditCardTokenizer(nn.Module):
+    """Tokenize anonymized credit card transaction data.
+
+    Processes aggregated spend data by category, merchant, and
+        geographic region as consumer demand proxy signals.
+
+    Args:
+        d_model (int): Constructor argument
+        num_spend_categories (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_spend_categories: int = 40,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_spend_categories = num_spend_categories
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_spend_categories
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize anonymized credit card transaction data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class EnergyDataTokenizer(nn.Module):
+    """Tokenize energy market and inventory data.
+
+    Encodes EIA weekly petroleum inventories, natural gas storage,
+        and power generation mix into token representations.
+
+    Args:
+        d_model (int): Constructor argument
+        num_energy_types (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_energy_types: int = 8,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_energy_types = num_energy_types
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_energy_types
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize energy market and inventory data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class DerivativesFlowTokenizer(nn.Module):
+    """Tokenize options and derivatives flow data.
+
+    Converts options volume, gamma exposure, delta hedging flows,
+        and volatility surface metrics into token embeddings.
+
+    Args:
+        d_model (int): Constructor argument
+        vol_surface_resolution (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        vol_surface_resolution: int = 25,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.vol_surface_resolution = vol_surface_resolution
+        self.dropout = dropout
+        d = d_model
+        num_feat = vol_surface_resolution
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize options and derivatives flow data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+class FixedIncomeTokenizer(nn.Module):
+    """Tokenize fixed income and yield curve data.
+
+    Encodes US Treasury yield curve (2Y, 5Y, 10Y, 30Y), spreads
+        (OAS, Z-spread), and curve shape factors.
+
+    Args:
+        d_model (int): Constructor argument
+        num_maturities (int): Constructor argument
+        dropout (float): Constructor argument
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        num_maturities: int = 10,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.num_maturities = num_maturities
+        self.dropout = dropout
+        d = d_model
+        num_feat = num_maturities
+        self.input_norm = nn.LayerNorm(num_feat)
+        self.projection = nn.Sequential(
+            nn.Linear(num_feat, d * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(d * 2, d, bias=False),
+        )
+        self.output_norm = nn.LayerNorm(d)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Tokenize input features to model embeddings.
+
+        Args:
+            x: Input features (B, T, num_features)
+        Returns:
+            Token embeddings (B, T, d_model)
+        """
+        x = self.input_norm(x)
+        x = self.projection(x)
+        x = self.output_norm(x)
+        return self.dropout(x)
+
+    def preprocess(self, raw_data: Dict) -> torch.Tensor:
+        """Pre-process raw tokenize fixed income and yield curve data into feature tensor."""
+        # Stub: subclasses should implement raw data parsing
+        raise NotImplementedError(f'{self.__class__.__name__}.preprocess() must be implemented')
+
+
+# =============================================================================
+# SECTION: Tokenizer Factory and Utilities
+# =============================================================================
+
+
+class UniversalTokenizerFactory:
+    """Factory for creating any tokenizer by data source name.
+
+    Provides a unified interface for building the correct tokenizer
+    for any financial data modality.
+
+    Supported modalities:
+        - SentimentTokenizer: Tokenize news/social sentiment data
+        - EarningsCallTokenizer: Tokenize earnings call transcript features
+        - CreditRatingTokenizer: Tokenize credit rating and CDS data
+        - InsiderTradingTokenizer: Tokenize insider trading signals
+        - ETFFlowTokenizer: Tokenize ETF flow and positioning data
+        - CommitmentOfTradersTokenizer: Tokenize CFTC Commitment of Traders reports
+        - MarketBreadthTokenizer: Tokenize market breadth and internals
+        - ShortInterestTokenizer: Tokenize short interest and borrow rate data
+        - AnalystRevisionsTokenizer: Tokenize analyst forecast revision data
+        - SupplyChainTokenizer: Tokenize supply chain relationship features
+        - PatentDataTokenizer: Tokenize patent filing and citation data
+        - JobPostingTokenizer: Tokenize job posting and workforce data
+        - ESGTokenizer: Tokenize Environmental, Social, Governance scores
+        - WebTrafficTokenizer: Tokenize web traffic and digital engagement data
+        - SatelliteImageryTokenizer: Tokenize satellite imagery-derived features
+        - WholesaleDataTokenizer: Tokenize wholesale price and inventory signals
+        - CreditCardTokenizer: Tokenize anonymized credit card transaction data
+        - EnergyDataTokenizer: Tokenize energy market and inventory data
+        - DerivativesFlowTokenizer: Tokenize options and derivatives flow data
+        - FixedIncomeTokenizer: Tokenize fixed income and yield curve data
+    """
+
+    _registry: Dict[str, type] = {}
+
+    @classmethod
+    def register(cls, name: str, tokenizer_class: type) -> None:
+        """Register a tokenizer class."""
+        cls._registry[name] = tokenizer_class
+
+    @classmethod
+    def create(cls, name: str, d_model: int, **kwargs) -> nn.Module:
+        """Create tokenizer by name.
+
+        Args:
+            name: Tokenizer identifier
+            d_model: Output embedding dimension
+            **kwargs: Additional constructor arguments
+        Returns:
+            Tokenizer nn.Module
+        """
+        if name not in cls._registry:
+            raise ValueError(f"Unknown tokenizer: {name}")
+        return cls._registry[name](d_model=d_model, **kwargs)
+
+    @classmethod
+    def list_all(cls) -> List[str]:
+        return sorted(cls._registry.keys())
+
+
+# Register all tokenizers
+UniversalTokenizerFactory.register("sentiment_tokenizer", SentimentTokenizer)
+UniversalTokenizerFactory.register("earnings_call_tokenizer", EarningsCallTokenizer)
+UniversalTokenizerFactory.register("credit_rating_tokenizer", CreditRatingTokenizer)
+UniversalTokenizerFactory.register("insider_trading_tokenizer", InsiderTradingTokenizer)
+UniversalTokenizerFactory.register("e_t_f_flow_tokenizer", ETFFlowTokenizer)
+UniversalTokenizerFactory.register("commitment_of_traders_tokenizer", CommitmentOfTradersTokenizer)
+UniversalTokenizerFactory.register("market_breadth_tokenizer", MarketBreadthTokenizer)
+UniversalTokenizerFactory.register("short_interest_tokenizer", ShortInterestTokenizer)
+UniversalTokenizerFactory.register("analyst_revisions_tokenizer", AnalystRevisionsTokenizer)
+UniversalTokenizerFactory.register("supply_chain_tokenizer", SupplyChainTokenizer)
+UniversalTokenizerFactory.register("patent_data_tokenizer", PatentDataTokenizer)
+UniversalTokenizerFactory.register("job_posting_tokenizer", JobPostingTokenizer)
+UniversalTokenizerFactory.register("e_s_g_tokenizer", ESGTokenizer)
+UniversalTokenizerFactory.register("web_traffic_tokenizer", WebTrafficTokenizer)
+UniversalTokenizerFactory.register("satellite_imagery_tokenizer", SatelliteImageryTokenizer)
+UniversalTokenizerFactory.register("wholesale_data_tokenizer", WholesaleDataTokenizer)
+UniversalTokenizerFactory.register("credit_card_tokenizer", CreditCardTokenizer)
+UniversalTokenizerFactory.register("energy_data_tokenizer", EnergyDataTokenizer)
+UniversalTokenizerFactory.register("derivatives_flow_tokenizer", DerivativesFlowTokenizer)
+UniversalTokenizerFactory.register("fixed_income_tokenizer", FixedIncomeTokenizer)
+
+
+def normalize_ohlcv(
+    ohlcv: np.ndarray,
+    method: str = "log_return",
+) -> np.ndarray:
+    """Normalize OHLCV data for neural network input.
+
+    Methods:
+        log_return: Convert prices to log returns, keep volume as z-score
+        zscore: Z-score normalize each feature independently
+        minmax: Scale to [0, 1] within each feature
+        robust: Normalize using median and IQR
+
+    Args:
+        ohlcv: (T, 5) OHLCV array
+        method: Normalization method
+    Returns:
+        (T, 5) normalized array
+    """
+    result = np.zeros_like(ohlcv, dtype=np.float32)
+    T = ohlcv.shape[0]
+    if method == "log_return":
+        for i in range(4):  # OHLC
+            prices = ohlcv[:, i]
+            log_ret = np.diff(np.log(prices + 1e-8), prepend=np.log(prices[0] + 1e-8))
+            result[:, i] = log_ret
+        vol = ohlcv[:, 4]
+        result[:, 4] = (vol - vol.mean()) / (vol.std() + 1e-8)
+    elif method == "zscore":
+        for i in range(ohlcv.shape[1]):
+            col = ohlcv[:, i]
+            result[:, i] = (col - col.mean()) / (col.std() + 1e-8)
+    elif method == "minmax":
+        for i in range(ohlcv.shape[1]):
+            col = ohlcv[:, i]
+            result[:, i] = (col - col.min()) / (col.max() - col.min() + 1e-8)
+    elif method == "robust":
+        for i in range(ohlcv.shape[1]):
+            col = ohlcv[:, i]
+            q25, q75 = np.percentile(col, [25, 75])
+            iqr = q75 - q25 + 1e-8
+            result[:, i] = (col - np.median(col)) / iqr
+    return result
+
+
+def create_patch_mask(
+    num_patches: int,
+    mask_ratio: float = 0.15,
+    strategy: str = "random",
+) -> np.ndarray:
+    """Create a mask for patch-level masked token modeling.
+
+    Args:
+        num_patches: Total number of patches
+        mask_ratio: Fraction of patches to mask
+        strategy: "random", "block", or "geometric"
+    Returns:
+        (num_patches,) boolean mask, True = masked
+    """
+    num_to_mask = max(1, int(num_patches * mask_ratio))
+    mask = np.zeros(num_patches, dtype=bool)
+    if strategy == "random":
+        idx = np.random.choice(num_patches, num_to_mask, replace=False)
+        mask[idx] = True
+    elif strategy == "block":
+        start = np.random.randint(0, num_patches - num_to_mask + 1)
+        mask[start:start + num_to_mask] = True
+    elif strategy == "geometric":
+        t = 0
+        p = mask_ratio
+        while t < num_patches and mask.sum() < num_to_mask:
+            span = max(1, int(np.random.geometric(p=0.3)))
+            mask[t:t + span] = True
+            gap = max(1, int(np.random.geometric(p=0.3)))
+            t += span + gap
+    return mask
+
+
+def compute_return_targets(
+    prices: np.ndarray,
+    horizons: Optional[List[int]] = None,
+    method: str = "log",
+) -> np.ndarray:
+    """Compute forward return targets at multiple horizons.
+
+    Args:
+        prices: (T,) price series
+        horizons: List of forecast horizons in timesteps
+        method: "log" for log returns, "simple" for simple returns
+    Returns:
+        (T, len(horizons)) return target matrix
+    """
+    if horizons is None:
+        horizons = [1, 5, 10, 20]
+    T = len(prices)
+    H = len(horizons)
+    targets = np.full((T, H), np.nan, dtype=np.float32)
+    for hi, h in enumerate(horizons):
+        for t in range(T - h):
+            if method == "log":
+                targets[t, hi] = np.log(prices[t + h] / (prices[t] + 1e-10))
+            else:
+                targets[t, hi] = (prices[t + h] - prices[t]) / (prices[t] + 1e-10)
+    return targets
+
+
+def align_multimodal_sequences(
+    modalities: Dict[str, np.ndarray],
+    reference_dates: np.ndarray,
+    method: str = "ffill",
+) -> Dict[str, np.ndarray]:
+    """Align multiple data modalities to a reference date index.
+
+    Args:
+        modalities: Dict of {name: (T_i, F_i)} arrays with different lengths
+        reference_dates: (T,) reference date array (YYYYMMDD)
+        method: Fill method for missing dates
+    Returns:
+        Dict of {name: (T, F_i)} aligned arrays
+    """
+    T = len(reference_dates)
+    aligned = {}
+    for name, data in modalities.items():
+        T_i, F_i = data.shape if data.ndim == 2 else (len(data), 1)
+        if data.ndim == 1:
+            data = data.reshape(-1, 1)
+        # Simple resampling: use data as-is if same length, else interpolate
+        if T_i == T:
+            aligned[name] = data.astype(np.float32)
+        elif T_i < T:
+            # Upsample via interpolation or ffill
+            result = np.zeros((T, F_i), dtype=np.float32)
+            for f in range(F_i):
+                idx = np.linspace(0, T_i - 1, T)
+                result[:, f] = np.interp(idx, np.arange(T_i), data[:, f])
+            aligned[name] = result
+        else:
+            # Downsample via averaging
+            factor = T_i // T
+            n = T * factor
+            result = data[:n, :].reshape(T, factor, F_i).mean(1)
+            aligned[name] = result.astype(np.float32)
+    return aligned
+
+
+_NEW_TOKENIZER_EXPORTS = [
+    "SentimentTokenizer",
+    "EarningsCallTokenizer",
+    "CreditRatingTokenizer",
+    "InsiderTradingTokenizer",
+    "ETFFlowTokenizer",
+    "CommitmentOfTradersTokenizer",
+    "MarketBreadthTokenizer",
+    "ShortInterestTokenizer",
+    "AnalystRevisionsTokenizer",
+    "SupplyChainTokenizer",
+    "PatentDataTokenizer",
+    "JobPostingTokenizer",
+    "ESGTokenizer",
+    "WebTrafficTokenizer",
+    "SatelliteImageryTokenizer",
+    "WholesaleDataTokenizer",
+    "CreditCardTokenizer",
+    "EnergyDataTokenizer",
+    "DerivativesFlowTokenizer",
+    "FixedIncomeTokenizer",
+    "UniversalTokenizerFactory",
+    "normalize_ohlcv",
+    "create_patch_mask",
+    "compute_return_targets",
+    "align_multimodal_sequences",
+]

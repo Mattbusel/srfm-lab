@@ -1257,3 +1257,428 @@ __all__ = [
     # Unified
     "LuminaInterpreter",
 ]
+
+
+# =============================================================================
+# SECTION: Advanced Model Interpretability (Part 2)
+# =============================================================================
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+from typing import Optional, List, Dict, Tuple
+
+
+class AttentionVisualization:
+    """Tools for visualizing attention patterns in transformer models."""
+
+    def __init__(self, model: nn.Module):
+        self.model = model
+        self._attention_weights = {}
+        self._hooks = []
+
+    def register_hooks(self):
+        """Register forward hooks to capture attention weights."""
+        for name, module in self.model.named_modules():
+            if isinstance(module, nn.MultiheadAttention):
+                hook = module.register_forward_hook(
+                    self._make_hook(name)
+                )
+                self._hooks.append(hook)
+
+    def _make_hook(self, name):
+        def hook(module, input, output):
+            if isinstance(output, tuple) and len(output) >= 2:
+                if output[1] is not None:
+                    self._attention_weights[name] = output[1].detach()
+        return hook
+
+    def remove_hooks(self):
+        for hook in self._hooks:
+            hook.remove()
+        self._hooks.clear()
+
+    def get_attention_maps(self) -> Dict[str, torch.Tensor]:
+        return dict(self._attention_weights)
+
+    def compute_attention_rollout(
+        self,
+        attention_maps: Dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """Compute attention rollout across all layers."""
+        maps = list(attention_maps.values())
+        if not maps:
+            return torch.tensor([])
+
+        rollout = maps[0].clone()
+        for attn in maps[1:]:
+            if attn.shape == rollout.shape:
+                # Add residual connection (identity matrix)
+                B, H, T, _ = rollout.shape
+                eye = torch.eye(T, device=rollout.device).unsqueeze(0).unsqueeze(0)
+                rollout = 0.5 * rollout + 0.5 * eye
+                attn_with_res = 0.5 * attn + 0.5 * eye
+                # Average over heads
+                r_avg = rollout.mean(dim=1)
+                a_avg = attn_with_res.mean(dim=1)
+                rollout = torch.bmm(a_avg, r_avg).unsqueeze(1).expand_as(rollout)
+
+        return rollout.mean(dim=1)  # Average over heads: [B, T, T]
+
+
+class FeatureImportanceExplainer:
+    """Explain model predictions via feature importance scores.
+
+    Methods:
+    - SHAP values (approximated via sampling)
+    - Integrated gradients
+    - LIME (Local Interpretable Model-agnostic Explanations)
+    - Permutation importance
+    """
+
+    def __init__(self, model: nn.Module, device: str = "cpu"):
+        self.model = model.eval().to(device)
+        self.device = device
+
+    def permutation_importance(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        metric: str = "mse",
+        n_repeats: int = 5,
+    ) -> torch.Tensor:
+        """Compute permutation feature importance.
+
+        Measures how much the metric degrades when each feature is shuffled.
+        """
+        x = x.to(self.device)
+        y = y.to(self.device)
+        B, T, D = x.shape
+
+        # Baseline score
+        with torch.no_grad():
+            out = self.model(x)
+            pred = out[0] if isinstance(out, (tuple, list)) else out
+            if isinstance(out, dict):
+                pred = next(iter(out.values()))
+
+        if metric == "mse":
+            baseline_score = F.mse_loss(pred.float(), y.float()).item()
+        else:
+            baseline_score = F.l1_loss(pred.float(), y.float()).item()
+
+        importances = torch.zeros(D)
+
+        for d in range(D):
+            delta_scores = []
+            for _ in range(n_repeats):
+                x_perm = x.clone()
+                perm_idx = torch.randperm(B, device=self.device)
+                x_perm[:, :, d] = x[perm_idx, :, d]
+
+                with torch.no_grad():
+                    out_perm = self.model(x_perm)
+                    pred_perm = out_perm[0] if isinstance(out_perm, (tuple, list)) else out_perm
+                    if isinstance(out_perm, dict):
+                        pred_perm = next(iter(out_perm.values()))
+
+                if metric == "mse":
+                    perm_score = F.mse_loss(pred_perm.float(), y.float()).item()
+                else:
+                    perm_score = F.l1_loss(pred_perm.float(), y.float()).item()
+
+                delta_scores.append(perm_score - baseline_score)
+
+            importances[d] = sum(delta_scores) / len(delta_scores)
+
+        return importances
+
+    def approximate_shapley(
+        self,
+        x: torch.Tensor,
+        background: torch.Tensor,
+        n_samples: int = 100,
+        target_idx: int = 0,
+    ) -> torch.Tensor:
+        """Compute approximate SHAP values via Shapley sampling."""
+        x = x.to(self.device)
+        background = background.to(self.device)
+
+        if x.ndim == 2:
+            x = x.unsqueeze(0)
+        if background.ndim == 2:
+            background = background.unsqueeze(0)
+
+        B, T, D = x.shape
+        shapley = torch.zeros(B, T, D, device=self.device)
+
+        for b in range(B):
+            for _ in range(n_samples):
+                # Sample a random coalition
+                perm = torch.randperm(T * D)
+                split = torch.randint(1, T * D, (1,)).item()
+                coalition = perm[:split]
+
+                # Create baseline and coalition+feature versions
+                x_baseline = background[b % background.shape[0]].clone()
+                x_with = x_baseline.clone()
+
+                for idx in coalition:
+                    t = idx // D
+                    d = idx % D
+                    x_with[t, d] = x[b, t, d]
+
+                x_without = x_with.clone()
+
+                with torch.no_grad():
+                    out_with = self.model(x_with.unsqueeze(0))
+                    out_without = self.model(x_without.unsqueeze(0))
+
+                pred_with = (out_with[0] if isinstance(out_with, (tuple, list)) else out_with)[:, target_idx]
+                pred_without = (out_without[0] if isinstance(out_without, (tuple, list)) else out_without)[:, target_idx]
+
+                marginal = (pred_with - pred_without).item()
+                for idx in coalition:
+                    t = idx // D
+                    d = idx % D
+                    shapley[b, t, d] += marginal
+
+            shapley[b] /= n_samples
+
+        return shapley
+
+
+class TemporalSaliencyMap:
+    """Compute saliency maps highlighting important time steps."""
+
+    def __init__(self, model: nn.Module, device: str = "cpu"):
+        self.model = model.eval().to(device)
+        self.device = device
+
+    def compute_temporal_saliency(
+        self,
+        x: torch.Tensor,
+        output_idx: int = 0,
+        method: str = "gradient",
+    ) -> torch.Tensor:
+        """Compute importance of each time step.
+
+        Returns: [B, T] saliency scores, higher = more important
+        """
+        x = x.to(self.device).requires_grad_(True)
+
+        if method == "gradient":
+            out = self.model(x)
+            pred = out[0] if isinstance(out, (tuple, list)) else out
+            if isinstance(out, dict):
+                pred = next(iter(out.values()))
+            score = pred[:, output_idx].sum()
+            score.backward()
+            saliency = x.grad.abs().mean(dim=-1)  # Average over features
+        elif method == "gradient_x_input":
+            out = self.model(x)
+            pred = out[0] if isinstance(out, (tuple, list)) else out
+            if isinstance(out, dict):
+                pred = next(iter(out.values()))
+            score = pred[:, output_idx].sum()
+            score.backward()
+            saliency = (x.grad * x).abs().mean(dim=-1)
+        else:
+            saliency = torch.ones(x.shape[0], x.shape[1], device=self.device)
+
+        return saliency.detach()
+
+    def find_critical_windows(
+        self,
+        saliency: torch.Tensor,
+        window_size: int = 5,
+        top_k: int = 3,
+    ) -> List[Tuple[int, int, float]]:
+        """Find the top-k most important time windows."""
+        if saliency.ndim > 1:
+            saliency = saliency[0]  # Take first batch item
+
+        T = len(saliency)
+        windows = []
+
+        for start in range(0, T - window_size + 1):
+            importance = saliency[start:start + window_size].mean().item()
+            windows.append((start, start + window_size, importance))
+
+        windows.sort(key=lambda x: x[2], reverse=True)
+        return windows[:top_k]
+
+
+class ConceptActivationVectors:
+    """TCAV: Testing with Concept Activation Vectors.
+
+    Tests whether a model has learned human-interpretable concepts.
+    Trains linear classifiers on internal activations to detect concepts.
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        layer_name: str,
+        device: str = "cpu",
+    ):
+        self.model = model.eval().to(device)
+        self.layer_name = layer_name
+        self.device = device
+        self._activations = {}
+        self._hooks = []
+
+    def _register_hooks(self):
+        for name, module in self.model.named_modules():
+            if name == self.layer_name:
+                hook = module.register_forward_hook(self._capture_hook)
+                self._hooks.append(hook)
+
+    def _capture_hook(self, module, input, output):
+        act = output
+        if isinstance(act, (tuple, list)):
+            act = act[0]
+        self._activations["current"] = act.detach()
+
+    def get_activations(self, x: torch.Tensor) -> torch.Tensor:
+        self._register_hooks()
+        with torch.no_grad():
+            self.model(x.to(self.device))
+        for hook in self._hooks:
+            hook.remove()
+        self._hooks.clear()
+        return self._activations.get("current", torch.empty(0))
+
+    def train_cav(
+        self,
+        concept_examples: torch.Tensor,
+        random_examples: torch.Tensor,
+    ) -> Tuple[torch.Tensor, float]:
+        """Train a linear CAV classifier on concept vs random activations."""
+        concept_acts = self.get_activations(concept_examples)
+        random_acts = self.get_activations(random_examples)
+
+        if concept_acts.ndim > 2:
+            concept_acts = concept_acts.mean(dim=1)
+        if random_acts.ndim > 2:
+            random_acts = random_acts.mean(dim=1)
+
+        X = torch.cat([concept_acts, random_acts], dim=0)
+        y = torch.cat([
+            torch.ones(concept_acts.shape[0]),
+            torch.zeros(random_acts.shape[0]),
+        ])
+
+        # Logistic regression as linear classifier
+        cav = nn.Linear(X.shape[1], 1, bias=True)
+        opt = torch.optim.LBFGS(cav.parameters(), max_iter=100)
+
+        def closure():
+            opt.zero_grad()
+            out = cav(X).squeeze()
+            loss = F.binary_cross_entropy_with_logits(out, y)
+            loss.backward()
+            return loss
+
+        opt.step(closure)
+
+        # Compute accuracy
+        with torch.no_grad():
+            preds = (cav(X).squeeze() > 0).float()
+            acc = (preds == y).float().mean().item()
+
+        cav_vector = cav.weight.data[0]
+        return cav_vector, acc
+
+    def compute_tcav_score(
+        self,
+        inputs: torch.Tensor,
+        cav_vector: torch.Tensor,
+        output_idx: int = 0,
+    ) -> float:
+        """Compute TCAV score: how many activations have positive directional derivative toward CAV."""
+        acts = self.get_activations(inputs)
+        if acts.ndim > 2:
+            acts = acts.mean(dim=1)
+
+        acts.requires_grad_(True)
+        # Simulate directional derivative (simplified)
+        directional = (acts * cav_vector.unsqueeze(0)).sum(dim=-1)
+        score = (directional > 0).float().mean().item()
+        return score
+
+
+class NeuronActivationAnalyzer:
+    """Analyze individual neuron activations to understand model behavior.
+
+    Finds:
+    - Dead neurons (always zero after activation)
+    - Saturated neurons (always at max)
+    - Polysemantic neurons (respond to multiple distinct concepts)
+    - Monosemantic neurons (respond to single concept)
+    """
+
+    def __init__(self, model: nn.Module, device: str = "cpu"):
+        self.model = model.eval().to(device)
+        self.device = device
+        self._activation_stats = {}
+
+    def profile_activations(
+        self,
+        dataloader,
+        n_batches: int = 20,
+    ) -> dict:
+        """Profile activation statistics for all linear layers."""
+        stats = {}
+        hooks = []
+        captured = {}
+
+        for name, module in self.model.named_modules():
+            if isinstance(module, (nn.Linear, nn.GELU, nn.ReLU)):
+                def make_hook(n):
+                    def hook(mod, inp, out):
+                        if n not in captured:
+                            captured[n] = []
+                        if isinstance(out, torch.Tensor):
+                            captured[n].append(out.detach().cpu().float())
+                    return hook
+                hooks.append(module.register_forward_hook(make_hook(name)))
+
+        with torch.no_grad():
+            for i, batch in enumerate(dataloader):
+                if i >= n_batches:
+                    break
+                x = batch[0] if isinstance(batch, (list, tuple)) else batch
+                self.model(x.to(self.device))
+
+        for hook in hooks:
+            hook.remove()
+
+        for name, acts_list in captured.items():
+            if not acts_list:
+                continue
+            acts = torch.cat([a.view(-1, a.shape[-1]) if a.ndim > 1 else a.unsqueeze(-1) for a in acts_list], dim=0)
+            stats[name] = {
+                "mean": acts.mean(dim=0).tolist(),
+                "std": acts.std(dim=0).tolist(),
+                "dead_fraction": (acts.abs() < 1e-6).float().mean(dim=0).tolist(),
+                "n_samples": acts.shape[0],
+            }
+
+        self._activation_stats = stats
+        return stats
+
+    def identify_dead_neurons(self, threshold: float = 0.99) -> dict:
+        """Find neurons that are inactive for more than threshold fraction of samples."""
+        dead = {}
+        for name, stats in self._activation_stats.items():
+            dead_fracs = stats.get("dead_fraction", [])
+            dead_neurons = [i for i, f in enumerate(dead_fracs) if f > threshold]
+            if dead_neurons:
+                dead[name] = {
+                    "n_dead": len(dead_neurons),
+                    "dead_indices": dead_neurons[:10],  # Show first 10
+                    "dead_fraction": sum(f > threshold for f in dead_fracs) / max(len(dead_fracs), 1),
+                }
+        return dead

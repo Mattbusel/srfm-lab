@@ -1,0 +1,52 @@
+# Lumina-Large configuration: ~1.3B parameters
+model:
+  name: LuminaLargeV2
+  n_features: 512
+  d_model: 2048
+  n_heads: 16
+  n_kv_heads: 4
+  n_layers: 24
+  expansion: 2.666
+  n_return_horizons: 20
+  n_risk_types: 5
+  dropout: 0.05
+  max_seq_len: 2048
+
+training:
+  batch_size: 16
+  learning_rate: 5.0e-5
+  weight_decay: 0.01
+  max_steps: 500000
+  warmup_steps: 10000
+  gradient_clip_norm: 1.0
+  mixed_precision: bf16
+  eval_every: 5000
+  save_every: 10000
+  gradient_accumulation_steps: 16
+  fsdp: true
+  fsdp_cpu_offload: false
+  activation_checkpointing: true
+  torch_compile: true
+
+distributed:
+  strategy: fsdp
+  n_gpus: 32
+  n_nodes: 4
+  sharding_strategy: FULL_SHARD
+
+pretraining:
+  objectives: ["mrm", "contrastive", "npp", "regime", "sector_contrastive"]
+  two_stage: true
+  stage1_steps: 200000
+  stage2_steps: 300000
+  stage2_lr_scale: 0.1
+
+optimizer:
+  type: adamw
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  fused: true
+
+logging:
+  project: lumina-prod
+  name: lumina_large_v2

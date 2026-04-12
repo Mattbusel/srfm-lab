@@ -1,0 +1,59 @@
+# Lumina-Medium configuration: ~125M parameters
+model:
+  name: LuminaMedium
+  n_features: 256
+  d_model: 512
+  n_heads: 8
+  n_layers: 12
+  d_ff: 2048
+  n_experts: 4
+  moe_every_n: 3
+  n_return_horizons: 10
+  n_assets: 500
+  dropout: 0.1
+  max_seq_len: 1024
+
+training:
+  batch_size: 64
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  max_steps: 200000
+  warmup_steps: 5000
+  gradient_clip_norm: 1.0
+  mixed_precision: bf16
+  eval_every: 2000
+  save_every: 5000
+  gradient_accumulation_steps: 4
+  fsdp: false
+  activation_checkpointing: true
+
+data:
+  train_start: "2000-01-01"
+  train_end: "2020-12-31"
+  val_start: "2021-01-01"
+  val_end: "2021-12-31"
+  n_assets: 2000
+  features: all
+  normalize: true
+  fill_missing: ffill_bfill
+
+pretraining:
+  objectives: ["mrm", "contrastive", "npp", "regime"]
+  mrm_mask_ratio: 0.20
+  curriculum: true
+  curriculum_stages: 5
+
+distributed:
+  strategy: ddp
+  n_gpus: 4
+  find_unused_parameters: false
+
+optimizer:
+  type: adamw
+  betas: [0.9, 0.98]
+  eps: 1.0e-8
+
+logging:
+  project: lumina-prod
+  name: lumina_medium_v1
+  log_every: 20

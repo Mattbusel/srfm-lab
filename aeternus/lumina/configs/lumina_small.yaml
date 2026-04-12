@@ -1,0 +1,76 @@
+# Lumina-Small configuration: ~25M parameters
+model:
+  name: LuminaSmall
+  n_features: 128
+  d_model: 256
+  n_heads: 8
+  n_layers: 8
+  d_ff: 1024
+  n_return_horizons: 5
+  n_risk_outputs: 3
+  n_factor_outputs: 10
+  dropout: 0.1
+  max_seq_len: 512
+
+training:
+  batch_size: 128
+  learning_rate: 1.5e-4
+  weight_decay: 0.01
+  max_steps: 100000
+  warmup_steps: 2000
+  gradient_clip_norm: 1.0
+  mixed_precision: fp16
+  eval_every: 1000
+  save_every: 2000
+  gradient_accumulation_steps: 2
+
+data:
+  train_start: "2005-01-01"
+  train_end: "2020-12-31"
+  val_start: "2021-01-01"
+  val_end: "2021-12-31"
+  test_start: "2022-01-01"
+  test_end: "2023-12-31"
+  n_assets: 1000
+  features:
+    - price_ohlcv
+    - technical_indicators
+    - fundamental_ratios
+    - sector_embeddings
+  normalize: true
+  fill_missing: forward_fill
+  augmentation:
+    time_jitter: 0.1
+    amplitude_scale: 0.05
+    noise_std: 0.01
+    mask_prob: 0.15
+
+pretraining:
+  objectives: ["mrm", "contrastive", "npp"]
+  mrm_mask_ratio: 0.15
+  contrastive_temperature: 0.07
+  pretraining_steps: 50000
+
+finetuning:
+  lora_rank: 16
+  lora_alpha: 32
+  trainable_modules: ["attention", "ffn.last_layer"]
+
+scheduler:
+  type: cosine_warmup
+  min_lr_ratio: 0.05
+  restarts: 1
+
+optimizer:
+  type: adamw
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+logging:
+  project: lumina
+  name: lumina_small_v1
+
+output:
+  checkpoint_dir: checkpoints/lumina_small
+  export_onnx: true
+  onnx_opset: 17

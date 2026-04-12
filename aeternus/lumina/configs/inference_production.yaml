@@ -1,0 +1,35 @@
+# Production inference configuration
+inference:
+  max_batch_size: 256
+  max_seq_len: 512
+  device: cuda
+  precision: fp16
+  use_cache: true
+  cache_size: 1024
+  continuous_batching: true
+  max_concurrent_requests: 100
+
+quantization:
+  enabled: true
+  method: dynamic_int8
+  skip_layers: ["embedding"]
+
+serving:
+  host: 0.0.0.0
+  port: 8080
+  workers: 4
+  timeout_s: 30
+  health_check_interval: 60
+
+monitoring:
+  latency_p50_threshold_ms: 50
+  latency_p99_threshold_ms: 200
+  error_rate_threshold: 0.01
+  drift_detection: true
+  drift_window: 1000
+
+output:
+  format: json
+  include_uncertainty: true
+  include_attribution: false
+  n_mc_samples: 10

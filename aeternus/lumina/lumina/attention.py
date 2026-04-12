@@ -2712,3 +2712,737 @@ _NEW_EXPORTS = [
     "EventDrivenAttention", "FractalAttention", "LeadLagAttention",
     "compute_attention_rollout", "attention_sparsity", "build_attention_module",
 ]
+
+
+# =============================================================================
+# SECTION: Expanded Attention Mechanisms (Part 3)
+# =============================================================================
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+from typing import Optional, Tuple, List
+
+
+class ScaledDotProductAttentionV2(nn.Module):
+    """Standard scaled dot-product attention with full feature set.
+
+    Features:
+    - Optional causal masking
+    - Optional relative position bias
+    - Dropout on attention weights
+    - Optional head-specific temperature scaling
+    - Key/value projection dimension override
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        d_kv: int = None,
+        dropout: float = 0.1,
+        causal: bool = False,
+        use_bias: bool = True,
+        head_specific_temperature: bool = False,
+    ):
+        super().__init__()
+        self.n_heads = n_heads
+        self.d_head = d_model // n_heads
+        self.d_kv = d_kv or d_model
+        self.causal = causal
+
+        self.q_proj = nn.Linear(d_model, d_model, bias=use_bias)
+        self.k_proj = nn.Linear(d_model, self.d_kv, bias=use_bias)
+        self.v_proj = nn.Linear(d_model, self.d_kv, bias=use_bias)
+        self.out_proj = nn.Linear(d_model, d_model, bias=use_bias)
+        self.dropout = nn.Dropout(dropout)
+
+        if head_specific_temperature:
+            self.temperature = nn.Parameter(torch.ones(n_heads, 1, 1))
+        else:
+            self.temperature = None
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor = None,
+        value: torch.Tensor = None,
+        mask: torch.Tensor = None,
+        position_bias: torch.Tensor = None,
+    ) -> torch.Tensor:
+        if key is None:
+            key = query
+        if value is None:
+            value = query
+
+        B, T_q, _ = query.shape
+        T_k = key.shape[1]
+        H, Dh = self.n_heads, self.d_head
+
+        Q = self.q_proj(query).view(B, T_q, H, Dh).transpose(1, 2)
+        K = self.k_proj(key).view(B, T_k, H, -1).transpose(1, 2)
+        V = self.v_proj(value).view(B, T_k, H, -1).transpose(1, 2)
+
+        scale = 1.0 / math.sqrt(Dh)
+        scores = (Q @ K.transpose(-2, -1)) * scale
+
+        if self.temperature is not None:
+            scores = scores / self.temperature.clamp(min=1e-4)
+
+        if position_bias is not None:
+            scores = scores + position_bias
+
+        if self.causal:
+            causal_mask = torch.triu(torch.ones(T_q, T_k, device=query.device), diagonal=1).bool()
+            scores = scores.masked_fill(causal_mask.unsqueeze(0).unsqueeze(0), float("-inf"))
+
+        if mask is not None:
+            scores = scores.masked_fill(~mask.unsqueeze(1).unsqueeze(1), float("-inf"))
+
+        attn = F.softmax(scores, dim=-1)
+        attn = self.dropout(attn)
+
+        out = (attn @ V).transpose(1, 2).contiguous().view(B, T_q, H * Dh)
+        return self.out_proj(out)
+
+
+class WindowAttention(nn.Module):
+    """Shifted window attention (Swin Transformer style).
+
+    Applies attention within non-overlapping local windows,
+    with optional cyclic shift for cross-window interaction.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        window_size: int = 16,
+        shift_size: int = 0,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.d_head = d_model // n_heads
+        self.window_size = window_size
+        self.shift_size = shift_size
+
+        self.qkv = nn.Linear(d_model, 3 * d_model, bias=True)
+        self.out = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.scale = math.sqrt(self.d_head)
+
+        # Relative position bias table
+        self.rel_pos_bias = nn.Embedding((2 * window_size - 1), n_heads)
+
+    def _window_partition(self, x: torch.Tensor) -> torch.Tensor:
+        """Partition sequence into windows."""
+        B, T, D = x.shape
+        n_windows = T // self.window_size
+        x = x.view(B, n_windows, self.window_size, D)
+        return x.view(B * n_windows, self.window_size, D)
+
+    def _window_reverse(self, windows: torch.Tensor, T: int) -> torch.Tensor:
+        """Reverse window partition."""
+        n_windows = T // self.window_size
+        BW = windows.shape[0]
+        B = BW // n_windows
+        x = windows.view(B, n_windows, self.window_size, -1)
+        return x.view(B, T, -1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        H, Dh = self.n_heads, self.d_head
+
+        if self.shift_size > 0:
+            x = torch.roll(x, -self.shift_size, dims=1)
+
+        # Pad to multiple of window_size
+        pad_len = (self.window_size - T % self.window_size) % self.window_size
+        if pad_len > 0:
+            x = F.pad(x, (0, 0, 0, pad_len))
+        T_pad = x.shape[1]
+
+        windows = self._window_partition(x)  # [B*n_win, W, D]
+        n_wins = windows.shape[0]
+
+        qkv = self.qkv(windows).reshape(n_wins, self.window_size, 3, H, Dh)
+        qkv = qkv.permute(2, 0, 3, 1, 4)
+        Q, K, V = qkv[0], qkv[1], qkv[2]
+
+        scores = (Q @ K.transpose(-2, -1)) / self.scale
+
+        # Relative position bias
+        W = self.window_size
+        positions = torch.arange(W, device=x.device)
+        rel_pos = positions.unsqueeze(0) - positions.unsqueeze(1) + W - 1
+        bias = self.rel_pos_bias(rel_pos).permute(2, 0, 1)
+        scores = scores + bias.unsqueeze(0)
+
+        attn = F.softmax(scores, dim=-1)
+        attn = self.dropout(attn)
+
+        out = (attn @ V).transpose(1, 2).contiguous().reshape(n_wins, self.window_size, D)
+        out = self._window_reverse(out, T_pad)
+
+        if pad_len > 0:
+            out = out[:, :T, :]
+
+        if self.shift_size > 0:
+            out = torch.roll(out, self.shift_size, dims=1)
+
+        return self.out(out)
+
+
+class AxialAttention(nn.Module):
+    """Axial attention for sequences structured as 2D grids (time x features).
+
+    Factorizes full attention into row-wise + column-wise attention,
+    reducing complexity from O(n^2) to O(n * sqrt(n)).
+    Useful for tick data on (time, feature_dim) grids.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        T: int,
+        F: int,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.T = T
+        self.F = F
+        self.d_model = d_model
+        self.n_heads = n_heads
+
+        # Row attention (over time dimension)
+        self.row_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+
+        # Column attention (over feature dimension)
+        self.col_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: [B, T*F, D] (flattened 2D grid)
+        """
+        B, TF, D = x.shape
+        x_2d = x.view(B, self.T, self.F, D)
+
+        # Row attention: each row attends over columns
+        x_row = x_2d.view(B * self.T, self.F, D)
+        x_row_out, _ = self.row_attn(x_row, x_row, x_row)
+        x_2d = self.norm1(x_2d + x_row_out.view(B, self.T, self.F, D))
+
+        # Column attention: each column attends over rows
+        x_col = x_2d.permute(0, 2, 1, 3).contiguous().view(B * self.F, self.T, D)
+        x_col_out, _ = self.col_attn(x_col, x_col, x_col)
+        x_2d = self.norm2(x_2d + x_col_out.view(B, self.F, self.T, D).permute(0, 2, 1, 3))
+
+        return x_2d.view(B, TF, D)
+
+
+class LocalGlobalAttention(nn.Module):
+    """Interleaved local and global attention heads (Longformer-inspired).
+
+    Half the heads attend locally (window), half attend globally.
+    Global tokens (e.g., [CLS]) attend to all positions.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        window_size: int = 32,
+        n_global_tokens: int = 4,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        assert n_heads % 2 == 0
+        self.n_local_heads = n_heads // 2
+        self.n_global_heads = n_heads - self.n_local_heads
+        self.d_head = d_model // n_heads
+        self.window_size = window_size
+        self.n_global_tokens = n_global_tokens
+
+        self.q = nn.Linear(d_model, d_model)
+        self.k = nn.Linear(d_model, d_model)
+        self.v = nn.Linear(d_model, d_model)
+        self.out = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.scale = math.sqrt(self.d_head)
+
+    def forward(self, x: torch.Tensor, global_mask: torch.Tensor = None) -> torch.Tensor:
+        B, T, D = x.shape
+        H = self.n_local_heads + self.n_global_heads
+        Dh = self.d_head
+
+        Q = self.q(x).view(B, T, H, Dh).transpose(1, 2)
+        K = self.k(x).view(B, T, H, Dh).transpose(1, 2)
+        V = self.v(x).view(B, T, H, Dh).transpose(1, 2)
+
+        # Local attention for local heads
+        W = self.window_size
+        local_outs = []
+        for h in range(self.n_local_heads):
+            q_h = Q[:, h]  # [B, T, Dh]
+            k_h = K[:, h]
+            v_h = V[:, h]
+
+            # Naive local window attention
+            scores = torch.full((B, T, T), float("-inf"), device=x.device)
+            for t in range(T):
+                start = max(0, t - W // 2)
+                end = min(T, t + W // 2 + 1)
+                s = (q_h[:, t:t+1, :] @ k_h[:, start:end, :].transpose(-2, -1)) / self.scale
+                scores[:, t, start:end] = s.squeeze(1)
+
+            attn = F.softmax(scores, dim=-1)
+            attn = self.dropout(attn)
+            local_outs.append((attn @ v_h).unsqueeze(1))
+
+        # Global attention for global heads
+        global_outs = []
+        for h in range(self.n_global_heads):
+            h_idx = self.n_local_heads + h
+            q_h = Q[:, h_idx]
+            k_h = K[:, h_idx]
+            v_h = V[:, h_idx]
+
+            scores = (q_h @ k_h.transpose(-2, -1)) / self.scale
+            attn = F.softmax(scores, dim=-1)
+            attn = self.dropout(attn)
+            global_outs.append((attn @ v_h).unsqueeze(1))
+
+        combined = torch.cat(local_outs + global_outs, dim=1)  # [B, H, T, Dh]
+        out = combined.transpose(1, 2).contiguous().view(B, T, H * Dh)
+        return self.out(out)
+
+
+class DifferentialAttention(nn.Module):
+    """Differential Attention (Ye et al. 2024).
+
+    Uses two softmax attention maps and subtracts them to cancel noise:
+    DiffAttn(Q1, Q2, K1, K2, V) = (softmax(Q1*K1^T / sqrt(d)) - lambda * softmax(Q2*K2^T / sqrt(d))) * V
+
+    Where lambda is a learned scalar per head.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        lambda_init: float = 0.8,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.n_heads = n_heads
+        self.d_head = d_model // n_heads
+        self.scale = math.sqrt(self.d_head)
+
+        self.q1 = nn.Linear(d_model, d_model // 2)
+        self.q2 = nn.Linear(d_model, d_model // 2)
+        self.k1 = nn.Linear(d_model, d_model // 2)
+        self.k2 = nn.Linear(d_model, d_model // 2)
+        self.v = nn.Linear(d_model, d_model)
+        self.out = nn.Linear(d_model, d_model)
+
+        self.lambda_ = nn.Parameter(torch.full((n_heads, 1, 1), lambda_init))
+        self.dropout = nn.Dropout(dropout)
+        self.norm = nn.LayerNorm(self.d_head)
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
+        B, T, D = x.shape
+        H = self.n_heads
+        Dh = self.d_head // 2  # half heads for each stream
+
+        Q1 = self.q1(x).view(B, T, H, Dh).transpose(1, 2)
+        Q2 = self.q2(x).view(B, T, H, Dh).transpose(1, 2)
+        K1 = self.k1(x).view(B, T, H, Dh).transpose(1, 2)
+        K2 = self.k2(x).view(B, T, H, Dh).transpose(1, 2)
+        V = self.v(x).view(B, T, H, self.d_head).transpose(1, 2)
+
+        A1 = (Q1 @ K1.transpose(-2, -1)) / self.scale
+        A2 = (Q2 @ K2.transpose(-2, -1)) / self.scale
+
+        if mask is not None:
+            A1 = A1.masked_fill(~mask.unsqueeze(1).unsqueeze(1), float("-inf"))
+            A2 = A2.masked_fill(~mask.unsqueeze(1).unsqueeze(1), float("-inf"))
+
+        A1 = F.softmax(A1, dim=-1)
+        A2 = F.softmax(A2, dim=-1)
+
+        lam = torch.sigmoid(self.lambda_)
+        A = self.dropout(A1 - lam * A2)
+
+        out = (A @ V)  # [B, H, T, Dh]
+        out = self.norm(out)
+        out = out.transpose(1, 2).contiguous().view(B, T, H * self.d_head)
+        return self.out(out)
+
+
+class InfiniteAttention(nn.Module):
+    """Infini-Attention (Munkhdalai et al. 2024).
+
+    Combines local attention with a compressed memory for long-range context.
+    At each segment, updates a fixed-size memory via associative binding,
+    then retrieves from it alongside local attention.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        segment_len: int = 64,
+        memory_size: int = 128,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.n_heads = n_heads
+        self.d_head = d_model // n_heads
+        self.segment_len = segment_len
+
+        self.q = nn.Linear(d_model, d_model, bias=False)
+        self.k = nn.Linear(d_model, d_model, bias=False)
+        self.v = nn.Linear(d_model, d_model, bias=False)
+        self.out = nn.Linear(d_model, d_model)
+
+        # Memory gating
+        self.beta = nn.Parameter(torch.zeros(n_heads, 1, 1))
+        self.dropout = nn.Dropout(dropout)
+        self.scale = math.sqrt(self.d_head)
+
+    def _update_memory(
+        self,
+        memory: torch.Tensor,
+        z: torch.Tensor,
+        K: torch.Tensor,
+        V: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Update memory using associative binding (linear attention update)."""
+        # memory: [B, H, M, Dh], z: [B, H, M]
+        K_feat = F.elu(K) + 1.0
+        V_proj = V
+
+        # Update: M = M + (K^T * V)
+        update = torch.einsum("bhnd,bhnm->bhdm", K_feat, V_proj)
+        new_memory = memory + update
+
+        # Update normalization
+        z_update = K_feat.sum(dim=2)
+        new_z = z + z_update
+
+        return new_memory, new_z
+
+    def _retrieve_from_memory(
+        self,
+        memory: torch.Tensor,
+        z: torch.Tensor,
+        Q: torch.Tensor,
+    ) -> torch.Tensor:
+        """Retrieve from memory via linear attention."""
+        Q_feat = F.elu(Q) + 1.0
+        retrieved = torch.einsum("bhnd,bhdm->bhnm", Q_feat, memory)
+        norm = torch.einsum("bhnd,bhd->bhn", Q_feat, z).unsqueeze(-1).clamp(min=1e-6)
+        return retrieved / norm
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        H, Dh = self.n_heads, self.d_head
+
+        Q = self.q(x).view(B, T, H, Dh).transpose(1, 2)
+        K = self.k(x).view(B, T, H, Dh).transpose(1, 2)
+        V = self.v(x).view(B, T, H, Dh).transpose(1, 2)
+
+        # Initialize memory
+        memory = torch.zeros(B, H, Dh, Dh, device=x.device)
+        z = torch.ones(B, H, Dh, device=x.device) * 1e-6
+
+        output = torch.zeros(B, T, D, device=x.device)
+
+        # Process in segments
+        for seg_start in range(0, T, self.segment_len):
+            seg_end = min(seg_start + self.segment_len, T)
+            S = seg_end - seg_start
+
+            Q_seg = Q[:, :, seg_start:seg_end]
+            K_seg = K[:, :, seg_start:seg_end]
+            V_seg = V[:, :, seg_start:seg_end]
+
+            # Local attention within segment
+            local_scores = (Q_seg @ K_seg.transpose(-2, -1)) / self.scale
+            local_attn = F.softmax(local_scores, dim=-1)
+            local_attn = self.dropout(local_attn)
+            local_out = local_attn @ V_seg  # [B, H, S, Dh]
+
+            # Memory retrieval
+            mem_out = self._retrieve_from_memory(memory, z, Q_seg)  # [B, H, S, Dh]
+
+            # Gated combination
+            gate = torch.sigmoid(self.beta)
+            combined = gate * mem_out + (1 - gate) * local_out
+
+            output[:, seg_start:seg_end] = combined.transpose(1, 2).contiguous().reshape(B, S, D)
+
+            # Update memory with current segment
+            memory, z = self._update_memory(memory, z, K_seg, V_seg)
+
+        return self.out(output)
+
+
+class LoRAAttention(nn.Module):
+    """Self-attention with LoRA-adapted Q and V projections.
+
+    Enables parameter-efficient fine-tuning of attention layers
+    by only training low-rank adapter matrices.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        lora_rank: int = 8,
+        lora_alpha: float = 16.0,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.n_heads = n_heads
+        self.d_head = d_model // n_heads
+        self.lora_scale = lora_alpha / lora_rank
+
+        # Frozen base projections
+        self.q_base = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_base = nn.Linear(d_model, d_model, bias=False)
+        self.out = nn.Linear(d_model, d_model, bias=False)
+
+        # Trainable LoRA adapters
+        self.q_lora_a = nn.Linear(d_model, lora_rank, bias=False)
+        self.q_lora_b = nn.Linear(lora_rank, d_model, bias=False)
+        self.v_lora_a = nn.Linear(d_model, lora_rank, bias=False)
+        self.v_lora_b = nn.Linear(lora_rank, d_model, bias=False)
+
+        nn.init.zeros_(self.q_lora_b.weight)
+        nn.init.zeros_(self.v_lora_b.weight)
+
+        # Freeze base weights
+        for p in [self.q_base.weight, self.k_proj.weight, self.v_base.weight, self.out.weight]:
+            p.requires_grad = False
+
+        self.dropout = nn.Dropout(dropout)
+        self.scale = math.sqrt(self.d_head)
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
+        B, T, D = x.shape
+        H, Dh = self.n_heads, self.d_head
+
+        # Q with LoRA
+        Q = self.q_base(x) + self.lora_scale * self.q_lora_b(self.q_lora_a(x))
+        Q = Q.view(B, T, H, Dh).transpose(1, 2)
+
+        K = self.k_proj(x).view(B, T, H, Dh).transpose(1, 2)
+
+        # V with LoRA
+        V = self.v_base(x) + self.lora_scale * self.v_lora_b(self.v_lora_a(x))
+        V = V.view(B, T, H, Dh).transpose(1, 2)
+
+        scores = (Q @ K.transpose(-2, -1)) / self.scale
+        if mask is not None:
+            scores = scores.masked_fill(~mask.unsqueeze(1).unsqueeze(1), float("-inf"))
+        attn = F.softmax(scores, dim=-1)
+        attn = self.dropout(attn)
+
+        out = (attn @ V).transpose(1, 2).contiguous().view(B, T, D)
+        return self.out(out)
+
+
+class SparseAttentionMixture(nn.Module):
+    """Mixture of attention patterns: combines dense, local, and strided attention.
+
+    Each head uses a different sparsity pattern:
+    - Dense heads: full O(n^2) attention (for low n)
+    - Local heads: window-based attention
+    - Strided heads: attend to every k-th position (for long-range)
+    - Global heads: attend to fixed global positions
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        n_dense: int = 2,
+        n_local: int = 2,
+        n_strided: int = 2,
+        n_global: int = 2,
+        window_size: int = 32,
+        stride: int = 8,
+        n_global_tokens: int = 4,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        assert n_dense + n_local + n_strided + n_global == n_heads
+        self.n_heads = n_heads
+        self.d_head = d_model // n_heads
+        self.n_dense = n_dense
+        self.n_local = n_local
+        self.n_strided = n_strided
+        self.n_global = n_global
+        self.window_size = window_size
+        self.stride = stride
+        self.n_global_tokens = n_global_tokens
+
+        self.qkv = nn.Linear(d_model, 3 * d_model, bias=False)
+        self.out = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.scale = math.sqrt(self.d_head)
+
+    def _dense_attn(self, q, k, v, h_idx):
+        scores = (q @ k.transpose(-2, -1)) / self.scale
+        attn = F.softmax(scores, dim=-1)
+        return self.dropout(attn) @ v
+
+    def _local_attn(self, q, k, v, h_idx):
+        B, T, Dh = q.shape
+        W = self.window_size
+        out = torch.zeros_like(q)
+        for t in range(T):
+            s = max(0, t - W // 2)
+            e = min(T, s + W)
+            scores = (q[:, t:t+1, :] @ k[:, s:e, :].transpose(-2, -1)) / self.scale
+            attn = F.softmax(scores, dim=-1)
+            out[:, t:t+1, :] = attn @ v[:, s:e, :]
+        return out
+
+    def _strided_attn(self, q, k, v, h_idx):
+        B, T, Dh = q.shape
+        stride_idx = torch.arange(0, T, self.stride, device=q.device)
+        k_s = k[:, stride_idx, :]
+        v_s = v[:, stride_idx, :]
+        scores = (q @ k_s.transpose(-2, -1)) / self.scale
+        attn = F.softmax(scores, dim=-1)
+        return self.dropout(attn) @ v_s
+
+    def _global_attn(self, q, k, v, h_idx):
+        k_g = k[:, :self.n_global_tokens, :]
+        v_g = v[:, :self.n_global_tokens, :]
+        scores = (q @ k_g.transpose(-2, -1)) / self.scale
+        attn = F.softmax(scores, dim=-1)
+        return self.dropout(attn) @ v_g
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        H, Dh = self.n_heads, self.d_head
+
+        qkv = self.qkv(x).reshape(B, T, 3, H, Dh).permute(2, 0, 3, 1, 4)
+        Q, K, V = qkv[0], qkv[1], qkv[2]
+
+        outs = []
+        h = 0
+        for i in range(self.n_dense):
+            outs.append(self._dense_attn(Q[:, h], K[:, h], V[:, h], h))
+            h += 1
+        for i in range(self.n_local):
+            outs.append(self._local_attn(Q[:, h], K[:, h], V[:, h], h))
+            h += 1
+        for i in range(self.n_strided):
+            outs.append(self._strided_attn(Q[:, h], K[:, h], V[:, h], h))
+            h += 1
+        for i in range(self.n_global):
+            outs.append(self._global_attn(Q[:, h], K[:, h], V[:, h], h))
+            h += 1
+
+        out = torch.stack(outs, dim=1).transpose(1, 2).contiguous().view(B, T, D)
+        return self.out(out)
+
+
+class HierarchicalAttention(nn.Module):
+    """Two-level hierarchical attention: token-level then chunk-level.
+
+    First applies local attention within chunks.
+    Then applies global attention between chunk representations.
+    Finally projects back to token level.
+
+    Good for very long financial time series (e.g., minute bars over years).
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        chunk_size: int = 32,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.chunk_size = chunk_size
+        self.d_model = d_model
+
+        self.local_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.global_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+
+        self.chunk_pool = nn.Linear(d_model, d_model)
+        self.expand = nn.Linear(d_model, d_model)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, D = x.shape
+        C = self.chunk_size
+
+        # Pad to multiple of chunk_size
+        pad = (C - T % C) % C
+        if pad > 0:
+            x = F.pad(x, (0, 0, 0, pad))
+        T_pad = x.shape[1]
+        n_chunks = T_pad // C
+
+        # Local attention within each chunk
+        x_chunks = x.view(B * n_chunks, C, D)
+        local_out, _ = self.local_attn(x_chunks, x_chunks, x_chunks)
+        x_chunks = self.norm1(x_chunks + local_out)
+        x = x_chunks.view(B, T_pad, D)
+
+        # Chunk representations via pooling
+        chunk_repr = x.view(B, n_chunks, C, D).mean(dim=2)  # [B, n_chunks, D]
+        chunk_repr = self.chunk_pool(chunk_repr)
+
+        # Global attention between chunks
+        global_out, _ = self.global_attn(chunk_repr, chunk_repr, chunk_repr)
+        chunk_repr = self.norm2(chunk_repr + global_out)
+
+        # Expand back to token level
+        expanded = chunk_repr.unsqueeze(2).expand(-1, -1, C, -1).contiguous().view(B, T_pad, D)
+        out = x + self.expand(expanded)
+
+        return out[:, :T, :]
+
+
+# Factory functions for attention
+def create_attention_for_frequency(
+    data_frequency: str,
+    d_model: int = 256,
+    n_heads: int = 8,
+    **kwargs
+) -> nn.Module:
+    """Create an appropriate attention module for the given data frequency.
+
+    Args:
+        data_frequency: 'tick', '1min', '5min', '1h', '1d', '1w'
+    """
+    freq_to_window = {
+        "tick": 64, "1min": 32, "5min": 24, "1h": 16, "1d": 8, "1w": 4
+    }
+    window = freq_to_window.get(data_frequency, 32)
+
+    if data_frequency in ("tick", "1min"):
+        return WindowAttention(d_model, n_heads, window_size=window, **kwargs)
+    elif data_frequency in ("5min", "1h"):
+        return LocalGlobalAttention(d_model, n_heads, window_size=window, **kwargs)
+    else:
+        return ScaledDotProductAttentionV2(d_model, n_heads, **kwargs)

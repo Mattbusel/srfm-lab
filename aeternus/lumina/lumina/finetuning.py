@@ -2138,3 +2138,415 @@ _NEW_FINETUNING_EXPORTS = [
     "TaskVectorFineTuner", "MultiDomainFineTuner", "InformationCoefficientOptimizer",
     "LongShortPortfolioHead", "CalibratedReturnForecaster", "AdversarialRobustnessFinetuner",
 ]
+
+
+# =============================================================================
+# SECTION: Advanced Fine-tuning Methods (Part 3)
+# =============================================================================
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import Optional, List, Dict, Tuple
+import math
+
+
+class PromptTuning(nn.Module):
+    """Prompt tuning for financial transformer models (Lester et al. 2021).
+
+    Prepends learnable "soft prompts" to the input sequence,
+    keeping all model weights frozen. Only prompt tokens are updated.
+    """
+
+    def __init__(
+        self,
+        n_prompt_tokens: int = 20,
+        d_model: int = 256,
+        prompt_init: str = "random",
+        temperature: float = 1.0,
+    ):
+        super().__init__()
+        self.n_prompt_tokens = n_prompt_tokens
+        self.d_model = d_model
+        self.temperature = temperature
+
+        self.prompt_tokens = nn.Parameter(torch.randn(n_prompt_tokens, d_model))
+
+        if prompt_init == "zeros":
+            nn.init.zeros_(self.prompt_tokens)
+        elif prompt_init == "uniform":
+            nn.init.uniform_(self.prompt_tokens, -0.1, 0.1)
+        # else: keep randn
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Prepend prompt tokens to input sequence."""
+        B = x.shape[0]
+        prompts = self.prompt_tokens.unsqueeze(0).expand(B, -1, -1)
+        return torch.cat([prompts, x], dim=1)
+
+    def remove_prompt(self, x: torch.Tensor) -> torch.Tensor:
+        """Remove prompt tokens from output sequence."""
+        return x[:, self.n_prompt_tokens:, :]
+
+
+class PrefixTuning(nn.Module):
+    """Prefix tuning: prepend trainable key-value pairs to each attention layer.
+
+    More expressive than prompt tuning: directly adds to K, V matrices
+    at each layer rather than just the input.
+    Based on Li & Liang (2021).
+    """
+
+    def __init__(
+        self,
+        n_prefix_tokens: int = 20,
+        n_layers: int = 12,
+        n_heads: int = 8,
+        d_head: int = 64,
+        prefix_dropout: float = 0.0,
+        reparameterize: bool = True,
+        d_reparameterize: int = 512,
+    ):
+        super().__init__()
+        self.n_prefix_tokens = n_prefix_tokens
+        self.n_layers = n_layers
+        self.n_heads = n_heads
+        self.d_head = d_head
+        self.reparameterize = reparameterize
+
+        d_model = n_heads * d_head
+
+        if reparameterize:
+            # Use MLP to generate prefix from smaller embedding
+            self.prefix_mlp = nn.Sequential(
+                nn.Embedding(n_prefix_tokens, d_reparameterize),
+                nn.Linear(d_reparameterize, d_reparameterize * 2),
+                nn.Tanh(),
+                nn.Linear(d_reparameterize * 2, n_layers * 2 * d_model),
+            )
+            self.prefix_ids = nn.Parameter(
+                torch.arange(n_prefix_tokens).float(), requires_grad=False
+            )
+        else:
+            # Direct prefix parameters
+            self.prefix_keys = nn.Parameter(torch.randn(n_layers, n_heads, n_prefix_tokens, d_head))
+            self.prefix_values = nn.Parameter(torch.randn(n_layers, n_heads, n_prefix_tokens, d_head))
+
+        self.dropout = nn.Dropout(prefix_dropout)
+
+    def get_prefix_kv(
+        self, layer_idx: int, batch_size: int
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get prefix key-value pairs for a specific layer."""
+        if self.reparameterize:
+            ids = self.prefix_ids.long()
+            prefix = self.prefix_mlp(ids).view(self.n_prefix_tokens, self.n_layers, 2, self.n_heads, self.d_head)
+            pk = prefix[:, layer_idx, 0, :, :]  # [n_prefix, n_heads, d_head]
+            pv = prefix[:, layer_idx, 1, :, :]
+            pk = pk.permute(1, 0, 2).unsqueeze(0).expand(batch_size, -1, -1, -1)
+            pv = pv.permute(1, 0, 2).unsqueeze(0).expand(batch_size, -1, -1, -1)
+        else:
+            pk = self.prefix_keys[layer_idx].unsqueeze(0).expand(batch_size, -1, -1, -1)
+            pv = self.prefix_values[layer_idx].unsqueeze(0).expand(batch_size, -1, -1, -1)
+
+        return self.dropout(pk), self.dropout(pv)
+
+
+class IA3Tuning(nn.Module):
+    """IA3: Infused Adapter by Inhibiting and Amplifying Inner Activations.
+
+    Introduces 3 learned vectors per transformer layer that scale:
+    - Keys (K scaling)
+    - Values (V scaling)
+    - FFN activations (inner activation scaling)
+
+    Extremely parameter-efficient: only 3 * d_model scalars per layer.
+    Liu et al. (2022).
+    """
+
+    def __init__(
+        self,
+        n_layers: int,
+        d_model: int,
+        d_ff: int = None,
+        scale_init: float = 1.0,
+    ):
+        super().__init__()
+        d_ff = d_ff or (d_model * 4)
+
+        # Per-layer scaling vectors
+        self.k_scales = nn.ParameterList([
+            nn.Parameter(torch.ones(d_model) * scale_init) for _ in range(n_layers)
+        ])
+        self.v_scales = nn.ParameterList([
+            nn.Parameter(torch.ones(d_model) * scale_init) for _ in range(n_layers)
+        ])
+        self.ffn_scales = nn.ParameterList([
+            nn.Parameter(torch.ones(d_ff) * scale_init) for _ in range(n_layers)
+        ])
+
+    def apply_k_scaling(self, k: torch.Tensor, layer_idx: int) -> torch.Tensor:
+        return k * self.k_scales[layer_idx]
+
+    def apply_v_scaling(self, v: torch.Tensor, layer_idx: int) -> torch.Tensor:
+        return v * self.v_scales[layer_idx]
+
+    def apply_ffn_scaling(self, act: torch.Tensor, layer_idx: int) -> torch.Tensor:
+        return act * self.ffn_scales[layer_idx]
+
+    def n_trainable_params(self) -> int:
+        return sum(p.numel() for p in self.parameters())
+
+
+class RobustFineTuner(nn.Module):
+    """Fine-tune with robustness to distribution shifts.
+
+    Combines:
+    - Feature normalization alignment (covariate shift correction)
+    - Label noise-robust loss
+    - Gradient clipping with adaptive norm tracking
+    - Weight averaging for improved generalization
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        n_classes: int = None,
+        noise_rate: float = 0.1,
+        augment_prob: float = 0.3,
+        weight_avg_freq: int = 100,
+        lr: float = 2e-5,
+    ):
+        super().__init__()
+        self.model = model
+        self.n_classes = n_classes
+        self.noise_rate = noise_rate
+        self.augment_prob = augment_prob
+        self.weight_avg_freq = weight_avg_freq
+        self._step = 0
+        self._avg_model_weights = None
+        self._optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+        self._grad_norm_history = []
+
+    def _get_robust_loss(
+        self,
+        pred: torch.Tensor,
+        target: torch.Tensor,
+        loss_type: str = "huber",
+    ) -> torch.Tensor:
+        if loss_type == "huber":
+            return F.huber_loss(pred, target.float())
+        elif loss_type == "mae":
+            return F.l1_loss(pred, target.float())
+        elif loss_type == "mse":
+            return F.mse_loss(pred, target.float())
+        else:
+            return F.huber_loss(pred, target.float())
+
+    def _apply_augmentation(self, x: torch.Tensor) -> torch.Tensor:
+        if torch.rand(1).item() < self.augment_prob:
+            noise = torch.randn_like(x) * 0.01
+            return x + noise
+        return x
+
+    def _update_weight_average(self):
+        """Maintain exponential moving average of model weights."""
+        if self._avg_model_weights is None:
+            self._avg_model_weights = {
+                k: v.clone() for k, v in self.model.state_dict().items()
+            }
+        else:
+            decay = 0.999
+            for k, v in self.model.state_dict().items():
+                self._avg_model_weights[k] = decay * self._avg_model_weights[k] + (1 - decay) * v
+
+    def training_step(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        loss_type: str = "huber",
+    ) -> dict:
+        self.model.train()
+        self._optimizer.zero_grad()
+
+        x_aug = self._apply_augmentation(x)
+        out = self.model(x_aug)
+        pred = out[0] if isinstance(out, (tuple, list)) else out
+        if isinstance(out, dict):
+            pred = next(iter(out.values()))
+
+        loss = self._get_robust_loss(pred, y, loss_type)
+        loss.backward()
+
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+        self._grad_norm_history.append(grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm)
+
+        self._optimizer.step()
+        self._step += 1
+
+        if self._step % self.weight_avg_freq == 0:
+            self._update_weight_average()
+
+        return {
+            "loss": loss.item(),
+            "grad_norm": self._grad_norm_history[-1],
+            "step": self._step,
+        }
+
+    def get_averaged_model(self) -> dict:
+        """Return the weight-averaged model state dict."""
+        return self._avg_model_weights or self.model.state_dict()
+
+
+class SparseFinetuning(nn.Module):
+    """Sparse fine-tuning: only update the most important parameters.
+
+    Identifies and unfreezes only the top-k% parameters by
+    estimated importance score (gradient magnitude in pilot run).
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        sparsity: float = 0.05,
+        importance_metric: str = "fisher",
+    ):
+        super().__init__()
+        self.model = model
+        self.sparsity = sparsity
+        self.importance_metric = importance_metric
+        self._importance_scores = {}
+        self._active_params = set()
+
+    def estimate_importance(self, pilot_dataloader, loss_fn, n_batches: int = 10):
+        """Estimate parameter importance using a small pilot dataset."""
+        self.model.eval()
+        importance = {n: torch.zeros_like(p) for n, p in self.model.named_parameters()}
+
+        for i, batch in enumerate(pilot_dataloader):
+            if i >= n_batches:
+                break
+            if isinstance(batch, (list, tuple)):
+                x, y = batch[0], batch[-1]
+            else:
+                x, y = batch, None
+
+            self.model.zero_grad()
+            out = self.model(x)
+            if callable(loss_fn):
+                loss = loss_fn(out, y) if y is not None else loss_fn(out)
+            else:
+                loss = out.sum()
+            loss.backward()
+
+            for name, param in self.model.named_parameters():
+                if param.grad is not None:
+                    if self.importance_metric == "fisher":
+                        importance[name] += param.grad.pow(2)
+                    elif self.importance_metric == "magnitude":
+                        importance[name] += param.data.abs()
+
+        self._importance_scores = importance
+
+    def activate_top_k(self):
+        """Freeze all parameters, then unfreeze top-k% by importance."""
+        # First freeze all
+        for p in self.model.parameters():
+            p.requires_grad = False
+
+        if not self._importance_scores:
+            return
+
+        # Collect all importance scores
+        all_scores = torch.cat([s.view(-1) for s in self._importance_scores.values()])
+        threshold = torch.quantile(all_scores, 1.0 - self.sparsity)
+
+        # Unfreeze important parameters
+        for name, param in self.model.named_parameters():
+            if name in self._importance_scores:
+                mask = self._importance_scores[name] >= threshold
+                if mask.any():
+                    param.requires_grad = True
+                    self._active_params.add(name)
+
+    def n_active_params(self) -> int:
+        return sum(
+            p.numel() for n, p in self.model.named_parameters()
+            if n in self._active_params and p.requires_grad
+        )
+
+    def n_total_params(self) -> int:
+        return sum(p.numel() for p in self.model.parameters())
+
+    def activation_fraction(self) -> float:
+        return self.n_active_params() / max(self.n_total_params(), 1)
+
+
+class DomainAdaptationFinetuner(nn.Module):
+    """Domain adaptation for financial data across different market regimes or geographies.
+
+    Aligns representations between source domain (e.g., US equities)
+    and target domain (e.g., emerging markets) using adversarial training.
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        d_model: int,
+        n_domains: int = 2,
+        lambda_domain: float = 1.0,
+        reverse_gradient: bool = True,
+    ):
+        super().__init__()
+        self.model = model
+        self.lambda_domain = lambda_domain
+        self.reverse_gradient = reverse_gradient
+
+        # Domain classifier
+        self.domain_classifier = nn.Sequential(
+            nn.Linear(d_model, d_model // 2),
+            nn.ReLU(),
+            nn.Linear(d_model // 2, n_domains),
+        )
+
+    def _grad_reverse(self, x: torch.Tensor, scale: float = 1.0) -> torch.Tensor:
+        """Gradient reversal layer."""
+        class GradReverse(torch.autograd.Function):
+            @staticmethod
+            def forward(ctx, x, scale):
+                ctx.scale = scale
+                return x.clone()
+
+            @staticmethod
+            def backward(ctx, grad):
+                return -ctx.scale * grad, None
+
+        return GradReverse.apply(x, scale)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        domain_labels: torch.Tensor = None,
+        return_domain_loss: bool = True,
+    ) -> dict:
+        out = self.model(x)
+        hidden = out.get("hidden", out.get("last_hidden", None)) if isinstance(out, dict) else out
+        if hidden is None:
+            hidden = out
+
+        cls = hidden[:, -1, :] if hidden.ndim == 3 else hidden
+
+        result = {"model_output": out}
+
+        if domain_labels is not None and return_domain_loss:
+            if self.reverse_gradient:
+                h_rev = self._grad_reverse(cls, self.lambda_domain)
+            else:
+                h_rev = cls
+
+            domain_logits = self.domain_classifier(h_rev)
+            domain_loss = F.cross_entropy(domain_logits, domain_labels)
+            result["domain_loss"] = domain_loss
+            result["domain_logits"] = domain_logits
+
+        return result

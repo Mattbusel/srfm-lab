@@ -1113,3 +1113,305 @@ __all__ = [
     # Runner
     "BenchmarkRunner",
 ]
+
+
+# =============================================================================
+# SECTION: Extended Benchmarking Suite
+# =============================================================================
+
+import torch
+import torch.nn as nn
+import numpy as np
+import time
+import os
+from typing import Optional, List, Dict, Tuple, Any
+
+
+class ArchitectureBenchmark:
+    """Benchmark different architectural choices for financial transformers."""
+
+    def __init__(self, device: str = "cpu", n_warmup: int = 5, n_runs: int = 20):
+        self.device = device
+        self.n_warmup = n_warmup
+        self.n_runs = n_runs
+        self._results = {}
+
+    def benchmark_attention_mechanisms(
+        self,
+        d_model: int = 128,
+        n_heads: int = 8,
+        seq_lengths: List[int] = None,
+    ) -> dict:
+        """Benchmark different attention mechanisms."""
+        seq_lengths = seq_lengths or [64, 128, 256, 512]
+        results = {}
+
+        attention_configs = [
+            ("MultiHead", lambda: self._try_create_attention("MultiHeadAttention", f"d_model={d_model}, n_heads={n_heads}")),
+            ("Linear", lambda: self._try_create_attention("LinearAttentionKernel", f"d_model={d_model}, n_heads={n_heads}")),
+            ("Window16", lambda: self._try_create_attention("WindowAttention", f"d_model={d_model}, n_heads={n_heads}, window_size=16")),
+        ]
+
+        for attn_name, attn_factory in attention_configs:
+            model = attn_factory()
+            if model is None:
+                continue
+
+            model = model.to(self.device).eval()
+            results[attn_name] = {}
+
+            for T in seq_lengths:
+                x = torch.randn(2, T, d_model, device=self.device)
+                latencies = self._measure_latency(model, x)
+                results[attn_name][T] = latencies
+
+        return results
+
+    def _try_create_attention(self, cls_name: str, init_args: str):
+        try:
+            import sys
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+            from lumina import attention as attn_mod
+            cls = getattr(attn_mod, cls_name)
+            return eval(f"cls({init_args})")
+        except Exception:
+            return None
+
+    def _measure_latency(self, model: nn.Module, x: torch.Tensor) -> dict:
+        # Warmup
+        with torch.no_grad():
+            for _ in range(self.n_warmup):
+                try:
+                    model(x)
+                except Exception:
+                    return {}
+
+        latencies = []
+        for _ in range(self.n_runs):
+            t0 = time.perf_counter()
+            with torch.no_grad():
+                try:
+                    model(x)
+                except Exception:
+                    break
+            t1 = time.perf_counter()
+            latencies.append((t1 - t0) * 1000)
+
+        if not latencies:
+            return {}
+
+        import statistics
+        return {
+            "mean_ms": statistics.mean(latencies),
+            "std_ms": statistics.stdev(latencies) if len(latencies) > 1 else 0,
+            "min_ms": min(latencies),
+            "p95_ms": sorted(latencies)[int(len(latencies) * 0.95)],
+        }
+
+
+class ModelQualityBenchmark:
+    """Benchmark model quality metrics across architectures and configurations."""
+
+    def __init__(self):
+        self._results = {}
+
+    def run_reconstruction_benchmark(
+        self,
+        models: Dict[str, nn.Module],
+        test_data: torch.Tensor,
+        mask_ratio: float = 0.15,
+    ) -> dict:
+        """Benchmark masked reconstruction quality."""
+        import torch.nn.functional as F
+        results = {}
+
+        # Create mask
+        B, T, D = test_data.shape
+        mask = torch.rand(B, T) < mask_ratio
+        masked_data = test_data.clone()
+        masked_data[mask] = 0
+
+        for name, model in models.items():
+            model.eval()
+            try:
+                with torch.no_grad():
+                    out = model(masked_data)
+                    pred = out[0] if isinstance(out, (tuple, list)) else out
+                    if isinstance(out, dict):
+                        pred = next(iter(out.values()))
+
+                    if isinstance(pred, torch.Tensor) and pred.shape == test_data.shape:
+                        mse = F.mse_loss(pred[mask], test_data[mask]).item()
+                        results[name] = {"reconstruction_mse": mse}
+                    else:
+                        results[name] = {"error": "shape mismatch"}
+            except Exception as e:
+                results[name] = {"error": str(e)}
+
+        return results
+
+    def run_forecasting_benchmark(
+        self,
+        models: Dict[str, nn.Module],
+        X: torch.Tensor,
+        y: torch.Tensor,
+        n_splits: int = 5,
+    ) -> dict:
+        """Benchmark forecasting accuracy via walk-forward split."""
+        import torch.nn.functional as F
+        results = {}
+
+        T = X.shape[0]
+        split_size = T // (n_splits + 1)
+
+        for name, model in models.items():
+            model.eval()
+            split_errors = []
+
+            for split in range(n_splits):
+                test_start = (split + 1) * split_size
+                test_end = min(test_start + split_size, T)
+                X_test = X[test_start:test_end]
+                y_test = y[test_start:test_end]
+
+                try:
+                    with torch.no_grad():
+                        out = model(X_test)
+                        pred = out[0] if isinstance(out, (tuple, list)) else out
+                        if isinstance(out, dict):
+                            pred = next(v for v in out.values() if isinstance(v, torch.Tensor))
+
+                        if pred.shape[0] == y_test.shape[0]:
+                            mse = F.mse_loss(pred.float()[:, 0] if pred.ndim > 1 else pred.float(),
+                                           y_test.float()).item()
+                            split_errors.append(mse)
+                except Exception:
+                    continue
+
+            if split_errors:
+                results[name] = {
+                    "mean_mse": np.mean(split_errors),
+                    "std_mse": np.std(split_errors),
+                    "n_splits": len(split_errors),
+                }
+
+        return results
+
+
+class ScalabilityBenchmark:
+    """Benchmark model scalability: how performance changes with size."""
+
+    def __init__(self, device: str = "cpu"):
+        self.device = device
+
+    def compute_efficiency_frontier(
+        self,
+        model_factory,
+        sizes: List[dict],
+        seq_len: int = 64,
+        n_features: int = 32,
+    ) -> List[dict]:
+        """Compute (n_params, latency) efficiency frontier."""
+        results = []
+
+        for size_config in sizes:
+            try:
+                model = model_factory(**size_config).to(self.device).eval()
+                n_params = sum(p.numel() for p in model.parameters())
+
+                x = torch.randn(4, seq_len, n_features, device=self.device)
+                latencies = []
+                with torch.no_grad():
+                    for _ in range(20):
+                        t0 = time.perf_counter()
+                        model(x)
+                        t1 = time.perf_counter()
+                        latencies.append((t1 - t0) * 1000)
+
+                results.append({
+                    "config": size_config,
+                    "n_params": n_params,
+                    "n_params_M": n_params / 1e6,
+                    "mean_latency_ms": np.mean(latencies),
+                    "params_per_ms": n_params / max(np.mean(latencies), 1e-6),
+                })
+            except Exception as e:
+                results.append({"config": size_config, "error": str(e)})
+
+        return results
+
+
+class MemoryBenchmark:
+    """Benchmark memory consumption across configurations."""
+
+    def __init__(self):
+        pass
+
+    def estimate_memory(
+        self,
+        model: nn.Module,
+        input_shape: tuple,
+        dtype: torch.dtype = torch.float32,
+    ) -> dict:
+        """Estimate memory requirements without running on GPU."""
+        n_params = sum(p.numel() for p in model.parameters())
+        n_buffers = sum(b.numel() for b in model.buffers())
+
+        bytes_per_param = 4 if dtype == torch.float32 else 2
+        param_bytes = (n_params + n_buffers) * bytes_per_param
+
+        # Activation estimate: rough heuristic
+        B, T = input_shape[0], input_shape[1] if len(input_shape) > 1 else 1
+        n_layers = sum(1 for _ in model.modules() if isinstance(_, nn.TransformerEncoderLayer))
+        d_model = next((p.shape[0] for n, p in model.named_parameters() if "norm" in n and p.ndim == 1), 128)
+
+        act_bytes = B * T * d_model * max(n_layers, 1) * bytes_per_param * 2  # forward + backward
+
+        return {
+            "param_mb": param_bytes / 1e6,
+            "activation_mb_estimate": act_bytes / 1e6,
+            "total_mb_estimate": (param_bytes + act_bytes) / 1e6,
+            "n_params": n_params,
+        }
+
+
+# Register all benchmark suites
+BENCHMARK_REGISTRY = {
+    "architecture": ArchitectureBenchmark,
+    "quality": ModelQualityBenchmark,
+    "scalability": ScalabilityBenchmark,
+    "memory": MemoryBenchmark,
+}
+
+
+def run_full_benchmark_suite(
+    models: Dict[str, nn.Module],
+    test_data: torch.Tensor,
+    device: str = "cpu",
+    output_dir: str = "/tmp/lumina_benchmarks",
+) -> dict:
+    """Run the complete benchmarking suite and save results."""
+    os.makedirs(output_dir, exist_ok=True)
+    all_results = {}
+
+    # Quality benchmark
+    quality_bench = ModelQualityBenchmark()
+    if test_data.ndim == 3:
+        y = test_data[:, -1, 0]
+        quality_results = quality_bench.run_forecasting_benchmark(models, test_data, y)
+        all_results["quality"] = quality_results
+
+    # Memory benchmark
+    mem_bench = MemoryBenchmark()
+    mem_results = {}
+    for name, model in models.items():
+        mem_results[name] = mem_bench.estimate_memory(model, test_data.shape)
+    all_results["memory"] = mem_results
+
+    # Save results
+    import json
+    output_path = os.path.join(output_dir, "benchmark_results.json")
+    with open(output_path, "w") as f:
+        json.dump(all_results, f, indent=2, default=str)
+
+    return all_results
