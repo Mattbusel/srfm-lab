@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SRFM Lab — Quant tools. Built in the open. Priced for humans.</title>
+  <meta name="description" content="Eight practical tools for quant traders and developers. No fluff. Real code." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="SRFM Lab — Quant tools. Priced for humans." />
+  <meta property="og:description" content="Eight practical tools for quant traders and developers. Built on 1.2M lines of real trading code." />
+  <meta property="og:url" content="https://mattbusel.github.io/srfm-lab/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d1117; --surface: #161b22; --border: #21262d;
+      --green: #3fb950; --cyan: #39d0d8; --text: #e6edf3; --muted: #8b949e;
+      --accent-bg: rgba(63,185,80,0.08); --radius: 8px;
+      --mono: 'Courier New', Courier, monospace;
+    }
+    html { scroll-behavior: smooth; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.6; }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+    /* Nav */
+    nav { position: sticky; top: 0; z-index: 100; background: rgba(13,17,23,0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-logo { font-family: var(--mono); font-weight: 700; font-size: 1rem; color: var(--green); letter-spacing: 0.05em; }
+    .nav-links { list-style: none; display: flex; gap: 28px; }
+    .nav-links a { color: var(--muted); font-size: 0.9rem; }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* Hero */
+    .hero { padding: 96px 0 72px; text-align: center; }
+    .hero-label { font-family: var(--mono); font-size: 0.75rem; color: var(--green); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 20px; }
+    .hero h1 { font-size: clamp(2rem, 5vw, 3.25rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.15; margin-bottom: 20px; }
+    .hero-sub { max-width: 560px; margin: 0 auto 40px; color: var(--muted); font-size: 1.1rem; }
+    .hero-cta { display: inline-block; background: var(--green); color: #0d1117; font-weight: 700; padding: 14px 32px; border-radius: var(--radius); font-size: 1rem; transition: opacity 0.2s; }
+    .hero-cta:hover { opacity: 0.88; text-decoration: none; }
+    .hero-stats { display: flex; justify-content: center; gap: 40px; margin-top: 56px; flex-wrap: wrap; }
+    .stat { text-align: center; }
+    .stat-num { font-family: var(--mono); font-size: 1.5rem; font-weight: 700; color: var(--cyan); }
+    .stat-label { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+    /* Products */
+    section { padding: 80px 0; }
+    #products h2 { font-size: 1.75rem; font-weight: 700; margin-bottom: 8px; }
+    #products .section-sub { color: var(--muted); margin-bottom: 48px; font-size: 1rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; display: flex; flex-direction: column; gap: 12px; transition: border-color 0.2s, transform 0.15s; }
+    .card:hover { border-color: rgba(63,185,80,0.4); transform: translateY(-2px); }
+    .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .card-icon { font-size: 1.5rem; line-height: 1; flex-shrink: 0; }
+    .price-badge { font-family: var(--mono); font-size: 0.75rem; font-weight: 700; color: var(--green); background: var(--accent-bg); border: 1px solid rgba(63,185,80,0.25); border-radius: 4px; padding: 3px 8px; white-space: nowrap; flex-shrink: 0; }
+    .card h3 { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; }
+    .card-desc { font-size: 0.875rem; color: var(--muted); flex: 1; }
+    .tag { display: inline-block; font-size: 0.7rem; font-family: var(--mono); color: var(--muted); background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 3px; padding: 2px 6px; }
+    .card-cta { display: inline-block; margin-top: 4px; font-size: 0.85rem; font-weight: 600; color: var(--cyan); border: 1px solid rgba(57,208,216,0.3); border-radius: 5px; padding: 7px 14px; transition: background 0.15s; }
+    .card-cta:hover { background: rgba(57,208,216,0.08); text-decoration: none; }
+
+    /* About */
+    #proof { background: var(--surface); }
+    #proof .container { max-width: 720px; }
+    #proof h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 20px; }
+    #proof p { color: var(--muted); margin-bottom: 16px; }
+    #proof p strong { color: var(--text); }
+
+    /* FAQ */
+    #faq h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 32px; }
+    .faq-item { border-bottom: 1px solid var(--border); padding: 20px 0; }
+    .faq-item h4 { font-size: 0.95rem; font-weight: 600; margin-bottom: 8px; }
+    .faq-item p { font-size: 0.875rem; color: var(--muted); }
+
+    /* Footer */
+    footer { border-top: 1px solid var(--border); padding: 32px 0; }
+    .footer-inner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+    .footer-left { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+    .footer-links { list-style: none; display: flex; gap: 20px; }
+    .footer-links a { font-size: 0.85rem; color: var(--muted); }
+    .footer-links a:hover { color: var(--text); text-decoration: none; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="container nav-inner">
+      <span class="nav-logo">SRFM_LAB</span>
+      <ul class="nav-links">
+        <li><a href="#products">Products</a></li>
+        <li><a href="#proof">About</a></li>
+        <li><a href="#faq">FAQ</a></li>
+        <li><a href="https://github.com/Mattbusel" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="container">
+      <p class="hero-label">Systematic · Quantitative · Live</p>
+      <h1>Quant tools.<br>Priced for humans.</h1>
+      <p class="hero-sub">Eight production-grade tools built from 1.2M lines of real trading infrastructure. No fluff. No enterprise pricing.</p>
+      <a href="#products" class="hero-cta">See all products ↓</a>
+      <div class="hero-stats">
+        <div class="stat"><div class="stat-num">1.2M</div><div class="stat-label">lines of code</div></div>
+        <div class="stat"><div class="stat-num">8</div><div class="stat-label">live products</div></div>
+        <div class="stat"><div class="stat-num">3</div><div class="stat-label">exchanges monitored</div></div>
+        <div class="stat"><div class="stat-num">$0</div><div class="stat-label">VC funding</div></div>
+      </div>
+    </div>
+  </header>
+
+  <section id="products">
+    <div class="container">
+      <h2>Products</h2>
+      <p class="section-sub">One person. Eight tools. All of them do exactly what they say.</p>
+      <div class="grid">
+
+        <div class="card">
+          <div class="card-header"><div class="card-icon">📡</div><span class="price-badge">$20 / mo</span></div>
+          <h3>Funding Rate Bot</h3>
+          <span class="tag">Telegram</span>
+          <p class="card-desc">Real-time Telegram alerts when cross-exchange funding rate spreads cross 5%+ annualised. Scans Binance, Bybit, OKX every hour. Free tier: BTC/ETH/SOL.</p>
+          <a href="https://t.me/srfm_alerts_bot" class="card-cta" target="_blank" rel="noopener">Subscribe →</a>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-icon">🔀</div><span class="price-badge">$15 / mo</span></div>
+          <h3>EOT-Proxy</h3>
+          <span class="tag">API</span>
+          <p class="card-desc">Drop-in OpenAI-compatible proxy with request logging, cost tracking, and fallback routing. Point your existing code at it and see where your token budget actually goes.</p>
+          <a href="mailto:mattbusel@gmail.com?subject=EOT-Proxy%20Access" class="card-cta">Get access →</a>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-icon">📓</div><span class="price-badge">$49–99</span></div>
+          <h3>Alpha Templates</h3>
+          <span class="tag">Gumroad</span>
+          <p class="card-desc">Jupyter notebooks implementing quant strategies — funding rate carry, momentum + HMM regime filter, vol mean reversion — with real backtests. Buy once, own it.</p>
+          <a href="https://mattbusel.gumroad.com" class="card-cta" target="_blank" rel="noopener">Browse notebooks →</a>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-icon">🌐</div><span class="price-badge">$30 / mo</span></div>
+          <h3>Lumina-Edge</h3>
+          <span class="tag">REST API</span>
+          <p class="card-desc">Sentiment API that scores financial news, earnings calls, and social text in real time. Returns a structured JSON signal you can pipe into any strategy.</p>
+          <a href="mailto:mattbusel@gmail.com?subject=Lumina-Edge%20API%20Access" class="card-cta">Request access →</a>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-icon">📰</div><span class="price-badge">$5 / mo</span></div>
+          <h3>Market Newsletter</h3>
+          <span class="tag">Substack</span>
+          <p class="card-desc">Weekly analysis of macro conditions, notable quant setups, and what the models are seeing. Written by the same person who built everything else here.</p>
+          <a href="https://srfmlab.substack.com" class="card-cta" target="_blank" rel="noopener">Subscribe →</a>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-icon">📊</div><span class="price-badge">$29 / mo</span></div>
+          <h3>ROT Signals</h3>
+          <span class="tag">Options</span>
+          <p class="card-desc">Options signals derived from retail order flow and sentiment patterns across exchanges. High-noise source, filtered through a systematic pipeline. Delivered daily.</p>
+          <a href="mailto:mattbusel@gmail.com?subject=ROT%20Signals%20Access" class="card-cta">Get signals →</a>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-icon">🧠</div><span class="price-badge">$25 / mo</span></div>
+          <h3>Token Quant API</h3>
+          <span class="tag">LLM · REST</span>
+          <p class="card-desc">Converts LLM token-level probability distributions into quantitative market signals. REST API, live on Arbitrum mainnet data. Full docs at the link.</p>
+          <a href="http://65.109.113.230/docs" class="card-cta" target="_blank" rel="noopener">Try the API →</a>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-icon">🤝</div><span class="price-badge">from $299</span></div>
+          <h3>Strategy Consulting</h3>
+          <span class="tag">1-on-1</span>
+          <p class="card-desc">Strategy audit ($299) or full bot build ($799). You describe the edge, I build the execution infrastructure. Arbitrum, Aave, CEX — whatever the trade requires.</p>
+          <a href="mailto:mattbusel@gmail.com?subject=Consulting%20Inquiry" class="card-cta">Book a call →</a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section id="proof">
+    <div class="container">
+      <h2>Who built this</h2>
+      <p>I've spent years building systematic trading infrastructure — from on-chain arbitrage bots running on Arbitrum to cross-exchange carry strategies and LLM-based signal pipelines. The codebase behind these tools is <strong>1.2 million lines</strong>, built and refined over time.</p>
+      <p>Everything here is production code, not tutorials. The funding rate bot watches real markets. The arb bot fires real transactions. The API serves real data. Prices reflect the work, not the market rate for "quant SaaS."</p>
+      <p>Questions? <a href="mailto:mattbusel@gmail.com">mattbusel@gmail.com</a> — or find the code at <a href="https://github.com/Mattbusel" target="_blank" rel="noopener">github.com/Mattbusel</a>.</p>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="container">
+      <h2>FAQ</h2>
+      <div class="faq-item">
+        <h4>Is the free tier actually free?</h4>
+        <p>Yes. The funding rate bot gives you BTC, ETH, and SOL alerts with no credit card required. Just /start in Telegram.</p>
+      </div>
+      <div class="faq-item">
+        <h4>How do I pay for Pro?</h4>
+        <p>The bot handles it — type /subscribe in Telegram and it'll send you a Stripe checkout link. Takes 60 seconds.</p>
+      </div>
+      <div class="faq-item">
+        <h4>What's the refund policy?</h4>
+        <p>If anything doesn't work as described, email me and I'll refund you. No questions.</p>
+      </div>
+      <div class="faq-item">
+        <h4>Can I get custom work done?</h4>
+        <p>Yes — the consulting package is exactly that. Strategy audit ($299) or full build ($799). Email me with what you're trying to do.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container footer-inner">
+      <div class="footer-left">© 2026 SRFM Lab — built by one person, running 24/7</div>
+      <ul class="footer-links">
+        <li><a href="#products">Products</a></li>
+        <li><a href="#faq">FAQ</a></li>
+        <li><a href="https://github.com/Mattbusel" target="_blank" rel="noopener">GitHub</a></li>
+        <li><a href="mailto:mattbusel@gmail.com">Contact</a></li>
+      </ul>
+    </div>
+  </footer>
+
+</body>
+</html>
