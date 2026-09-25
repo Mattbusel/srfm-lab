@@ -296,7 +296,7 @@ The live trader is designed to run continuously against Alpaca paper trading, wi
 
 ### 1. Key-free example (about a minute)
 
-Needs only Python 3.11+ and the pinned core requirements. No API keys, no network after the clone.
+Needs only Python 3.12+ and the pinned core requirements. No API keys, no network after the clone.
 
 ```bash
 git clone --filter=blob:none https://github.com/Mattbusel/srfm-lab
@@ -325,7 +325,7 @@ pip install -r requirements-dev.txt
 pytest tests -q
 ```
 
-This is what CI runs (plus a ruff correctness check), on Python 3.11 and 3.12.
+This is what CI runs (plus a ruff correctness check), on Python 3.12 and 3.13.
 
 ### 3. The full lab (network, API keys and services)
 
