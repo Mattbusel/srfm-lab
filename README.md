@@ -1,58 +1,171 @@
-# SRFM Trading Lab
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
+  <img alt="SRFM Lab: SPY daily closes drawn as a spacetime worldline, with a light cone at every bar, timelike bars in teal, spacelike bars dashed in red, and black-hole wells shaded amber" src="assets/hero-light.svg" width="100%">
+</picture>
 
-[![CI](https://github.com/Mattbusel/srfm-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/Mattbusel/srfm-lab/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://mattbusel.github.io/srfm-lab/"><b>Project site</b></a> &nbsp;·&nbsp;
+  <a href="#quick-start">Quick start</a> &nbsp;·&nbsp;
+  <a href="#the-srfm-family">The SRFM family</a> &nbsp;·&nbsp;
+  <a href="docs/bh_physics.md">The physics</a> &nbsp;·&nbsp;
+  <a href="#reference">Reference</a>
+  <br><br>
+  <a href="https://github.com/Mattbusel/srfm-lab/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Mattbusel/srfm-lab/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+</p>
 
-A personal quantitative trading research lab built on **Special Relativity in Financial Modeling (SRFM)**: from raw bar and tick data to backtests, Monte Carlo, Alpaca paper trading and an automated idea-discovery loop, written across Python, Rust, Go, Julia, R, C/C++, Zig, Elixir and TypeScript.
+**SRFM Lab** is a personal quantitative research lab built on **Special Relativity in Financial Modeling**. It treats each price bar as an event in spacetime: a bar whose move fits inside a "speed of light" `c` is *timelike* (ordered, causal), one that outruns it is *spacelike*. Runs of timelike bars accumulate mass, and when the mass crosses a threshold a *black hole* (a gravitational well) forms. Around that core sit backtesting with Monte Carlo, Alpaca paper trading and an automated idea-discovery loop, written across Python, Rust, Go, Julia, R, C/C++, Zig, Elixir and TypeScript.
 
-> Mad scientist workshop. Everything automated, everything measurable, rapid iteration at scale.
+> [!IMPORTANT]
+> **Research code, not financial advice.** Backtest and paper-trading results are experiments on historical or simulated data. They are not evidence that any strategy is profitable, and nothing here should be used to trade real money without your own independent validation.
 
-This is a research monorepo, not a packaged product. Expect rough edges: many subsystems are experiments, some directories hold generated output, and several parts need API keys (Alpaca, Polygon, Binance) and local services to run. Start with the key-free example in [Quick Start](#quick-start): it runs the core SRFM physics on data bundled in the repo.
+This is a research monorepo, not a packaged product. Many subsystems are experiments, some directories hold generated output, and several parts need API keys (Alpaca, Polygon, Binance) and local services. The core physics runs offline, on data bundled in the repo, in about a minute.
 
-> **Not financial advice.** This is research code. Backtest and paper-trading results are experiments on historical or simulated data, they are not evidence that any strategy is profitable, and nothing here should be used to trade real money without your own independent validation.
+## Quick start
 
-**Cloning:** the repository is large (about 260 MB) because it includes build outputs such as `fin-targets/`. A partial clone is much faster:
+Needs Python 3.12+ and the pinned core requirements. No API keys, no network after the clone.
 
 ```bash
-git clone --filter=blob:none --depth 1 https://github.com/Mattbusel/srfm-lab
+git clone --filter=blob:none https://github.com/Mattbusel/srfm-lab
+cd srfm-lab
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements-core.txt
+python examples/bh_quickstart.py
 ```
 
-## The SRFM project family
+<img alt="Terminal output of python examples/bh_quickstart.py: a table of bars, timelike share, BH active share, onsets and forward returns for ES, NQ and YM" src="assets/quickstart-terminal.svg" width="100%">
 
-SRFM (Special Relativity in Financial Modeling) is split across four repositories:
+[`examples/bh_quickstart.py`](examples/bh_quickstart.py) loads the hourly SPY, QQQ and DIA bars cached in `tools/data_cache/` (stand-ins for the ES, NQ and YM futures, February 2020 to April 2026), resamples them to daily closes, and runs the two core classes from [`lib/srfm_core.py`](lib/srfm_core.py): `MinkowskiClassifier` (timelike vs spacelike bars) and `BlackHoleDetector` (mass accumulation and well formation). It prints the table above and writes a chart to `examples/output/bh_quickstart.png`. Here is the same run, drawn in this README's style:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/wells-dark.svg">
+  <img alt="SPY, QQQ and DIA daily closes over the last 750 days with black-hole active periods shaded and BH mass plotted under each panel against the formation threshold" src="assets/wells-light.svg" width="100%">
+</picture>
+
+The last two columns of the table are the 5-day return after each black-hole onset, signed by the well's direction. On this sample they are negative, which is the honest result: the bare signal, with these parameters, does not predict the next week's move on these ETFs. Try `--horizon 10`, `--symbols ES` or edit `PARAMS` in the script to explore.
+
+**Run the tests** (what CI runs, plus a ruff correctness check, on Python 3.12 and 3.13):
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests -q
+```
+
+**Cloning tip:** the full repository is large (about 260 MB) because it includes build outputs such as `fin-targets/`. The partial clone above, or `git clone --filter=blob:none --depth 1`, is much faster.
+
+## How it works
+
+| | |
+|---|---|
+| **A light cone per bar** | `MinkowskiClassifier` computes `beta = abs(r) / c` for each bar's return `r`. Inside the cone (`beta < 1`) the bar is timelike; outside it is spacelike. The interval is `ds^2 = c^2 dt^2 - dx^2`. |
+| **Mass and wells** | `BlackHoleDetector` adds mass on consecutive timelike bars and bleeds it on spacelike ones. A well forms when mass crosses `bh_form` after at least five ordered bars, and collapses when it decays. The well's direction comes from the cumulative displacement. |
+| **Everything around it** | GARCH volatility scaling, an OU mean-reversion sleeve, geodesic and Hawking-temperature monitors, backtests with Monte Carlo, a paper trader, and the Idea Automation Engine (IAE), which mines backtest trades and feeds tuned parameters back. |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/pipeline-dark.svg">
+  <img alt="Pipeline: bars, Minkowski classifier, black-hole detector, signal stack, backtest, paper trader, with the idea engine feeding parameters back" src="assets/pipeline-light.svg" width="100%">
+</picture>
+
+Deep dives: [BH physics](docs/bh_physics.md) · [IAE architecture](docs/iae_architecture.md) · [Execution stack](docs/execution_stack.md) · [Monte Carlo](docs/monte_carlo.md)
+
+## The SRFM family
+
+SRFM is split across four repositories. This lab is the hub; the idea starts in the paper.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/family-dark.svg">
+  <img alt="Map of the SRFM repositories: srfm-paper-impl at the origin of a light cone, the C++ core and srfm-python inside it, and srfm-lab at the top" src="assets/family-light.svg" width="100%">
+</picture>
 
 | Repository | What it is |
 |---|---|
-| [Special-Relativity-in-Financial-Modeling](https://github.com/Mattbusel/Special-Relativity-in-Financial-Modeling) | C++20 core implementation: price velocity (beta), Lorentz factor (gamma), spacetime interval classification, Christoffel symbols and geodesic deviation on OHLCV bars, plus Python validation scripts |
 | [srfm-paper-impl](https://github.com/Mattbusel/srfm-paper-impl) | The paper (PDF), scripts and a notebook that regenerate its figures, and a small dependency-free Rust reference implementation of the core formulas |
+| [Special-Relativity-in-Financial-Modeling](https://github.com/Mattbusel/Special-Relativity-in-Financial-Modeling) | C++20 core implementation: price velocity (beta), Lorentz factor (gamma), spacetime interval classification, Christoffel symbols and geodesic deviation on OHLCV bars, plus Python validation scripts |
 | [srfm-python](https://github.com/Mattbusel/srfm-python) | Pure-Python SDK: a pandas `df.srfm` accessor and a Polars wrapper for the Lorentz-factor pipeline |
 | **srfm-lab** (this repo) | Large multi-language research lab that builds trading research on the idea: the black-hole (BH) physics signal, an idea automation engine, backtesting and paper trading |
 
 The Rust crate [fin-stream](https://github.com/Mattbusel/fin-stream) also ships a streaming `lorentz` module built on the same transform.
 
+## The full lab
 
----
+Everything below goes beyond the pinned core and needs network access, API keys or local services. Install the broader dependencies first:
 
-## Navigation
+```bash
+pip install -r requirements.txt alpaca-py
+# Rust (genome engine, Monte Carlo, 27 crates)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# Go 1.22+ (IAE microservices, market data)
+# Node 18+ (React dashboards)
+# Julia 1.9+ (statistical tooling)
+# R 4.2+ (HMM, WFA, regime models)
+# Zig 0.12+ (native layer: ITCH decoder, lock-free book)
+```
 
-| Section | Description |
-|---|---|
-| [What is This?](#what-is-this) | Core innovation and philosophy |
-| [Architecture](#architecture) | System diagram and data flow |
-| [Quick Start](#quick-start) | Key-free example on bundled data, then the full lab |
-| [Deep Documentation](#deep-documentation) | Every subsystem has a dedicated doc |
-| [Tools and Primitives](#tools-and-primitives) | Every executable tool flagged |
-| [Stack](#stack) | All 9 languages, LOC counts, and roles |
-| [File Structure](#file-structure) | Complete directory map |
-| [BH Physics Reference](#bh-physics-reference) | Signal math |
-| [Key Parameters](#key-parameters) | All tunable constants |
-| [IAE Research Output](#iae-live-research-output) | Live findings |
-| [Service Endpoints](#service-endpoints) | All running ports |
-| [AETERNUS Lab](#aeternus-six-module-research-lab) | BH physics experiment results |
+**Crypto backtest + Monte Carlo.** Downloads crypto bars from Alpaca's public market-data API (no key needed for crypto bars, but it needs network access):
 
----
+```bash
+python tools/crypto_backtest_mc.py                    # defaults: 2023-01-01 to today, 1,000 MC paths
 
-## Deep Documentation
+python tools/crypto_backtest_mc.py \
+  --start-date 2022-01-01 --end-date 2025-01-01 \
+  --mc-paths 5000 --symbols BTC,ETH,XRP \
+  --bh-form 1.92 --corr 0.25 --garch-target-vol 0.90 \
+  --output-dir tools/backtest_output --verbose
+
+python tools/backtest_wave4.py                        # with EventCalendar + Granger lead + ML signal
+```
+
+**Paper trading** (needs Alpaca paper-trading keys in the environment):
+
+```bash
+python tools/live_trader_alpaca.py --dry-run          # log orders, submit nothing
+python tools/live_trader_alpaca.py --paper --log-level INFO
+bash scripts/start_all.sh start                       # trader plus supporting services
+```
+
+**Analysis pipeline:**
+
+```bash
+python run_full_analysis.py     # macro regime + on-chain + alt data + fear/greed + IAE idea miner
+python run_iae_analysis.py      # IAE ideas only (from backtest data)
+```
+
+**IAE database and services** (Go and Node services live under `idea-engine/`; see [the IAE architecture doc](docs/iae_architecture.md)):
+
+```bash
+python idea-engine/db/migrate.py --db idea-engine/idea_engine.db   # create the IAE schema
+cd idea-engine/idea-dashboard && npm install && npm run dev        # dashboard
+```
+
+## Performance notes
+
+Backtests here are research output. Results swing widely by period, instrument set and parameter version, and the honest summary is mixed: over 2021-2026 on 19 crypto pairs the full-period CAGR was negative (about -11%), and in the AETERNUS experiment (see Reference below) the BH-follower strategy showed no Sharpe improvement over the synthetic control (H4 not supported). Run the backtest tools yourself and read the Monte Carlo distribution, not a single headline number.
+
+The backtest engine runs identical BH physics to live trading -- GARCH vol scaling, OU overlay, Mayer dampening -- no lookahead, no future data.
+
+-> **[Wave 4 backtest deep dive](docs/wave4_backtest.md)**
+-> **[Monte Carlo engine deep dive](docs/monte_carlo.md)**
+
+## Reference
+
+Long-form material, collapsed. Every subsystem also has a deep-dive doc under [`docs/`](docs/).
+
+<details>
+<summary><b>Background: what the lab is for</b></summary>
+
+The core innovation is the **Black Hole (BH) Physics Strategy** -- a signal model derived from special-relativistic mechanics applied to price data. Price bars are classified as *timelike* or *spacelike* using a Minkowski spacetime metric (`ds^2 = c^2*dt^2 - dx^2`). Mass accumulates on ordered (causal) bars, and a gravitational well forms when mass crosses the **BH_FORM=1.92** threshold -- the black hole formation event that gates entries.
+
+On top of this sits the **Idea Automation Engine (IAE)** -- an autonomous research system that runs genetic genome evolution (NSGA-II), causal discovery, regime classification, walk-forward validation, and academic paper mining continuously, feeding confirmed patterns back into live strategy parameters.
+
+The live trader is designed to run continuously against Alpaca paper trading, with the IAE re-tuning its parameters every 4-6 hours.
+
+-> **[Full BH Physics deep dive](docs/bh_physics.md)**
+-> **[Full IAE architecture deep dive](docs/iae_architecture.md)**
+
+</details>
+
+<details>
+<summary><b>Deep documentation index</b></summary>
 
 Pick a subsystem to deep dive into. Every doc covers architecture, key primitives, code examples, and integration points.
 
@@ -219,22 +332,10 @@ Production-grade quantitative research framework built on SRFM BH physics. Contr
 | [Strategy Builder](docs/guides/strategy_builder.md) | Adding signals, instruments, and custom strategies |
 | [Interpreting Results](docs/guides/interpreting_results.md) | Sharpe, DSR, MC percentiles, IAE pattern scores |
 
----
+</details>
 
-## What is This?
-
-The core innovation is the **Black Hole (BH) Physics Strategy** -- a signal model derived from special-relativistic mechanics applied to price data. Price bars are classified as *timelike* or *spacelike* using a Minkowski spacetime metric (`ds^2 = c^2*dt^2 - dx^2`). Mass accumulates on ordered (causal) bars, and a gravitational well forms when mass crosses the **BH_FORM=1.92** threshold -- the black hole formation event that gates entries.
-
-On top of this sits the **Idea Automation Engine (IAE)** -- an autonomous research system that runs genetic genome evolution (NSGA-II), causal discovery, regime classification, walk-forward validation, and academic paper mining continuously, feeding confirmed patterns back into live strategy parameters.
-
-The live trader is designed to run continuously against Alpaca paper trading, with the IAE re-tuning its parameters every 4-6 hours.
-
--> **[Full BH Physics deep dive](docs/bh_physics.md)**
--> **[Full IAE architecture deep dive](docs/iae_architecture.md)**
-
----
-
-## Architecture
+<details>
+<summary><b>Architecture diagram (full)</b></summary>
 
 ```
 +------------------------------------------------------------------------------+
@@ -290,97 +391,10 @@ The live trader is designed to run continuously against Alpaca paper trading, wi
 
 -> **[Execution stack deep dive](docs/execution_stack.md)**
 
----
+</details>
 
-## Quick Start
-
-### 1. Key-free example (about a minute)
-
-Needs only Python 3.12+ and the pinned core requirements. No API keys, no network after the clone.
-
-```bash
-git clone --filter=blob:none https://github.com/Mattbusel/srfm-lab
-cd srfm-lab
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements-core.txt
-python examples/bh_quickstart.py
-```
-
-[`examples/bh_quickstart.py`](examples/bh_quickstart.py) loads the hourly SPY, QQQ and DIA bars cached in `tools/data_cache/` (stand-ins for the ES, NQ and YM futures, February 2020 to April 2026), resamples them to daily closes, and runs the two core classes from [`lib/srfm_core.py`](lib/srfm_core.py): `MinkowskiClassifier` (timelike vs spacelike bars) and `BlackHoleDetector` (mass accumulation and well formation). It prints a table and writes a chart to `examples/output/bh_quickstart.png`:
-
-```
-       proxy  bars        from          to  timelike %  BH active %  onsets  all days |ret 5d| %  onset signed ret 5d %  onset hit rate %
-symbol
-ES       SPY  1542  2020-02-10  2026-04-02       43.45         2.85      23                 1.87                  -0.73             21.74
-NQ       QQQ  1541  2020-02-10  2026-04-02       38.94         2.79      16                 2.42                  -0.23             50.00
-YM       DIA  1542  2020-02-10  2026-04-02       39.23         1.23       8                 1.76                  -0.38             12.50
-```
-
-The last two columns are the 5-day return after each black-hole onset, signed by the well's direction. On this sample they are negative, which is the honest result: the bare signal, with these parameters, does not predict the next week's move on these ETFs. Try `--horizon 10`, `--symbols ES` or edit `PARAMS` in the script to explore.
-
-### 2. Run the tests
-
-```bash
-pip install -r requirements-dev.txt
-pytest tests -q
-```
-
-This is what CI runs (plus a ruff correctness check), on Python 3.12 and 3.13.
-
-### 3. The full lab (network, API keys and services)
-
-Everything below goes beyond the pinned core. Install the broader dependencies first:
-
-```bash
-pip install -r requirements.txt alpaca-py
-# Rust (genome engine, Monte Carlo, 27 crates)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-# Go 1.22+ (IAE microservices, market data)
-# Node 18+ (React dashboards)
-# Julia 1.9+ (statistical tooling)
-# R 4.2+ (HMM, WFA, regime models)
-# Zig 0.12+ (native layer: ITCH decoder, lock-free book)
-```
-
-**Crypto backtest + Monte Carlo.** Downloads crypto bars from Alpaca's public market-data API (no key needed for crypto bars, but it needs network access):
-
-```bash
-python tools/crypto_backtest_mc.py                    # defaults: 2023-01-01 to today, 1,000 MC paths
-
-python tools/crypto_backtest_mc.py \
-  --start-date 2022-01-01 --end-date 2025-01-01 \
-  --mc-paths 5000 --symbols BTC,ETH,XRP \
-  --bh-form 1.92 --corr 0.25 --garch-target-vol 0.90 \
-  --output-dir tools/backtest_output --verbose
-
-python tools/backtest_wave4.py                        # with EventCalendar + Granger lead + ML signal
-```
-
-**Paper trading** (needs Alpaca paper-trading keys in the environment):
-
-```bash
-python tools/live_trader_alpaca.py --dry-run          # log orders, submit nothing
-python tools/live_trader_alpaca.py --paper --log-level INFO
-bash scripts/start_all.sh start                       # trader plus supporting services
-```
-
-**Analysis pipeline:**
-
-```bash
-python run_full_analysis.py     # macro regime + on-chain + alt data + fear/greed + IAE idea miner
-python run_iae_analysis.py      # IAE ideas only (from backtest data)
-```
-
-**IAE database and services** (Go and Node services live under `idea-engine/`; see [the IAE architecture doc](docs/iae_architecture.md)):
-
-```bash
-python idea-engine/db/migrate.py --db idea-engine/idea_engine.db   # create the IAE schema
-cd idea-engine/idea-dashboard && npm install && npm run dev        # dashboard
-```
-
----
-
-## Tools and Primitives
+<details>
+<summary><b>Tools and primitives, by language</b></summary>
 
 All executable tools, engines, and core primitives flagged by language and role.
 
@@ -825,9 +839,10 @@ Key Go primitives:
 | `warehouse/warehouse_manager.py` | DuckDB analytics warehouse, migration runner, TCA queries | **DATA** |
 | `.github/workflows/` | CI/CD for Python/Rust/Go/TS/Julia | **CI/CD** |
 
----
+</details>
 
-## Stack
+<details>
+<summary><b>Stack and line counts</b></summary>
 
 | Language | LOC | Key Systems | Docs |
 |---|---|---|---|
@@ -843,9 +858,10 @@ Key Go primitives:
 | SQL | ~7K | SQLite (16 migrations, WAL), DuckDB analytics, BH UDFs, warehouse views, TCA queries | [Stack Overview](docs/stack_overview.md) |
 | **Total** | **~1,708,917** | **4,888 tracked files** | |
 
----
+</details>
 
-## File Structure
+<details>
+<summary><b>File structure</b></summary>
 
 ```
 srfm-lab/
@@ -1040,9 +1056,10 @@ srfm-lab/
 +-- .github/workflows/                   # CI/CD: Python/Rust/Go/TS/Julia
 ```
 
----
+</details>
 
-## Service Endpoints
+<details>
+<summary><b>Service endpoints</b></summary>
 
 | Service | Command | Port | Flag |
 |---|---|---|---|
@@ -1062,9 +1079,10 @@ srfm-lab/
 | Risk Aggregator | `python -m execution.risk.api` | `:8791` | **RISK** |
 | Live Monitor (CLI) | `python -m research.live_monitor.cli monitor run` | -- | **MONITOR** |
 
----
+</details>
 
-## Development Commands
+<details>
+<summary><b>Development commands</b></summary>
 
 ### Backtesting
 
@@ -1151,9 +1169,10 @@ cd idea-engine && go test ./...
 cd idea-engine/idea-dashboard && npm test
 ```
 
----
+</details>
 
-## BH Physics Reference
+<details>
+<summary><b>BH physics reference</b></summary>
 
 -> **[Full deep dive with worked example](docs/bh_physics.md)**
 
@@ -1172,9 +1191,10 @@ cd idea-engine/idea-dashboard && npm test
 | Hurst Exponent | `H > 0.58 trending, H < 0.42 mean-reverting` | R/S analysis over HURST_WINDOW=100 bars |
 | GARCH(1,1) | `h_t = omega + alpha*eps^2_{t-1} + beta*h_{t-1}` | Conditional variance, targets GARCH_TARGET_VOL |
 
----
+</details>
 
-## Key Parameters
+<details>
+<summary><b>Key parameters</b></summary>
 
 | Parameter | Default | IAE Tuned | Effect |
 |---|---|---|---|
@@ -1200,9 +1220,10 @@ cd idea-engine/idea-dashboard && npm test
 
 *IAE Tuned = parameter updated by IAE analysis of 63,993 backtest trades.*
 
----
+</details>
 
-## IAE Live Research Output
+<details>
+<summary><b>IAE research output</b></summary>
 
 The IAE ingested 63,993 backtest trades (Jan 2024 - Apr 2026) and produced 10 actionable ideas. All 9 high-confidence ideas are now live in `tools/live_trader_alpaca.py`.
 
@@ -1241,9 +1262,10 @@ Backtest comparison after applying all 6 ideas:
 -> **[IAE architecture deep dive](docs/iae_architecture.md)**
 -> **[Genome evolution deep dive](docs/genome_evolution.md)**
 
----
+</details>
 
-## AETERNUS Six-Module Research Lab
+<details>
+<summary><b>AETERNUS six-module research lab</b></summary>
 
 AETERNUS is the scientific validation layer of SRFM, a controlled experiment testing whether BH convergence windows contain learnable structure beyond random noise.
 
@@ -1291,20 +1313,10 @@ python run_aeternus_real.py         # real SRFM experiment
 -> **[Lumina deep dive](docs/aeternus_lumina.md)**
 -> **[Hyper-Agent deep dive](docs/aeternus_hyper_agent.md)**
 
----
+</details>
 
-## Performance Notes
-
-Backtests here are research output. Results swing widely by period, instrument set and parameter version, and the honest summary is mixed: over 2021-2026 on 19 crypto pairs the full-period CAGR was negative (about -11%), and in the AETERNUS experiment above the BH-follower strategy showed no Sharpe improvement over the synthetic control (H4 not supported). Run the backtest tools yourself and read the Monte Carlo distribution, not a single headline number.
-
-The backtest engine runs identical BH physics to live trading -- GARCH vol scaling, OU overlay, Mayer dampening -- no lookahead, no future data.
-
--> **[Wave 4 backtest deep dive](docs/wave4_backtest.md)**
--> **[Monte Carlo engine deep dive](docs/monte_carlo.md)**
-
----
-
-## Latency Reference
+<details>
+<summary><b>Latency reference</b></summary>
 
 Approximate single-operation figures from the native benchmarks in this repo (`native/zig/src/bench.zig`, `native/matrix/benchmark.cpp`, `cpp/signal-engine/benchmarks/`). They depend heavily on hardware; reproduce with `cd native/zig && zig build bench -Doptimize=ReleaseFast` and the CMake benchmark targets.
 
@@ -1325,7 +1337,7 @@ Approximate single-operation figures from the native benchmarks in this repo (`n
 
 -> **[Full native layer reference](docs/native_layer.md)**
 
----
+</details>
 
 ## License
 

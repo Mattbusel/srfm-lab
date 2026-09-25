@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-labelledby="t d">
+<title id="t">How srfm-lab fits together</title><desc id="d">Bars flow through the Minkowski classifier and black-hole detector into the signal stack, backtests and the paper trader; the idea engine feeds tuned parameters back.</desc>
+<rect width="1200" height="300" fill="#0E1116"/>
+<rect x="40.0" y="96" width="168.3" height="84" rx="8" fill="#141820" stroke="#343A45" stroke-width="1"/>
+<text x="54.0" y="124.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="16" fill="#ECE7DC" text-anchor="start" font-weight="600">Bars</text>
+<text x="54.0" y="146.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="12" fill="#B9B4A9" text-anchor="start" font-weight="400">tools/data_cache</text>
+<text x="54.0" y="163.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="11" fill="#8A867D" text-anchor="start" font-weight="400">Alpaca, Binance feeds</text>
+<path d="M211.3,138.0 l14,0 m-5,-4 l5,4 l-5,4" fill="none" stroke="#B9B4A9" stroke-width="1.4"/>
+<rect x="230.3" y="96" width="168.3" height="84" rx="8" fill="#141820" stroke="#35A9C6" stroke-width="1.8"/>
+<text x="244.3" y="124.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="16" fill="#ECE7DC" text-anchor="start" font-weight="600">Minkowski</text>
+<text x="244.3" y="146.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="12" fill="#B9B4A9" text-anchor="start" font-weight="400">timelike or spacelike</text>
+<text x="244.3" y="163.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="11" fill="#8A867D" text-anchor="start" font-weight="400">lib/srfm_core.py</text>
+<path d="M401.7,138.0 l14,0 m-5,-4 l5,4 l-5,4" fill="none" stroke="#B9B4A9" stroke-width="1.4"/>
+<rect x="420.7" y="96" width="168.3" height="84" rx="8" fill="#141820" stroke="#35A9C6" stroke-width="1.8"/>
+<text x="434.7" y="124.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="16" fill="#ECE7DC" text-anchor="start" font-weight="600">Black hole</text>
+<text x="434.7" y="146.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="12" fill="#B9B4A9" text-anchor="start" font-weight="400">mass, wells, direction</text>
+<text x="434.7" y="163.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="11" fill="#8A867D" text-anchor="start" font-weight="400">lib/srfm_core.py</text>
+<path d="M592.0,138.0 l14,0 m-5,-4 l5,4 l-5,4" fill="none" stroke="#B9B4A9" stroke-width="1.4"/>
+<rect x="611.0" y="96" width="168.3" height="84" rx="8" fill="#141820" stroke="#343A45" stroke-width="1"/>
+<text x="625.0" y="124.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="16" fill="#ECE7DC" text-anchor="start" font-weight="600">Signal stack</text>
+<text x="625.0" y="146.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="12" fill="#B9B4A9" text-anchor="start" font-weight="400">GARCH, OU, geodesic,</text>
+<text x="625.0" y="163.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="11" fill="#8A867D" text-anchor="start" font-weight="400">Hawking, regime</text>
+<path d="M782.3,138.0 l14,0 m-5,-4 l5,4 l-5,4" fill="none" stroke="#B9B4A9" stroke-width="1.4"/>
+<rect x="801.3" y="96" width="168.3" height="84" rx="8" fill="#141820" stroke="#343A45" stroke-width="1"/>
+<text x="815.3" y="124.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="16" fill="#ECE7DC" text-anchor="start" font-weight="600">Backtest</text>
+<text x="815.3" y="146.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="12" fill="#B9B4A9" text-anchor="start" font-weight="400">costs, Monte Carlo</text>
+<text x="815.3" y="163.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="11" fill="#8A867D" text-anchor="start" font-weight="400">tools/, backtest/</text>
+<path d="M972.7,138.0 l14,0 m-5,-4 l5,4 l-5,4" fill="none" stroke="#B9B4A9" stroke-width="1.4"/>
+<rect x="991.7" y="96" width="168.3" height="84" rx="8" fill="#141820" stroke="#343A45" stroke-width="1"/>
+<text x="1005.7" y="124.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="16" fill="#ECE7DC" text-anchor="start" font-weight="600">Paper trader</text>
+<text x="1005.7" y="146.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="12" fill="#B9B4A9" text-anchor="start" font-weight="400">Alpaca paper account</text>
+<text x="1005.7" y="163.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="11" fill="#8A867D" text-anchor="start" font-weight="400">live_trader_alpaca.py</text>
+<text x="219.3" y="74.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#35A9C6" text-anchor="start" font-weight="400">the SRFM core</text>
+<line x1="230.3" x2="589.0" y1="84" y2="84" stroke="#35A9C6" stroke-width="1.4"/>
+<path d="M885.5,180 L885.5,242 L695.2,242 L695.2,186" fill="none" stroke="#E0B43A" stroke-width="1.6"/>
+<path d="M690.2,192 l5,-6 l5,6" fill="none" stroke="#E0B43A" stroke-width="1.6"/>
+<rect x="640.3" y="226" width="300" height="32" rx="16" fill="#0E1116" stroke="#E0B43A"/>
+<text x="790.3" y="247.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="13" fill="#ECE7DC" text-anchor="middle" font-weight="400">Idea engine: tunes parameters</text>
+<text x="40.0" y="280.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="11.5" fill="#8A867D" text-anchor="start" font-weight="400">Most stages need network or keys; the core (outlined) runs offline in examples/bh_quickstart.py.</text>
+</svg>

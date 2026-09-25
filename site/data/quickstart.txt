@@ -1,0 +1,8 @@
+       proxy  bars        from          to  timelike %  BH active %  onsets  all days |ret 5d| %  onset signed ret 5d %  onset hit rate %
+symbol                                                                                                                                   
+ES       SPY  1542  2020-02-10  2026-04-02       43.45         2.85      23                 1.87                  -0.73             21.74
+NQ       QQQ  1541  2020-02-10  2026-04-02       38.94         2.79      16                 2.42                  -0.23             50.00
+YM       DIA  1542  2020-02-10  2026-04-02       39.23         1.23       8                 1.76                  -0.38             12.50
+
+Descriptive statistics on one historical sample; not a backtest, no costs, not financial advice.
+chart saved to examples/output/bh_quickstart.png
