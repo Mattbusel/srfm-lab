@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" role="img" aria-labelledby="t d">
+<title id="t">The SRFM family of repositories</title><desc id="d">srfm-paper-impl at the origin; the C++ core, the Python SDK and this lab lie in its future light cone.</desc>
+<rect width="1200" height="600" fill="#0E1116"/>
+<path d="M600,430 L-222.5,-40 L1422.5,-40 Z" fill="#35A9C6" fill-opacity="0.08399999999999999"/>
+<line x1="600" y1="430" x2="-222.5" y2="-40" stroke="#35A9C6" stroke-opacity="0.55" stroke-width="1.2" stroke-dasharray="6 5"/>
+<line x1="600" y1="430" x2="1422.5" y2="-40" stroke="#35A9C6" stroke-opacity="0.55" stroke-width="1.2" stroke-dasharray="6 5"/>
+<text x="1010.0" y="240.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#8A867D" text-anchor="start" font-weight="400" font-style="italic">future light cone</text>
+<text x="1010.0" y="256.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#8A867D" text-anchor="start" font-weight="400" font-style="italic">of the paper</text>
+<path d="M600,430 C600,360 415,380 415,318" fill="none" stroke="#35A9C6" stroke-width="2.2"/>
+<path d="M600,430 C600,360 785,380 785,318" fill="none" stroke="#35A9C6" stroke-width="2.2"/>
+<line x1="600" y1="430" x2="600" y2="126" stroke="#35A9C6" stroke-width="2.2"/>
+<path d="M415,206 C415,160 600,190 572,126" fill="none" stroke="#35A9C6" stroke-width="1.4" stroke-dasharray="4 4"/>
+<path d="M785,206 C785,160 600,190 628,126" fill="none" stroke="#35A9C6" stroke-width="1.4" stroke-dasharray="4 4"/>
+<circle cx="600" cy="430" r="5" fill="#ECE7DC" stroke="#0E1116" stroke-width="2"/>
+<rect x="245.0" y="206.0" width="340" height="112" rx="8" fill="#141820" stroke="#343A45" stroke-width="1"/>
+<text x="263.0" y="230.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="10.5" fill="#8A867D" text-anchor="start" font-weight="400" letter-spacing="1.2">C++20 CORE</text>
+<text x="263.0" y="254.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="18" fill="#ECE7DC" text-anchor="start" font-weight="600">Special-Relativity-in-</text>
+<text x="263.0" y="276.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="18" fill="#ECE7DC" text-anchor="start" font-weight="600">Financial-Modeling</text>
+<text x="263.0" y="298.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="13" fill="#B9B4A9" text-anchor="start" font-weight="400">Lorentz factors, interval labels,</text>
+<text x="263.0" y="315.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="13" fill="#B9B4A9" text-anchor="start" font-weight="400">Christoffel symbols, geodesic deviation</text>
+<rect x="615.0" y="214.0" width="340" height="96" rx="8" fill="#141820" stroke="#343A45" stroke-width="1"/>
+<text x="633.0" y="238.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="10.5" fill="#8A867D" text-anchor="start" font-weight="400" letter-spacing="1.2">PYTHON SDK</text>
+<text x="633.0" y="262.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="18" fill="#ECE7DC" text-anchor="start" font-weight="600">srfm-python</text>
+<text x="633.0" y="284.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="13" fill="#B9B4A9" text-anchor="start" font-weight="400">pandas df.srfm accessor and a Polars</text>
+<text x="633.0" y="301.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="13" fill="#B9B4A9" text-anchor="start" font-weight="400">wrapper for the Lorentz-factor pipeline</text>
+<rect x="430.0" y="30.0" width="340" height="96" rx="8" fill="#141820" stroke="#E0B43A" stroke-width="2"/>
+<text x="448.0" y="54.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="10.5" fill="#E0B43A" text-anchor="start" font-weight="400" letter-spacing="1.2">RESEARCH LAB  ·  YOU ARE HERE</text>
+<text x="448.0" y="78.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="18" fill="#ECE7DC" text-anchor="start" font-weight="600">srfm-lab</text>
+<text x="448.0" y="100.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="13" fill="#B9B4A9" text-anchor="start" font-weight="400">BH signal, backtests with Monte Carlo,</text>
+<text x="448.0" y="117.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="13" fill="#B9B4A9" text-anchor="start" font-weight="400">idea engine, paper-trading research</text>
+<rect x="430.0" y="430.0" width="340" height="96" rx="8" fill="#141820" stroke="#343A45" stroke-width="1"/>
+<text x="448.0" y="454.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="10.5" fill="#8A867D" text-anchor="start" font-weight="400" letter-spacing="1.2">THE PAPER</text>
+<text x="448.0" y="478.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="18" fill="#ECE7DC" text-anchor="start" font-weight="600">srfm-paper-impl</text>
+<text x="448.0" y="500.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="13" fill="#B9B4A9" text-anchor="start" font-weight="400">Preprint PDF, scripts that regenerate its</text>
+<text x="448.0" y="517.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="13" fill="#B9B4A9" text-anchor="start" font-weight="400">figures, a Rust reference of the formulas</text>
+<text x="40.0" y="582.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#8A867D" text-anchor="start" font-weight="400">Related: fin-stream, a Rust crate with a streaming lorentz module built on the same transform.</text>
+</svg>
