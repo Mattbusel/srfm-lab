@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 
 # ── Linear Kalman Filter ──────────────────────────────────────────────────────

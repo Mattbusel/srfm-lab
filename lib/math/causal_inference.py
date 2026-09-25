@@ -255,8 +255,8 @@ def two_stage_least_squares(
     # First-stage F-statistic
     D_hat_res = D - D.mean()
     D_resid = D - D_hat
-    rss_r = float((D - D.mean())**2 .sum())
-    rss_u = float(D_resid**2.sum())
+    rss_r = float(((D - D.mean())**2).sum())
+    rss_u = float((D_resid**2).sum())
     n_inst = Z_inst.shape[1] if Z_inst.ndim > 1 else 1
     df1 = n_inst
     df2 = n - Z_aug.shape[1]
@@ -490,7 +490,7 @@ def synthetic_control(
         "weights": dict(zip(donors, w_opt.tolist())),
         "synthetic": Y_synth,
         "gaps": gaps,
-        "pre_rmse": float(np.sqrt(pre_gaps**2.mean())),
+        "pre_rmse": float(np.sqrt((pre_gaps**2).mean())),
         "avg_treatment_effect": float(post_gaps.mean()),
         "cumulative_effect": float(post_gaps.sum()),
         "peak_effect": float(post_gaps.max()) if len(post_gaps) > 0 else 0.0,

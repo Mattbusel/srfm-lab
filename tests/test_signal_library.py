@@ -1147,7 +1147,7 @@ class TestIntegrationICPipeline:
 
         combiner = SignalCombiner()
         corr = combiner.signal_correlation_matrix(df)
-        np.fill_diagonal(corr.values, float("nan"))
+        corr = corr.mask(np.eye(len(corr), dtype=bool))
         mean_off_diag = float(corr.abs().stack().mean())
         # For independent signals, mean abs off-diagonal corr should be low
         assert mean_off_diag < 0.3, f"Expected low corr for independent signals, got {mean_off_diag:.3f}"

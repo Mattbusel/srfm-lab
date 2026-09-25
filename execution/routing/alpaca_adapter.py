@@ -27,7 +27,10 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from alpaca.trading.enums import OrderSide
 
 
 def _validate_side(side: str) -> "OrderSide":

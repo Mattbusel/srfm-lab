@@ -1,10 +1,13 @@
 # SRFM Trading Lab
 
+[![CI](https://github.com/Mattbusel/srfm-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/Mattbusel/srfm-lab/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A personal quantitative trading research lab built on **Special Relativity in Financial Modeling (SRFM)**: from raw bar and tick data to backtests, Monte Carlo, Alpaca paper trading and an automated idea-discovery loop, written across Python, Rust, Go, Julia, R, C/C++, Zig, Elixir and TypeScript.
 
 > Mad scientist workshop. Everything automated, everything measurable, rapid iteration at scale.
 
-This is a research monorepo, not a packaged product. Expect rough edges: many subsystems are experiments, some directories hold generated output, and several parts need API keys (Alpaca, Polygon, Binance) and local services to run. Start with the backtest commands in [Quick Start](#quick-start).
+This is a research monorepo, not a packaged product. Expect rough edges: many subsystems are experiments, some directories hold generated output, and several parts need API keys (Alpaca, Polygon, Binance) and local services to run. Start with the key-free example in [Quick Start](#quick-start): it runs the core SRFM physics on data bundled in the repo.
 
 > **Not financial advice.** This is research code. Backtest and paper-trading results are experiments on historical or simulated data, they are not evidence that any strategy is profitable, and nothing here should be used to trade real money without your own independent validation.
 
@@ -36,7 +39,7 @@ The Rust crate [fin-stream](https://github.com/Mattbusel/fin-stream) also ships 
 |---|---|
 | [What is This?](#what-is-this) | Core innovation and philosophy |
 | [Architecture](#architecture) | System diagram and data flow |
-| [Quick Start](#quick-start) | Get running in 5 minutes |
+| [Quick Start](#quick-start) | Key-free example on bundled data, then the full lab |
 | [Deep Documentation](#deep-documentation) | Every subsystem has a dedicated doc |
 | [Tools and Primitives](#tools-and-primitives) | Every executable tool flagged |
 | [Stack](#stack) | All 9 languages, LOC counts, and roles |
@@ -291,10 +294,45 @@ The live trader is designed to run continuously against Alpaca paper trading, wi
 
 ## Quick Start
 
-### Prerequisites
+### 1. Key-free example (about a minute)
+
+Needs only Python 3.11+ and the pinned core requirements. No API keys, no network after the clone.
 
 ```bash
-pip install alpaca-py pandas numpy scipy statsmodels matplotlib
+git clone --filter=blob:none https://github.com/Mattbusel/srfm-lab
+cd srfm-lab
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements-core.txt
+python examples/bh_quickstart.py
+```
+
+[`examples/bh_quickstart.py`](examples/bh_quickstart.py) loads the hourly SPY, QQQ and DIA bars cached in `tools/data_cache/` (stand-ins for the ES, NQ and YM futures, February 2020 to April 2026), resamples them to daily closes, and runs the two core classes from [`lib/srfm_core.py`](lib/srfm_core.py): `MinkowskiClassifier` (timelike vs spacelike bars) and `BlackHoleDetector` (mass accumulation and well formation). It prints a table and writes a chart to `examples/output/bh_quickstart.png`:
+
+```
+       proxy  bars        from          to  timelike %  BH active %  onsets  all days |ret 5d| %  onset signed ret 5d %  onset hit rate %
+symbol
+ES       SPY  1542  2020-02-10  2026-04-02       43.45         2.85      23                 1.87                  -0.73             21.74
+NQ       QQQ  1541  2020-02-10  2026-04-02       38.94         2.79      16                 2.42                  -0.23             50.00
+YM       DIA  1542  2020-02-10  2026-04-02       39.23         1.23       8                 1.76                  -0.38             12.50
+```
+
+The last two columns are the 5-day return after each black-hole onset, signed by the well's direction. On this sample they are negative, which is the honest result: the bare signal, with these parameters, does not predict the next week's move on these ETFs. Try `--horizon 10`, `--symbols ES` or edit `PARAMS` in the script to explore.
+
+### 2. Run the tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests -q
+```
+
+This is what CI runs (plus a ruff correctness check), on Python 3.11 and 3.12.
+
+### 3. The full lab (network, API keys and services)
+
+Everything below goes beyond the pinned core. Install the broader dependencies first:
+
+```bash
+pip install -r requirements.txt alpaca-py
 # Rust (genome engine, Monte Carlo, 27 crates)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # Go 1.22+ (IAE microservices, market data)
@@ -304,55 +342,40 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # Zig 0.12+ (native layer: ITCH decoder, lock-free book)
 ```
 
-### Backtest
+**Crypto backtest + Monte Carlo.** Downloads crypto bars from Alpaca's public market-data API (no key needed for crypto bars, but it needs network access):
 
 ```bash
-# Full crypto BH backtest + 10,000-path Monte Carlo
-python tools/crypto_backtest_mc.py
+python tools/crypto_backtest_mc.py                    # defaults: 2023-01-01 to today, 1,000 MC paths
 
-# With Wave 4 enhancements (EventCalendar + Granger lead + ML signal)
-python tools/backtest_wave4.py
-
-# Custom parameters
 python tools/crypto_backtest_mc.py \
   --start-date 2022-01-01 --end-date 2025-01-01 \
-  --mc-paths 5000 --symbols BTC,ETH,SOL \
+  --mc-paths 5000 --symbols BTC,ETH,XRP \
   --bh-form 1.92 --corr 0.25 --garch-target-vol 0.90 \
   --output-dir tools/backtest_output --verbose
+
+python tools/backtest_wave4.py                        # with EventCalendar + Granger lead + ML signal
 ```
 
-### Live Paper Trading
+**Paper trading** (needs Alpaca paper-trading keys in the environment):
 
 ```bash
-# All services at once
-bash scripts/start_all.sh start
-
-# Or individual trader
+python tools/live_trader_alpaca.py --dry-run          # log orders, submit nothing
 python tools/live_trader_alpaca.py --paper --log-level INFO
-
-# Dry run (log orders but don't submit)
-python tools/live_trader_alpaca.py --dry-run
+bash scripts/start_all.sh start                       # trader plus supporting services
 ```
 
-### Full Analysis Pipeline
+**Analysis pipeline:**
 
 ```bash
-# Macro regime + on-chain + alt data + fear/greed + IAE idea miner
-python run_full_analysis.py
-
-# IAE ideas only (from backtest data)
-python run_iae_analysis.py
+python run_full_analysis.py     # macro regime + on-chain + alt data + fear/greed + IAE idea miner
+python run_iae_analysis.py      # IAE ideas only (from backtest data)
 ```
 
-### IAE Stack
+**IAE database and services** (Go and Node services live under `idea-engine/`; see [the IAE architecture doc](docs/iae_architecture.md)):
 
 ```bash
-python -m idea_engine.db.migrate              # Initialize schema
-python -m idea_engine.ingestion.pipeline      # Run all miners
-cd idea-engine && go run cmd/api/main.go      # API :8767
-go run cmd/bus/main.go                        # Event bus :8768
-go run cmd/scheduler/main.go                  # Scheduler :8769
-cd idea-engine/idea-dashboard && npm run dev  # Dashboard :5175
+python idea-engine/db/migrate.py --db idea-engine/idea_engine.db   # create the IAE schema
+cd idea-engine/idea-dashboard && npm install && npm run dev        # dashboard
 ```
 
 ---
@@ -444,7 +467,7 @@ IAE ingestion -> GenomeEngine (Rust NSGA-II)
 | `ATRTracker` | `tools/live_trader_alpaca.py` | ATR position sizing | **PRIMITIVE** |
 | `BullScale` | `tools/live_trader_alpaca.py` | BTC lead signal scaler | **PRIMITIVE** |
 | `RLExitPolicy` | `lib/rl_exit_policy.py` | Q-table exit policy (3125 states) | **PRIMITIVE** |
-| `RegimeEnsemble` | `lib/regime.py` | 6-detector weighted majority vote | **PRIMITIVE** |
+| `RegimeEnsemble` | `execution/regime_ensemble.py` | 6-detector weighted majority vote | **PRIMITIVE** |
 | `HurstExponent` | `lib/srfm_core.py` | R/S analysis trending vs mean-reverting | **PRIMITIVE** |
 | `SignalCombiner` | `lib/signal_combiner.py` | IC-weighted, Rank, Ensemble, conflict detection | **PRIMITIVE** |
 | `PortfolioConstructor` | `lib/portfolio_constructor.py` | RiskBudget, TurnoverConstraint, Sector limits | **PRIMITIVE** |
@@ -1119,6 +1142,8 @@ Rscript idea-engine/stats-service/r/volatility_surface.R
 
 ### Build and Test
 
+CI covers the Python suite only. The other commands are how each language's tests are run locally; they are not checked in CI.
+
 ```bash
 pytest tests/ -v
 cargo test --workspace
@@ -1299,3 +1324,9 @@ Approximate single-operation figures from the native benchmarks in this repo (`n
 | Rust Monte Carlo | 10K GBM paths (252 steps) | ~8ms |
 
 -> **[Full native layer reference](docs/native_layer.md)**
+
+---
+
+## License
+
+MIT, see [LICENSE](LICENSE). Research code, provided as is and not financial advice.

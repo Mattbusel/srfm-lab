@@ -10,7 +10,10 @@ from __future__ import annotations
 import math
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import TYPE_CHECKING, List, Tuple
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 import numpy as np
 import pytest

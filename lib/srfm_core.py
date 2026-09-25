@@ -1,7 +1,7 @@
 """
 srfm_core.py — SRFM physics extracted from LARSA.
 
-All formulas are taken directly from the production 274% strategy.
+All formulas are taken directly from the LARSA strategy code.
 No LEAN dependency — pure Python + numpy.
 
 Class map (source location in LARSA):
@@ -16,7 +16,10 @@ import math
 import numpy as np
 from collections import deque
 from enum import IntEnum
-from typing import Optional, List, Tuple
+from typing import TYPE_CHECKING, Optional, List, Tuple
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class _ATR:

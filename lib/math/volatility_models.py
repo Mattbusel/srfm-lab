@@ -536,7 +536,7 @@ def vol_term_structure(
     if query_maturities is None:
         query_maturities = maturities
 
-    cs = CubicSpline(maturities, total_var, extrapolate=True)
+    cs = interpolate.CubicSpline(maturities, total_var, extrapolate=True)
     tv_interp = np.maximum(cs(query_maturities), 1e-10)
     q_mats = np.maximum(query_maturities, 1e-10)
     return np.sqrt(tv_interp / q_mats)
@@ -565,11 +565,11 @@ def interpolate_vol_surface(
     # Interpolate vol at query_strike for each maturity slice
     slice_vols = np.empty(len(mats))
     for j, _ in enumerate(mats):
-        cs = CubicSpline(stks, ivs[j], extrapolate=True)
+        cs = interpolate.CubicSpline(stks, ivs[j], extrapolate=True)
         slice_vols[j] = float(cs(K))
 
     # Interpolate across maturities
-    cs_mat = CubicSpline(mats, slice_vols, extrapolate=True)
+    cs_mat = interpolate.CubicSpline(mats, slice_vols, extrapolate=True)
     return float(np.maximum(cs_mat(T), 1e-6))
 
 

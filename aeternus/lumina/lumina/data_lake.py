@@ -909,7 +909,7 @@ class MultiAssetTickLoader:
         for symbol, df in aligned.items():
             df = df.reindex(common_idx)
             if fill_method == "ffill":
-                df = df.fillna(method="ffill")
+                df = df.ffill()
             df["symbol"] = symbol
             result_dfs.append(df)
 

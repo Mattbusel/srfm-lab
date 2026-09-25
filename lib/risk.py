@@ -9,7 +9,10 @@ Both return scalar multipliers / booleans so they can be tested in isolation.
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from srfm_core import MarketRegime
 
 
 # ─────────────────────────────────────────────────────────────────────────────

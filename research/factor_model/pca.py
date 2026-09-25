@@ -206,7 +206,7 @@ class StatisticalFactorModel:
             X = clean.values.copy()
 
         if self.use_correlation:
-            sd = clean.std().values
+            sd = clean.std().to_numpy(copy=True)
             sd[sd == 0] = 1.0
             X_scaled = X / sd
         else:
@@ -291,7 +291,7 @@ class StatisticalFactorModel:
         clean = returns.dropna(how="all", axis=1).dropna(how="any", axis=0)
         X = clean.values - clean.mean().values
         if self.use_correlation:
-            sd = clean.std().values
+            sd = clean.std().to_numpy(copy=True)
             sd[sd == 0] = 1.0
             X = X / sd
         T, N = X.shape
