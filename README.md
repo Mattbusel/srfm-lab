@@ -1,8 +1,32 @@
 # SRFM Trading Lab
 
-A full-stack quantitative trading research platform built on **Special Relativistic Financial Mechanics (SRFM)** -- from raw tick data to live paper trading and autonomous idea discovery, across 9 languages, **4,888 files**, and **1,708,917 lines of code**.
+A personal quantitative trading research lab built on **Special Relativity in Financial Modeling (SRFM)**: from raw bar and tick data to backtests, Monte Carlo, Alpaca paper trading and an automated idea-discovery loop, written across Python, Rust, Go, Julia, R, C/C++, Zig, Elixir and TypeScript.
 
 > Mad scientist workshop. Everything automated, everything measurable, rapid iteration at scale.
+
+This is a research monorepo, not a packaged product. Expect rough edges: many subsystems are experiments, some directories hold generated output, and several parts need API keys (Alpaca, Polygon, Binance) and local services to run. Start with the backtest commands in [Quick Start](#quick-start).
+
+> **Not financial advice.** This is research code. Backtest and paper-trading results are experiments on historical or simulated data, they are not evidence that any strategy is profitable, and nothing here should be used to trade real money without your own independent validation.
+
+**Cloning:** the repository is large (about 260 MB) because it includes build outputs such as `fin-targets/`. A partial clone is much faster:
+
+```bash
+git clone --filter=blob:none --depth 1 https://github.com/Mattbusel/srfm-lab
+```
+
+## The SRFM project family
+
+SRFM (Special Relativity in Financial Modeling) is split across four repositories:
+
+| Repository | What it is |
+|---|---|
+| [Special-Relativity-in-Financial-Modeling](https://github.com/Mattbusel/Special-Relativity-in-Financial-Modeling) | C++20 core implementation: price velocity (beta), Lorentz factor (gamma), spacetime interval classification, Christoffel symbols and geodesic deviation on OHLCV bars, plus Python validation scripts |
+| [srfm-paper-impl](https://github.com/Mattbusel/srfm-paper-impl) | The paper (PDF), scripts and a notebook that regenerate its figures, and a small dependency-free Rust reference implementation of the core formulas |
+| [srfm-python](https://github.com/Mattbusel/srfm-python) | Pure-Python SDK: a pandas `df.srfm` accessor and a Polars wrapper for the Lorentz-factor pipeline |
+| **srfm-lab** (this repo) | Large multi-language research lab that builds trading research on the idea: the black-hole (BH) physics signal, an idea automation engine, backtesting and paper trading |
+
+The Rust crate [fin-stream](https://github.com/Mattbusel/fin-stream) also ships a streaming `lorentz` module built on the same transform.
+
 
 ---
 
@@ -154,21 +178,21 @@ Pick a subsystem to deep dive into. Every doc covers architecture, key primitive
 | [Statistical Tooling](docs/statistical_tooling.md) | All Julia and R modules -- copulas, SVI, Kalman, HJB PDE, SABR, HMM, WFA |
 | [Monte Carlo Engine](docs/monte_carlo.md) | GBM, Merton jump-diffusion, Heston, Longstaff-Schwartz American pricing, variance reduction |
 
-### AETERNUS — Six-Module Research Lab
+### AETERNUS: Six-Module Research Lab
 
 Production-grade quantitative research framework built on SRFM BH physics. Control/experiment design: synthetic Heston paths vs real ES/NQ/YM SRFM data.
 
 | Doc | What it covers |
 |---|---|
 | [AETERNUS Overview](docs/aeternus_overview.md) | Full experiment design, LARSA v16 physics, results summary across all 4 hypotheses |
-| [TensorNet](docs/aeternus_tensornet.md) | MPS/TT-SVD correlation compression — 51x lower error on real vs synthetic, 67.2% BH direction alignment |
-| [Omni-Graph](docs/aeternus_omni_graph.md) | Granger causality network — density 0.624 convergence vs 0.806 calm, p<0.0001 |
-| [Lumina](docs/aeternus_lumina.md) | LSTM directional forecasting — 52.0% accuracy during convergence vs 50.4% calm |
-| [Hyper-Agent](docs/aeternus_hyper_agent.md) | 5-agent MARL with BH physics observations — ELO tournament, convergence episode analysis |
+| [TensorNet](docs/aeternus_tensornet.md) | MPS/TT-SVD correlation compression, 51x lower error on real vs synthetic, 67.2% BH direction alignment |
+| [Omni-Graph](docs/aeternus_omni_graph.md) | Granger causality network, density 0.624 convergence vs 0.806 calm, p<0.0001 |
+| [Lumina](docs/aeternus_lumina.md) | LSTM directional forecasting, 52.0% accuracy during convergence vs 50.4% calm |
+| [Hyper-Agent](docs/aeternus_hyper_agent.md) | 5-agent MARL with BH physics observations, ELO tournament, convergence episode analysis |
 
 **Experiment scripts:**
-- `run_aeternus_experiment.py` — Synthetic control (Heston)
-- `run_aeternus_real.py` — Real SRFM data experiment
+- `run_aeternus_experiment.py`, Synthetic control (Heston)
+- `run_aeternus_real.py`, Real SRFM data experiment
 
 **Results:** `experiments/results/` (synthetic) and `experiments/results/real_run/` (real)
 
@@ -200,7 +224,7 @@ The core innovation is the **Black Hole (BH) Physics Strategy** -- a signal mode
 
 On top of this sits the **Idea Automation Engine (IAE)** -- an autonomous research system that runs genetic genome evolution (NSGA-II), causal discovery, regime classification, walk-forward validation, and academic paper mining continuously, feeding confirmed patterns back into live strategy parameters.
 
-The system runs continuously in production on Alpaca paper trading, evolving its own parameters every 4-6 hours.
+The live trader is designed to run continuously against Alpaca paper trading, with the IAE re-tuning its parameters every 4-6 hours.
 
 -> **[Full BH Physics deep dive](docs/bh_physics.md)**
 -> **[Full IAE architecture deep dive](docs/iae_architecture.md)**
@@ -1187,7 +1211,6 @@ Backtest comparison after applying all 6 ideas:
 |---|---|---|
 | Trades | 63,993 | 59,326 (-7%) |
 | Win rate | 41.4% | 43.0% (+1.6pp) |
-| MC median 12m | ~$678K | $1.72M |
 | MC blowup rate | -- | 0% |
 
 -> **[IAE architecture deep dive](docs/iae_architecture.md)**
@@ -1197,7 +1220,7 @@ Backtest comparison after applying all 6 ideas:
 
 ## AETERNUS Six-Module Research Lab
 
-AETERNUS is the scientific validation layer of SRFM — a controlled experiment testing whether BH convergence windows contain learnable structure beyond random noise.
+AETERNUS is the scientific validation layer of SRFM, a controlled experiment testing whether BH convergence windows contain learnable structure beyond random noise.
 
 ### Design
 
@@ -1211,24 +1234,24 @@ AETERNUS is the scientific validation layer of SRFM — a controlled experiment 
 | ES (E-mini S&P) | 27.5% of bars | 179 |
 | NQ (E-mini Nasdaq) | 17.6% of bars | 132 |
 | YM (E-mini Dow) | 13.4% of bars | 118 |
-| Convergence (>=2 simultaneous) | 20.0% | — |
+| Convergence (>=2 simultaneous) | 20.0% |, |
 
 ### Hypothesis Results
 
 | Hypothesis | Control | Experiment | Result |
 |---|---|---|---|
-| H1 — Lumina accuracy >50% | 50.0% | 50.7% overall / **52.0% at convergence** | Supported |
-| H2 — Omni-Graph edges at convergence | 0 edges | density 0.624 vs 0.806, **p<0.0001** | **Confirmed** |
-| H3 — TensorNet compression (real < synthetic) | error 0.7829 | **error 0.0152** (51x lower) | **Confirmed** |
-| H4 — BH-Follower Sharpe higher | 0.234 | -0.009 | Not supported |
+| H1, Lumina accuracy >50% | 50.0% | 50.7% overall / **52.0% at convergence** | Supported |
+| H2, Omni-Graph edges at convergence | 0 edges | density 0.624 vs 0.806, **p<0.0001** | **Confirmed** |
+| H3, TensorNet compression (real < synthetic) | error 0.7829 | **error 0.0152** (51x lower) | **Confirmed** |
+| H4, BH-Follower Sharpe higher | 0.234 | -0.009 | Not supported |
 
 ### Key Findings
 
 **H3 (TensorNet)**: Real correlated instruments compress 51x more efficiently than independent Heston paths. The rank-2 MPS error drops from 0.7829 to 0.0152, confirming that ES/NQ/YM share genuine low-dimensional correlation structure.
 
-**H2 (Omni-Graph)**: The Granger causality network is significantly less dense during BH convergence (0.624) than during calm periods (0.806), p<0.0001. Interpretation: convergence events mark periods where instruments decouple from the common macro driver — internal structure forms while cross-asset Granger causality drops.
+**H2 (Omni-Graph)**: The Granger causality network is significantly less dense during BH convergence (0.624) than during calm periods (0.806), p<0.0001. Interpretation: convergence events mark periods where instruments decouple from the common macro driver, internal structure forms while cross-asset Granger causality drops.
 
-**H1 (Lumina)**: 52.0% accuracy during convergence vs 50.4% calm. SRFM convergence windows are periods of slightly reduced entropy in next-bar direction — the physics engine identifies moments where returns are marginally more predictable.
+**H1 (Lumina)**: 52.0% accuracy during convergence vs 50.4% calm. SRFM convergence windows are periods of slightly reduced entropy in next-bar direction, the physics engine identifies moments where returns are marginally more predictable.
 
 **BH Direction Alignment (TensorNet)**: The BH engine and linear algebra (dominant eigenvector of rolling correlation) agree on market direction 67.2% of the time vs 50% random baseline.
 
@@ -1247,12 +1270,7 @@ python run_aeternus_real.py         # real SRFM experiment
 
 ## Performance Notes
 
-Key findings (2021-2026, 19 crypto pairs):
-- **LARSA v1 (ES futures):** +274% over backtest window
-- **2024 standalone:** +26%, driven by BTC and SOL regime
-- **Full period CAGR:** -11% (crypto bear market dominated)
-- **Monte Carlo (10,000 paths):** Median outcome captures distribution of sequential trade ordering; blowup rate: 0% after IAE tuning
-- **Wave 4 additions:** EventCalendarFilter + Granger lead + ML signal show further improvement in OOS Sharpe
+Backtests here are research output. Results swing widely by period, instrument set and parameter version, and the honest summary is mixed: over 2021-2026 on 19 crypto pairs the full-period CAGR was negative (about -11%), and in the AETERNUS experiment above the BH-follower strategy showed no Sharpe improvement over the synthetic control (H4 not supported). Run the backtest tools yourself and read the Monte Carlo distribution, not a single headline number.
 
 The backtest engine runs identical BH physics to live trading -- GARCH vol scaling, OU overlay, Mayer dampening -- no lookahead, no future data.
 
@@ -1262,6 +1280,8 @@ The backtest engine runs identical BH physics to live trading -- GARCH vol scali
 ---
 
 ## Latency Reference
+
+Approximate single-operation figures from the native benchmarks in this repo (`native/zig/src/bench.zig`, `native/matrix/benchmark.cpp`, `cpp/signal-engine/benchmarks/`). They depend heavily on hardware; reproduce with `cd native/zig && zig build bench -Doptimize=ReleaseFast` and the CMake benchmark targets.
 
 | Component | Operation | Latency |
 |---|---|---|
