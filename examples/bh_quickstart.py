@@ -159,7 +159,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.no_plot:
         plot(results, args.out, args.plot_bars)
-        print(f"chart saved to {args.out}")
+        try:
+            shown = args.out.resolve().relative_to(Path.cwd().resolve()).as_posix()
+        except ValueError:
+            shown = args.out.resolve().as_posix()
+        print(f"chart saved to {shown}")
     return 0
 
 

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1057 266" width="1057" height="266" role="img" aria-labelledby="t">
+<title id="t">Output of python examples/bh_quickstart.py</title>
+<rect width="1057" height="266" rx="10" fill="#0A0C10"/>
+<rect x="0.5" y="0.5" width="1056" height="265" rx="10" fill="none" stroke="#343A45"/>
+<circle cx="22" cy="20" r="5.5" fill="#5B5F68"/>
+<circle cx="40" cy="20" r="5.5" fill="#5B5F68"/>
+<circle cx="58" cy="20" r="5.5" fill="#5B5F68"/>
+<text x="528.5" y="25.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#8C877D" text-anchor="middle" font-weight="400">srfm-lab  ·  bash</text>
+<text x="28" y="64" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" xml:space="preserve"><tspan fill="#35A9C6">$</tspan><tspan fill="#E6E1D6"> python examples/bh_quickstart.py</tspan></text>
+<text x="28" y="84" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#8C877D" xml:space="preserve">       proxy  bars        from          to  timelike %  BH active %  onsets  all days |ret 5d| %  onset signed ret 5d %  onset hit rate %</text>
+<text x="28" y="104" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#8C877D" xml:space="preserve">symbol                                                                                                                                   </text>
+<text x="28" y="124" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#E6E1D6" xml:space="preserve">ES       SPY  1542  2020-02-10  2026-04-02       43.45         2.85      23                 1.87                  -0.73             21.74</text>
+<text x="28" y="144" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#E6E1D6" xml:space="preserve">NQ       QQQ  1541  2020-02-10  2026-04-02       38.94         2.79      16                 2.42                  -0.23             50.00</text>
+<text x="28" y="164" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#E6E1D6" xml:space="preserve">YM       DIA  1542  2020-02-10  2026-04-02       39.23         1.23       8                 1.76                  -0.38             12.50</text>
+<text x="28" y="184" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#E6E1D6" xml:space="preserve"></text>
+<text x="28" y="204" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#E0B43A" xml:space="preserve">Descriptive statistics on one historical sample; not a backtest, no costs, not financial advice.</text>
+<text x="28" y="224" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="12" fill="#8C877D" xml:space="preserve">chart saved to examples/output/bh_quickstart.png</text>
+</svg>

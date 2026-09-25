@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SRFM Lab</title>
+<meta name="description" content="A quantitative research lab built on Special Relativity in Financial Modeling: price paths drawn as worldlines, a light cone at every bar, and black-hole wells. Research code, not financial advice.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:type" content="website">
+<meta property="og:title" content="SRFM Lab: price paths as worldlines">
+<meta property="og:description" content="The hub of the SRFM family: the paper, the C++ core, the Python SDK and the research lab. Research code, not financial advice.">
+<meta property="og:url" content="https://mattbusel.github.io/srfm-lab/">
+<meta property="og:image" content="https://mattbusel.github.io/srfm-lab/assets/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230E1116'/%3E%3Cpath d='M16 18 L4 6 L28 6 Z' fill='%2335A9C6' fill-opacity='.35' stroke='%2335A9C6' stroke-width='1.5'/%3E%3Cpath d='M16 30 L16 18 L19 11 L17 4' fill='none' stroke='%23E0B43A' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #F5F2EA; --card: #FBF9F4; --ink: #1A1D24; --ink2: #4A4B50; --muted: #6F6C64;
+  --grid: #DDD7C9; --rule: #C9C2B1; --time: #00809A; --space: #D0402A; --well: #C9A200;
+  --well-ink: #8A6E00; --cone: #00809A; --cone-a: .09; --well-a: .16; --term: #16191F; --code: #EFEBE1;
+  --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+  --mono: ui-monospace, SFMono-Regular, 'Cascadia Mono', Consolas, 'DejaVu Sans Mono', Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0E1116; --card: #141820; --ink: #ECE7DC; --ink2: #B9B4A9; --muted: #8F8B82;
+    --grid: #232831; --rule: #343A45; --time: #35A9C6; --space: #EE5E3F; --well: #E0B43A;
+    --well-ink: #E0B43A; --cone: #35A9C6; --cone-a: .12; --well-a: .18; --term: #0A0C10; --code: #181C24;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 18px/1.6 var(--serif); }
+a { color: var(--time); text-underline-offset: 3px; }
+a:hover { color: var(--ink); }
+:focus-visible { outline: 2px solid var(--well); outline-offset: 3px; border-radius: 3px; }
+.wrap { max-width: 1160px; margin: 0 auto; padding: 0 28px; }
+.mono { font-family: var(--mono); }
+.eyebrow { font: 12.5px/1.4 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; }
+code { font: .86em var(--mono); background: var(--code); padding: .1em .35em; border-radius: 4px; white-space: nowrap; }
+.code pre, .term pre { white-space: pre; }
+.small code { white-space: normal; overflow-wrap: anywhere; }
+
+/* header */
+header.top { border-bottom: 1px solid var(--grid); }
+header.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 16px; }
+.brand { white-space: nowrap; display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-weight: 600; font-size: 19px; }
+.brand svg { flex: none; }
+nav.links { display: flex; gap: 26px; font: 14px var(--mono); }
+nav.links a { color: var(--ink2); text-decoration: none; white-space: nowrap; }
+nav.links a:hover { color: var(--ink); }
+
+/* hero */
+.hero { padding: 56px 0 28px; }
+.hero h1 { font-size: clamp(40px, 6.4vw, 76px); line-height: 1.02; letter-spacing: -.02em; margin: 0 0 26px; font-weight: 600; }
+.hero .lede { font-size: clamp(18px, 2vw, 22px); color: var(--ink2); max-width: 46ch; margin: 0; }
+.hero-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 48px; align-items: start; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; font: 15px var(--mono); padding: 12px 18px; border-radius: 8px; text-decoration: none; border: 1px solid var(--rule); color: var(--ink); background: var(--card); }
+.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn:hover { border-color: var(--time); color: var(--ink); }
+.btn.primary:hover { background: var(--time); border-color: var(--time); color: #fff; }
+.note-inline { font: 13px/1.6 var(--mono); color: var(--muted); margin: 18px 0 0; max-width: 60ch; }
+
+/* explorer */
+.explorer { margin: 34px 0 0; background: var(--card); border: 1px solid var(--grid); border-radius: 14px; overflow: hidden; }
+.ex-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; padding: 14px 18px; border-bottom: 1px solid var(--grid); }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.seg button { font: 13px var(--mono); background: transparent; color: var(--ink2); border: 0; padding: 8px 12px; cursor: pointer; min-height: 36px; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.range { display: flex; align-items: center; gap: 10px; flex: 1 1 260px; font: 12.5px var(--mono); color: var(--muted); }
+.range input { flex: 1; accent-color: var(--time); min-width: 120px; }
+.ex-bar .jump { font: 13px var(--mono); background: transparent; border: 1px solid var(--well); color: var(--well-ink); border-radius: 8px; padding: 8px 12px; cursor: pointer; min-height: 36px; }
+.ex-bar .jump:hover { background: color-mix(in srgb, var(--well) 16%, transparent); }
+.ex-body { display: grid; grid-template-columns: 1fr 250px; }
+.ex-plot { position: relative; min-width: 0; }
+.ex-plot svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.readout { border-left: 1px solid var(--grid); padding: 18px 18px 14px; font: 13px/1.5 var(--mono); }
+.readout h3 { font: 600 20px var(--serif); margin: 0 0 2px; }
+.readout .date { color: var(--muted); margin: 0 0 14px; }
+.readout dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0 0 16px; }
+.readout dt { color: var(--muted); }
+.readout dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; border: 1px solid currentColor; }
+.pill.t { color: var(--time); } .pill.s { color: var(--space); } .pill.w { color: var(--well-ink); }
+.legend { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--grid); color: var(--ink2); font-size: 12px; }
+.legend span { display: flex; align-items: center; gap: 10px; }
+.legend svg { flex: none; }
+.ex-foot { padding: 10px 18px 14px; border-top: 1px solid var(--grid); font: 12px/1.5 var(--mono); color: var(--muted); }
+
+/* sections */
+section.band { padding: 88px 0 0; }
+section.band > .wrap > h2 { font-size: clamp(30px, 3.6vw, 44px); line-height: 1.1; letter-spacing: -.01em; margin: 0 0 14px; font-weight: 600; }
+.intro { color: var(--ink2); max-width: 62ch; margin: 0 0 34px; }
+.steps { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+.code { position: relative; background: var(--code); border: 1px solid var(--grid); border-radius: 10px; }
+.code pre { margin: 0; padding: 18px 90px 18px 20px; overflow-x: auto; font: 14px/1.75 var(--mono); }
+.code .c { color: var(--muted); }
+.copy { position: absolute; top: 10px; right: 10px; font: 12px var(--mono); background: var(--card); color: var(--ink2); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+.copy:hover { color: var(--ink); border-color: var(--time); }
+.term { background: var(--term); border-radius: 10px; border: 1px solid var(--rule); overflow: hidden; }
+.term .bar { display: flex; align-items: center; gap: 7px; padding: 10px 14px; border-bottom: 1px solid #22262e; }
+.term .bar i { width: 10px; height: 10px; border-radius: 50%; background: #3a3e46; }
+.term .bar b { font: 400 12px var(--mono); color: #8C877D; margin-left: 10px; }
+.term pre { margin: 0; padding: 14px 18px 18px; overflow-x: auto; font: 12px/1.6 var(--mono); color: #E6E1D6; }
+.term .p { color: #35A9C6; } .term .dim { color: #8C877D; } .term .warn { color: #E0B43A; }
+.small { font: 13.5px/1.6 var(--mono); color: var(--muted); }
+.cards3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.card { background: var(--card); border: 1px solid var(--grid); border-radius: 12px; padding: 22px; }
+.card h3 { margin: 12px 0 8px; font-size: 22px; font-weight: 600; }
+.card p { margin: 0; color: var(--ink2); font-size: 16.5px; }
+.card svg { display: block; width: 100%; height: auto; }
+figure { margin: 0; }
+figure img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--grid); }
+figcaption { font: 13px/1.5 var(--mono); color: var(--muted); margin-top: 10px; }
+.repos { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 24px; }
+.repo { display: block; text-decoration: none; color: var(--ink); background: var(--card); border: 1px solid var(--grid); border-radius: 12px; padding: 20px 22px; transition: border-color .15s; }
+.repo:hover { border-color: var(--time); color: var(--ink); }
+.repo.here { border-color: var(--well); }
+.repo .k { font: 11.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.repo.here .k { color: var(--well-ink); }
+.repo h3 { margin: 6px 0 6px; font-size: 21px; font-weight: 600; overflow-wrap: anywhere; }
+.repo p { margin: 0; color: var(--ink2); font-size: 16px; }
+.repo .go { font: 13px var(--mono); color: var(--time); margin-top: 10px; display: block; }
+.honest { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.honest .card { border-left: 3px solid var(--well); }
+footer { margin-top: 96px; border-top: 1px solid var(--grid); padding: 28px 0 44px; font: 13px/1.7 var(--mono); color: var(--muted); }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+footer a { color: var(--ink2); }
+
+@media (max-width: 960px) {
+  .hero-grid, .honest { grid-template-columns: minmax(0, 1fr); }
+  .ex-body { grid-template-columns: 1fr; }
+  .readout { border-left: 0; border-top: 1px solid var(--grid); display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+  .readout .legend { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
+  .cards3 { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  .wrap { padding: 0 16px; }
+  nav.links a.opt { display: none; }
+  nav.links { gap: 16px; }
+  .hero { padding-top: 40px; }
+  .repos { grid-template-columns: 1fr; }
+  .readout { grid-template-columns: 1fr; }
+  .ex-bar { padding: 12px; }
+  section.band { padding-top: 64px; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="SRFM Lab home">
+      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 18 L4 6 L28 6 Z" fill="var(--cone)" fill-opacity=".25" stroke="var(--cone)" stroke-width="1.5"/><path d="M16 30 L16 18 L19 11 L17 4" fill="none" stroke="var(--well)" stroke-width="2.4" stroke-linecap="round"/></svg>
+      SRFM Lab
+    </a>
+    <nav class="links" aria-label="Sections">
+      <a class="opt" href="#quick-start">Quick start</a>
+      <a class="opt" href="#how">How it works</a>
+      <a href="#family">Family</a>
+      <a href="https://github.com/Mattbusel/srfm-lab">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+<section class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Special Relativity in Financial Modeling</p>
+    <h1>Price paths as worldlines.</h1>
+    <div class="hero-grid">
+      <p class="lede">Every bar is tested against a light cone. Ordered, timelike bars build mass; when the mass crosses a threshold a black-hole well forms. This is the lab where that idea gets pushed through backtests, Monte Carlo and a paper trader.</p>
+      <div>
+        <div class="cta">
+          <a class="btn primary" href="#quick-start">Run it in a minute</a>
+          <a class="btn" href="https://github.com/Mattbusel/srfm-lab">View on GitHub</a>
+        </div>
+        <p class="note-inline">Research code, not financial advice. The diagram below is the real output of <code>MinkowskiClassifier</code> and <code>BlackHoleDetector</code> from <code>lib/srfm_core.py</code> on the SPY, QQQ and DIA daily closes bundled in the repo.</p>
+      </div>
+    </div>
+
+    <div class="explorer" id="explorer">
+      <div class="ex-bar">
+        <div class="seg" role="group" aria-label="Instrument" id="seg"></div>
+        <label class="range"><span id="rangeLabel">window</span><input type="range" id="range" min="0" max="1" value="1" aria-label="Move the window through time"></label>
+        <button class="jump" id="jump" type="button">Next well &rarr;</button>
+      </div>
+      <div class="ex-body">
+        <div class="ex-plot"><svg id="plot" viewBox="0 0 860 470" role="img" aria-label="Spacetime diagram of daily closes"></svg></div>
+        <aside class="readout" aria-live="polite">
+          <div>
+            <h3 id="r-sym">ES</h3>
+            <p class="date" id="r-date">&nbsp;</p>
+          </div>
+          <dl>
+            <dt>close</dt><dd id="r-close">&nbsp;</dd>
+            <dt>return</dt><dd id="r-ret">&nbsp;</dd>
+            <dt>&beta; = |r| / c</dt><dd id="r-beta">&nbsp;</dd>
+            <dt>bar</dt><dd id="r-bit">&nbsp;</dd>
+            <dt>BH mass</dt><dd id="r-mass">&nbsp;</dd>
+            <dt>well</dt><dd id="r-well">&nbsp;</dd>
+          </dl>
+          <div class="legend">
+            <span><svg width="26" height="12"><line x1="1" y1="11" x2="25" y2="1" stroke="var(--time)" stroke-width="2.6" stroke-linecap="round"/></svg>timelike, inside the cone</span>
+            <span><svg width="26" height="12"><line x1="1" y1="11" x2="25" y2="1" stroke="var(--space)" stroke-width="2.6" stroke-dasharray="5 4" stroke-linecap="round"/></svg>spacelike, outside it</span>
+            <span><svg width="26" height="12"><rect width="26" height="12" fill="var(--well)" opacity=".35"/><line x1="0" x2="26" y1="1" y2="1" stroke="var(--well)" stroke-width="3"/></svg>black-hole well active</span>
+            <span><svg width="26" height="14"><path d="M2,7 L16,0 L16,14 Z" fill="var(--cone)" fill-opacity=".25" stroke="var(--cone)" stroke-opacity=".6"/></svg>light cone, |dx| = c dt</span>
+          </div>
+        </aside>
+      </div>
+      <div class="ex-foot" id="exfoot">Time runs left to right; up is x = ln(P / P&#8320;) / c, so the light cone sits at 45&deg;. Hover or use the arrow keys on the diagram to read a bar.</div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="quick-start">
+  <div class="wrap">
+    <p class="eyebrow">Quick start</p>
+    <h2>Five commands, no API keys.</h2>
+    <p class="intro">Python 3.12+ and the pinned core requirements. The example runs the physics on hourly bars cached in the repo, prints a table and saves a chart. The output below is what it printed today.</p>
+    <div class="steps">
+      <div class="code">
+        <button class="copy" type="button" data-copy="qs">Copy</button>
+<pre id="qs">git clone --filter=blob:none https://github.com/Mattbusel/srfm-lab
+cd srfm-lab
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-core.txt
+python examples/bh_quickstart.py</pre>
+      </div>
+      <div class="term" role="figure" aria-label="Output of the quick start">
+        <div class="bar"><i></i><i></i><i></i><b>srfm-lab</b></div>
+<pre id="term"><span class="p">$</span> python examples/bh_quickstart.py
+<span class="dim">       proxy  bars        from          to  timelike %  BH active %  onsets  all days |ret 5d| %  onset signed ret 5d %  onset hit rate %
+symbol</span>
+ES       SPY  1542  2020-02-10  2026-04-02       43.45         2.85      23                 1.87                  -0.73             21.74
+NQ       QQQ  1541  2020-02-10  2026-04-02       38.94         2.79      16                 2.42                  -0.23             50.00
+YM       DIA  1542  2020-02-10  2026-04-02       39.23         1.23       8                 1.76                  -0.38             12.50
+
+<span class="warn">Descriptive statistics on one historical sample; not a backtest, no costs, not financial advice.</span>
+<span class="dim">chart saved to examples/output/bh_quickstart.png</span></pre>
+      </div>
+    </div>
+    <p class="small" style="margin-top:18px">On Windows, activate with <code>.venv\Scripts\activate</code>. Run the tests with <code>pip install -r requirements-dev.txt &amp;&amp; pytest tests -q</code>, which is what CI runs on Python 3.12 and 3.13.</p>
+  </div>
+</section>
+
+<section class="band" id="how">
+  <div class="wrap">
+    <p class="eyebrow">How it works</p>
+    <h2>A light cone per bar, a well when order persists.</h2>
+    <p class="intro">Two small classes carry the idea. Everything else in the lab is built on top of what they emit.</p>
+    <div class="cards3">
+      <div class="card">
+        <svg id="mini-cone" viewBox="0 0 320 170" role="img" aria-label="One bar's light cone with a timelike and a spacelike next step"></svg>
+        <h3>Timelike or spacelike</h3>
+        <p><code>MinkowskiClassifier</code> divides each bar's return by a per-instrument speed of light <code>c</code>. Below 1 the bar is timelike, an ordered move; at or above 1 it is spacelike, an anomalous jump. The interval is <code>ds&sup2; = c&sup2;dt&sup2; &minus; dx&sup2;</code>.</p>
+      </div>
+      <div class="card">
+        <svg id="mini-mass" viewBox="0 0 320 170" role="img" aria-label="BH mass building to the formation threshold"></svg>
+        <h3>Mass, then a well</h3>
+        <p><code>BlackHoleDetector</code> adds mass on consecutive timelike bars and bleeds it on spacelike ones. A well forms when mass crosses <code>bh_form</code> after five ordered bars in a row, and points the way the price has been moving.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 320 170" role="img" aria-label="The rest of the lab: signals, backtests, paper trading, idea engine">
+          <g font-family="var(--mono)" font-size="11">
+            <rect x="10" y="14" width="140" height="34" rx="6" fill="var(--bg)" stroke="var(--time)" stroke-width="1.6"/><text x="22" y="36" fill="var(--ink)">SRFM core</text>
+            <rect x="170" y="14" width="140" height="34" rx="6" fill="var(--bg)" stroke="var(--rule)"/><text x="182" y="36" fill="var(--ink)">signal stack</text>
+            <rect x="10" y="68" width="140" height="34" rx="6" fill="var(--bg)" stroke="var(--rule)"/><text x="22" y="90" fill="var(--ink)">backtest + MC</text>
+            <rect x="170" y="68" width="140" height="34" rx="6" fill="var(--bg)" stroke="var(--rule)"/><text x="182" y="90" fill="var(--ink)">paper trader</text>
+            <rect x="60" y="122" width="200" height="34" rx="17" fill="var(--bg)" stroke="var(--well)"/><text x="160" y="144" fill="var(--ink)" text-anchor="middle">idea engine</text>
+            <path d="M150,31 h18 M240,48 L90,66 M150,85 h18 M160,120 v-16" stroke="var(--ink2)" fill="none"/>
+          </g>
+        </svg>
+        <h3>The rest of the lab</h3>
+        <p>GARCH vol scaling, an OU sleeve, geodesic and Hawking monitors, backtests with Monte Carlo, an Alpaca paper trader, and an idea engine that mines backtest trades and proposes parameter changes. Most of it needs keys or services.</p>
+      </div>
+    </div>
+    <figure style="margin-top:28px">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/wells-dark.svg">
+        <img src="assets/wells-light.svg" alt="SPY, QQQ and DIA daily closes over the last 750 days with black-hole wells shaded and BH mass under each panel" loading="lazy" width="1200" height="862">
+      </picture>
+      <figcaption>The quick start's own chart, restyled: every well the detector found on the three instruments over the last 750 days of bundled data.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="band" id="family">
+  <div class="wrap">
+    <p class="eyebrow">The SRFM family</p>
+    <h2>Four repositories, one idea.</h2>
+    <p class="intro">The paper sits at the origin. The C++ core and the Python SDK implement its formulas; this lab builds trading research on them.</p>
+    <figure>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/family-dark.svg">
+        <img src="assets/family-light.svg" alt="Map of the SRFM repositories drawn as a light cone from the paper" loading="lazy" width="1200" height="600">
+      </picture>
+    </figure>
+    <div class="repos">
+      <a class="repo" href="https://github.com/Mattbusel/srfm-paper-impl">
+        <span class="k">The paper &middot; Python, Rust</span>
+        <h3>srfm-paper-impl</h3>
+        <p>The preprint PDF, scripts and a notebook that regenerate its figures, and a dependency-free Rust reference of the core formulas.</p>
+        <span class="go">github.com/Mattbusel/srfm-paper-impl &rarr;</span>
+      </a>
+      <a class="repo" href="https://github.com/Mattbusel/Special-Relativity-in-Financial-Modeling">
+        <span class="k">C++20 core</span>
+        <h3>Special-Relativity-in-Financial-Modeling</h3>
+        <p>Price velocity, Lorentz factor, spacetime-interval labels, Christoffel symbols and geodesic deviation on OHLCV bars, with Python validation scripts.</p>
+        <span class="go">github.com/Mattbusel/Special-Relativity-in-Financial-Modeling &rarr;</span>
+      </a>
+      <a class="repo" href="https://github.com/Mattbusel/srfm-python">
+        <span class="k">Python SDK</span>
+        <h3>srfm-python</h3>
+        <p>A pandas <code>df.srfm</code> accessor and a Polars wrapper for the Lorentz-factor pipeline. NumPy only.</p>
+        <span class="go">github.com/Mattbusel/srfm-python &rarr;</span>
+      </a>
+      <a class="repo here" href="https://github.com/Mattbusel/srfm-lab">
+        <span class="k">Research lab &middot; you are here</span>
+        <h3>srfm-lab</h3>
+        <p>The black-hole signal, backtests with Monte Carlo, the idea engine and paper-trading research, across nine languages.</p>
+        <span class="go">github.com/Mattbusel/srfm-lab &rarr;</span>
+      </a>
+    </div>
+    <p class="small" style="margin-top:18px">Related: <a href="https://github.com/Mattbusel/fin-stream">fin-stream</a>, a Rust crate for streaming market data with a <code>lorentz</code> module built on the same transform.</p>
+  </div>
+</section>
+
+<section class="band" id="honest">
+  <div class="wrap">
+    <p class="eyebrow">Read this before anything else</p>
+    <h2>Research code, not financial advice.</h2>
+    <div class="honest">
+      <div class="card">
+        <h3>What the quick start shows</h3>
+        <p>On the bundled 2020 to 2026 sample, the 5-day move after a well forms, signed by the well's direction, averages below zero on all three ETFs. With these parameters the bare signal does not predict the next week. The lab exists to test ideas like this one, including when they fail.</p>
+      </div>
+      <div class="card">
+        <h3>What the rest of the repo is</h3>
+        <p>A research monorepo, not a product. Backtest and paper-trading results are experiments on historical or simulated data and swing widely by period and parameters. Nothing here should trade real money without your own independent validation.</p>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>SRFM Lab &middot; MIT licensed &middot; <a href="https://github.com/Mattbusel/srfm-lab">github.com/Mattbusel/srfm-lab</a></span>
+    <span>Figures regenerate with <code>python scripts/make_figures.py</code></span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs, parent) => {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  };
+  const txt = (s, attrs, parent) => { const e = el('text', attrs, parent); e.textContent = s; return e; };
+
+  // copy buttons
+  document.querySelectorAll('.copy').forEach((b) => b.addEventListener('click', async () => {
+    const t = $(b.dataset.copy).textContent;
+    try { await navigator.clipboard.writeText(t); b.textContent = 'Copied'; }
+    catch { const r = document.createRange(); r.selectNodeContents($(b.dataset.copy)); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = 'Selected'; }
+    setTimeout(() => (b.textContent = 'Copy'), 1600);
+  }));
+
+  let D = null, sym = 'ES', end = 0, cursor = -1;
+  const plot = $('plot');
+  let W = 860, H = 470;
+
+  function windowSize() { return innerWidth < 640 ? 30 : innerWidth < 960 ? 44 : 56; }
+
+  function series(s) {
+    const I = D.instruments[s];
+    return I;
+  }
+
+  function draw() {
+    const I = series(sym), n = windowSize();
+    const e = Math.max(n, Math.min(end, I.d.length));
+    const s0 = e - n;
+    const cf = I.cf;
+    const idx = [...Array(n).keys()].map((k) => s0 + k);
+    const xs = idx.map((i) => Math.log(I.c[i] / I.c[s0]) / cf);
+    let lo = Math.min(...xs), hi = Math.max(...xs);
+    W = Math.max(320, Math.min(1000, Math.round(plot.parentNode.clientWidth || 860)));
+    H = W < 600 ? 360 : 470;
+    plot.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const padL = W < 600 ? 44 : 58, padR = 14, top = 30, plotB = H - 110, massT = H - 82, massH = 46;
+    const spanX = (hi - lo) + 3;
+    const px = Math.min((W - padL - padR) / n, (plotB - top) / spanX);
+    const x0 = padL + ((W - padL - padR) - px * (n - 1)) / 2;
+    const midV = (hi + lo) / 2;
+    const X = (k) => x0 + k * px;
+    const Y = (v) => (top + plotB) / 2 - (v - midV) * px;
+    plot.textContent = '';
+    const g = el('g', {}, plot);
+    // grid
+    const step = spanX > 40 ? 10 : spanX > 20 ? 4 : 2;
+    for (let v = Math.ceil((midV - (plotB - top) / 2 / px) / step) * step; Y(v) >= top; v += step) {
+      if (Y(v) > plotB) continue;
+      el('line', { x1: padL, x2: W - padR, y1: Y(v), y2: Y(v), stroke: 'var(--grid)' }, g);
+      txt(v > 0 ? '+' + v : String(v), { x: padL - 10, y: Y(v) + 4, 'text-anchor': 'end', 'font-family': 'var(--mono)', 'font-size': 11, fill: 'var(--muted)' }, g);
+    }
+    // wells
+    for (let k = 0; k < n; k++) {
+      if (I.a[idx[k]] === '1') {
+        el('rect', { x: X(k) - px / 2, y: top, width: px, height: plotB - top, fill: 'var(--well)', style: 'opacity:var(--well-a)' }, g);
+        el('line', { x1: X(k) - px / 2, x2: X(k) + px / 2, y1: top, y2: top, stroke: 'var(--well)', 'stroke-width': 3 }, g);
+      }
+    }
+    // cones
+    for (let k = 0; k < n - 1; k++) {
+      const cx = X(k), cy = Y(xs[k]);
+      el('path', { d: `M${cx},${cy} L${cx + px},${cy - px} L${cx + px},${cy + px} Z`, fill: 'var(--cone)', style: 'fill-opacity:var(--cone-a)', stroke: 'var(--cone)', 'stroke-opacity': .22, 'stroke-width': .8 }, g);
+    }
+    // worldline
+    for (let k = 1; k < n; k++) {
+      const tl = I.t[idx[k]] === 'T';
+      el('line', { x1: X(k - 1), y1: Y(xs[k - 1]), x2: X(k), y2: Y(xs[k]), stroke: tl ? 'var(--time)' : 'var(--space)', 'stroke-width': 2.6, 'stroke-linecap': 'round', ...(tl ? {} : { 'stroke-dasharray': '5 4' }) }, g);
+    }
+    for (let k = 0; k < n; k++) {
+      const act = I.a[idx[k]] === '1';
+      el('circle', { cx: X(k), cy: Y(xs[k]), r: act ? 3.6 : 2.7, fill: act ? 'var(--well)' : 'var(--ink)', stroke: 'var(--card)', 'stroke-width': 1.6 }, g);
+    }
+    // mass strip
+    const topM = Math.max(4, Math.ceil(Math.max(...idx.map((i) => I.m[i]))));
+    el('line', { x1: X(0) - px / 2, x2: X(n - 1) + px / 2, y1: massT + massH, y2: massT + massH, stroke: 'var(--rule)' }, g);
+    const bw = Math.max(2, px * .45);
+    for (let k = 0; k < n; k++) {
+      const m = I.m[idx[k]], h = massH * m / topM, act = I.a[idx[k]] === '1';
+      el('rect', { x: X(k) - bw / 2, y: massT + massH - h, width: bw, height: h, rx: 1.2, fill: act ? 'var(--well)' : 'var(--ink2)', opacity: act ? 1 : .5 }, g);
+    }
+    const yf = massT + massH - massH * I.bh_form / topM;
+    el('line', { x1: X(0) - px / 2, x2: X(n - 1) + px / 2, y1: yf, y2: yf, stroke: 'var(--well)', 'stroke-dasharray': '3 3', 'stroke-width': 1.3 }, g);
+    txt('mass', { x: padL - 10, y: massT + massH - 4, 'text-anchor': 'end', 'font-family': 'var(--mono)', 'font-size': 11, fill: 'var(--muted)' }, g);
+    // dates
+    const every = Math.max(5, Math.ceil(84 / px / 5) * 5);
+    for (let k = 0; k < n; k += every) {
+      txt(I.d[idx[k]].slice(0, 10), { x: X(k), y: H - 8, 'text-anchor': 'middle', 'font-family': 'var(--mono)', 'font-size': 11, fill: 'var(--muted)' }, g);
+    }
+    txt('x = ln(P/P₀)/c', { x: 12, y: 18, 'font-family': 'var(--mono)', 'font-size': 11, fill: 'var(--muted)' }, g);
+    // cursor
+    const cur = el('g', { 'pointer-events': 'none' }, plot);
+    const hit = el('rect', { x: 0, y: 0, width: W, height: H, fill: 'transparent', tabindex: 0, 'aria-label': 'Read bars with left and right arrow keys' }, plot);
+    const setCursor = (k) => {
+      k = Math.max(0, Math.min(n - 1, k));
+      cursor = k;
+      cur.textContent = '';
+      el('line', { x1: X(k), x2: X(k), y1: top, y2: massT + massH, stroke: 'var(--ink)', 'stroke-opacity': .35, 'stroke-dasharray': '2 3' }, cur);
+      el('circle', { cx: X(k), cy: Y(xs[k]), r: 6, fill: 'none', stroke: 'var(--ink)', 'stroke-width': 1.5 }, cur);
+      readout(I, idx[k]);
+    };
+    const fromEvent = (ev) => {
+      const r = plot.getBoundingClientRect();
+      const sx = (ev.clientX - r.left) * W / r.width;
+      return Math.round((sx - x0) / px);
+    };
+    hit.addEventListener('pointermove', (ev) => setCursor(fromEvent(ev)));
+    hit.addEventListener('pointerdown', (ev) => setCursor(fromEvent(ev)));
+    hit.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowRight') { setCursor(cursor + 1); ev.preventDefault(); }
+      if (ev.key === 'ArrowLeft') { setCursor(cursor - 1); ev.preventDefault(); }
+    });
+    // default: latest well in view, else the last bar
+    let k0 = n - 1;
+    for (let k = n - 1; k >= 0; k--) if (I.a[idx[k]] === '1') { k0 = k; break; }
+    setCursor(cursor >= 0 && cursor < n ? cursor : k0);
+    $('rangeLabel').textContent = `${I.d[s0]} to ${I.d[e - 1]}`;
+    $('exfoot').textContent = `${I.proxy} daily closes, ${n} bars. c = ${+(cf * 100).toFixed(2)}% per day, bh_form = ${I.bh_form}. Time runs left to right; up is x = ln(P/P₀)/c, so each light cone sits at 45°. Hover, tap or use the arrow keys to read a bar.` + (px < 0.6 * (W - padL - padR) / n ? ' Axes stay equal, so a window where price outran c on most days is drawn narrow and tall.' : '');
+  }
+
+  function readout(I, i) {
+    const r = i > 0 ? I.c[i] / I.c[i - 1] - 1 : NaN;
+    const beta = Math.abs(r) / I.cf;
+    $('r-sym').textContent = `${sym} (${I.proxy})`;
+    $('r-date').textContent = I.d[i];
+    $('r-close').textContent = I.c[i].toFixed(2);
+    $('r-ret').textContent = isNaN(r) ? '-' : (r >= 0 ? '+' : '') + (r * 100).toFixed(2) + '%';
+    $('r-beta').textContent = isNaN(beta) ? '-' : beta.toFixed(2);
+    const t = I.t[i];
+    $('r-bit').innerHTML = t === 'T' ? '<span class="pill t">timelike</span>' : t === 'S' ? '<span class="pill s">spacelike</span>' : '-';
+    $('r-mass').textContent = `${I.m[i].toFixed(2)} / ${I.bh_form}`;
+    $('r-well').innerHTML = I.a[i] === '1' ? `<span class="pill w">active, ${I.dir[i] > 0 ? 'up' : 'down'}</span>` : 'none';
+  }
+
+  function setSym(s, keepDate) {
+    const prevDate = D && keepDate ? series(sym).d[Math.min(end, series(sym).d.length) - 1] : null;
+    sym = s;
+    const I = series(sym);
+    const r = $('range');
+    r.min = windowSize(); r.max = I.d.length;
+    if (prevDate) { const j = I.d.findIndex((d) => d >= prevDate); end = j < 0 ? I.d.length : j + 1; }
+    r.value = end;
+    document.querySelectorAll('#seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.s === sym)));
+    cursor = -1;
+    draw();
+  }
+
+  function miniCone() {
+    // one event and its future light cone, drawn at 45 degrees (units of c)
+    const s = $('mini-cone');
+    const ox = 34, oy = 85, L = 80;
+    el('path', { d: `M${ox},${oy} L${ox + L},${oy - L} L${ox + L},${oy + L} Z`, fill: 'var(--cone)', style: 'fill-opacity:var(--cone-a)' }, s);
+    el('path', { d: `M${ox},${oy} L${ox + L},${oy - L} M${ox},${oy} L${ox + L},${oy + L}`, stroke: 'var(--cone)', 'stroke-opacity': .6, 'stroke-dasharray': '5 4' }, s);
+    el('line', { x1: ox, y1: oy, x2: ox + 70, y2: oy - 32, stroke: 'var(--time)', 'stroke-width': 2.6, 'stroke-linecap': 'round' }, s);
+    el('line', { x1: ox, y1: oy, x2: ox + 36, y2: oy + 70, stroke: 'var(--space)', 'stroke-width': 2.6, 'stroke-dasharray': '5 4', 'stroke-linecap': 'round' }, s);
+    el('circle', { cx: ox, cy: oy, r: 4.5, fill: 'var(--ink)' }, s);
+    const f = { 'font-family': 'var(--mono)', 'font-size': 11.5 };
+    txt('β < 1  timelike', { x: ox + 112, y: oy - 30, fill: 'var(--time)', ...f }, s);
+    txt('next bar inside the cone', { x: ox + 112, y: oy - 14, fill: 'var(--muted)', ...f }, s);
+    txt('β ≥ 1  spacelike', { x: ox + 112, y: oy + 56, fill: 'var(--space)', ...f }, s);
+    txt('next bar outside it', { x: ox + 112, y: oy + 72, fill: 'var(--muted)', ...f }, s);
+    txt('|dx| = c dt', { x: ox + 112, y: oy + 18, fill: 'var(--ink2)', ...f }, s);
+  }
+
+  function miniMass() {
+    // the bars leading into the hero well, straight from the detector output
+    const I = D.instruments[D.hero.sym];
+    const a = I.d.indexOf('2025-09-24'), b = I.d.indexOf('2025-10-10');
+    const s = $('mini-mass');
+    const n = b - a + 1, x0 = 30, w = 280, top = 22, h = 114;
+    const topM = 4.5;
+    const Y = (m) => top + h - (m / topM) * h;
+    const bw = w / n * .62;
+    for (let k = 0; k < n; k++) {
+      const i = a + k, act = I.a[i] === '1', tl = I.t[i] === 'T';
+      const x = x0 + (k + .5) * w / n;
+      el('rect', { x: x - bw / 2, y: Y(I.m[i]), width: bw, height: top + h - Y(I.m[i]), rx: 1.5, fill: act ? 'var(--well)' : 'var(--ink2)', opacity: act ? 1 : .45 }, s);
+      el('rect', { x: x - bw / 2, y: top + h + 5, width: bw, height: 4, rx: 1, fill: tl ? 'var(--time)' : 'var(--space)' }, s);
+    }
+    el('line', { x1: x0, x2: x0 + w, y1: Y(I.bh_form), y2: Y(I.bh_form), stroke: 'var(--well)', 'stroke-dasharray': '3 3', 'stroke-width': 1.4 }, s);
+    const f = { 'font-family': 'var(--mono)', 'font-size': 11 };
+    txt(`dashed: bh_form ${I.bh_form}`, { x: x0, y: 10, fill: 'var(--well-ink)', ...f }, s);
+    txt(`${I.proxy} ${I.d[a].slice(5)} to ${I.d[b].slice(5)}`, { x: x0 + w, y: top + h + 26, fill: 'var(--muted)', 'text-anchor': 'end', ...f }, s);
+    txt('bar type', { x: x0, y: top + h + 26, fill: 'var(--muted)', ...f }, s);
+  }
+
+  fetch('data/worldlines.json').then((r) => r.json()).then((data) => {
+    D = data;
+    const seg = $('seg');
+    for (const s of Object.keys(D.instruments)) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.dataset.s = s; b.textContent = `${s} · ${D.instruments[s].proxy}`;
+      b.addEventListener('click', () => setSym(s, true));
+      seg.appendChild(b);
+    }
+    const I = D.instruments[D.hero.sym];
+    const heroEnd = I.d.findIndex((d) => d > D.hero.to);
+    end = heroEnd < 0 ? I.d.length : heroEnd;
+    setSym(D.hero.sym, false);
+    $('range').addEventListener('input', (ev) => { end = +ev.target.value; cursor = -1; draw(); });
+    $('jump').addEventListener('click', () => {
+      const I = series(sym);
+      let j = -1;
+      const from = end - windowSize() + Math.max(0, cursor) + 1;
+      for (let i = Math.max(1, from); i < I.d.length; i++) if (I.a[i] === '1' && I.a[i - 1] !== '1') { j = i; break; }
+      if (j < 0) for (let i = 1; i < I.d.length; i++) if (I.a[i] === '1' && I.a[i - 1] !== '1') { j = i; break; }
+      const n = windowSize();
+      end = Math.min(I.d.length, Math.max(n, j + Math.round(n / 3)));
+      $('range').value = end; cursor = n - 1 - (end - 1 - j); draw();
+    });
+    let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { $('range').min = windowSize(); draw(); }, 150); });
+    miniCone(); miniMass();
+  }).catch(() => {
+    $('exfoot').textContent = 'The interactive diagram needs data/worldlines.json. Open the page over http (for example python -m http.server in site/).';
+  });
+})();
+</script>
+</body>
+</html>

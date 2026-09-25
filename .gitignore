@@ -85,3 +85,4 @@ tools/.env
 
 # Output of examples/bh_quickstart.py
 examples/output/
+site/assets/
