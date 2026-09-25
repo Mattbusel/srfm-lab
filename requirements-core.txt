@@ -1,0 +1,12 @@
+# Pinned, key-free core: enough to run examples/bh_quickstart.py and the
+# Python test suite (pytest tests/). These pins need Python 3.12+ (CI: 3.12, 3.13).
+# The full lab (live trading, services, reporting) needs requirements.txt
+# and pyproject.toml extras on top of this.
+numpy==2.5.3
+pandas==3.0.6
+scipy==1.18.1
+matplotlib==3.11.2
+statsmodels==0.15.0
+scikit-learn==1.9.1
+PyYAML==6.0.3
+requests==2.34.2

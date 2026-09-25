@@ -115,7 +115,7 @@ class VolatilityTargeting:
             vol = returns.ewm(halflife=self.halflife, min_periods=5).std() * math.sqrt(252)
         else:
             vol = returns.rolling(self.lookback, min_periods=5).std() * math.sqrt(252)
-        return vol.fillna(method="bfill").fillna(self.target_vol)
+        return vol.bfill().fillna(self.target_vol)
 
     def compute_leverage(self, returns: pd.Series) -> pd.Series:
         """

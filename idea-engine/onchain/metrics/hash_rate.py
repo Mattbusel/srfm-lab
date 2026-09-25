@@ -109,7 +109,7 @@ def _simulate_hash_rate(price_series: pd.Series) -> pd.Series:
     trend = np.array([1.0 * (1 + growth_daily) ** i for i in range(n)])
 
     # Lagged price signal (60d lag, normalised)
-    price_lag60 = pd.Series(prices).shift(60).fillna(method="bfill").values
+    price_lag60 = pd.Series(prices).shift(60).bfill().values
     price_norm = price_lag60 / price_lag60.mean()
 
     # Target hash rate = trend * price_driven_factor

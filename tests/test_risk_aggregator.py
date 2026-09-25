@@ -24,7 +24,12 @@ import sqlite3
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import TYPE_CHECKING, Dict, List
+
+if TYPE_CHECKING:
+    from execution.risk.correlation_monitor import CorrelationMatrix
+    from execution.risk.limits import LimitChecker, PositionLimiter
+    from execution.risk.live_var import PortfolioSnapshot
 
 import numpy as np
 import pytest

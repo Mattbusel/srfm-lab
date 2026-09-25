@@ -1015,7 +1015,8 @@ class AlphaEngine:
         factor_corr_summary: Dict = {}
         if not signal_df.empty and len(signal_df.columns) > 1:
             corr_mat = self.combiner.signal_correlation_matrix(signal_df)
-            np.fill_diagonal(corr_mat.values, float("nan"))
+            # mask() instead of fill_diagonal(.values): .values is read-only under pandas copy-on-write
+            corr_mat = corr_mat.mask(np.eye(len(corr_mat), dtype=bool))
             factor_corr_summary = {
                 "mean_abs_corr": float(corr_mat.abs().stack().mean()),
                 "max_abs_corr": float(corr_mat.abs().stack().max()),

@@ -453,7 +453,7 @@ class RiskAdjustedMomentum:
 
         past_return = (close - close.shift(self.lookback)) / (close.shift(self.lookback).abs() + 1e-9)
         realized_vol = returns.rolling(self.vol_window, min_periods=self.vol_window // 2).std() * math.sqrt(252)
-        realized_vol = realized_vol.replace(0, np.nan).fillna(method="ffill")
+        realized_vol = realized_vol.replace(0, np.nan).ffill()
 
         # Risk-adjusted signal
         ra_signal = past_return / (realized_vol + 1e-9)
@@ -470,7 +470,7 @@ class RiskAdjustedMomentum:
         returns = close.pct_change()
         past_return = (close - close.shift(self.lookback)) / (close.shift(self.lookback).abs() + 1e-9)
         realized_vol = returns.rolling(self.vol_window, min_periods=self.vol_window // 2).std() * math.sqrt(252)
-        realized_vol = realized_vol.replace(0, np.nan).fillna(method="ffill")
+        realized_vol = realized_vol.replace(0, np.nan).ffill()
         return past_return / (realized_vol + 1e-9)
 
     def backtest(

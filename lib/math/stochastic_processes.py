@@ -19,6 +19,7 @@ from scipy.optimize import minimize, minimize_scalar
 from scipy.fft import fft, ifft
 
 FloatArray = NDArray[np.float64]
+IntArray = NDArray[np.int64]
 
 
 # ===================================================================

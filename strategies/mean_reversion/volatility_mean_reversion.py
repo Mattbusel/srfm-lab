@@ -329,7 +329,7 @@ class VolatilityArbitrage:
         Returns continuous position size.
         """
         vrp = self.compute_vrp(realized_vol, implied_vol)
-        iv = implied_vol.replace(0, np.nan).fillna(method="ffill")
+        iv = implied_vol.replace(0, np.nan).ffill()
         # Position = (target_vol / IV) * sign(VRP)
         pos = pd.Series(0.0, index=underlying_price.index)
         strong_vrp = vrp.abs() > self.threshold / 2

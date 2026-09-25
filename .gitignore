@@ -82,3 +82,6 @@ idea-engine/**/*.db
 idea-engine/**/*.log
 tools/.env
 **/.env
+
+# Output of examples/bh_quickstart.py
+examples/output/

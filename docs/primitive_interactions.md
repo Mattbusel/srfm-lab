@@ -48,7 +48,7 @@ primitives it interacts with directly. This is the canonical dependency map.
 | `BlackHoleDetector` | `lib/srfm_core.py` | Python | Physics |
 | `GeodesicAnalyzer` | `lib/srfm_core.py` | Python | Physics |
 | `GravitationalLens` | `lib/srfm_core.py` | Python | Physics |
-| `MarketRegime` | `lib/regime.py` | Python | Physics |
+| `MarketRegime` | `lib/srfm_core.py` | Python | Physics |
 | `agent_d3qn` | `lib/agents.py` | Python | Signal |
 | `agent_ddqn` | `lib/agents.py` | Python | Signal |
 | `agent_td3qn` | `lib/agents.py` | Python | Signal |

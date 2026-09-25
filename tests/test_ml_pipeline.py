@@ -13,12 +13,26 @@ import os
 import tempfile
 from typing import Any, Dict
 
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 # ---------------------------------------------------------------------------
 # Imports from ml package
 # ---------------------------------------------------------------------------
+
+# These tests target the top-level ml/ package. conftest.py puts lib/ first on
+# sys.path, and lib/ml/ (a different library) would shadow it, so make sure the
+# repo root wins for this import.
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if "ml" in sys.modules and not str(getattr(sys.modules["ml"], "__file__", "")).startswith(
+    str(Path(_ROOT) / "ml")
+):
+    for _name in [n for n in sys.modules if n == "ml" or n.startswith("ml.")]:
+        del sys.modules[_name]
+sys.path.insert(0, _ROOT)
 
 from ml.online_learning import (
     ADWIN,
@@ -61,6 +75,8 @@ from ml.model_selection import (
     WalkForwardValidator,
     _compute_sharpe,
 )
+
+sys.path.remove(_ROOT)
 
 
 # ---------------------------------------------------------------------------
