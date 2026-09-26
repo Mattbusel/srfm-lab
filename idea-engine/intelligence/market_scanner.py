@@ -159,7 +159,8 @@ class MarketScanner:
             if len(prices) >= 21:
                 if prices[-1] >= prices[-20:].max():
                     if volume_data and symbol in volume_data:
-                        vol_ratio = volumes[-5:].mean() / max(volumes[-20:].mean(), 1e-10) if volumes is not None else 1
+                        volumes = volume_data[symbol]
+                        vol_ratio = volumes[-5:].mean() / max(volumes[-20:].mean(), 1e-10)
                     else:
                         vol_ratio = 1.0
                     if vol_ratio > 1.2:
