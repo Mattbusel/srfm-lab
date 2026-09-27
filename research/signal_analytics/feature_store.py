@@ -22,7 +22,12 @@ import time
 import warnings
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+def _utcnow() -> datetime:
+    """Current UTC time as a timezone-aware datetime (replaces the deprecated utcnow())."""
+    return datetime.now(timezone.utc)
+
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -59,7 +64,7 @@ class Feature:
     timestamp: datetime
     symbol: str
     ttl_seconds: int = DEFAULT_TTL_SECONDS
-    computed_at: datetime = field(default_factory=datetime.utcnow)
+    computed_at: datetime = field(default_factory=_utcnow)
 
     @property
     def cache_key(self) -> str:
@@ -67,7 +72,7 @@ class Feature:
 
     @property
     def is_expired(self) -> bool:
-        age = (datetime.utcnow() - self.computed_at).total_seconds()
+        age = (datetime.now(timezone.utc) - self.computed_at).total_seconds()
         return age > self.ttl_seconds
 
     def to_dict(self) -> Dict:
@@ -281,7 +286,7 @@ class FeatureStore:
         as of a given date (defaults to today).
         """
         if as_of is None:
-            as_of = datetime.utcnow()
+            as_of = datetime.now(timezone.utc)
         date_str = as_of.date().isoformat()
 
         with sqlite3.connect(self.db_path) as conn:
@@ -333,7 +338,7 @@ class FeatureStore:
     def purge_expired(self) -> int:
         """Remove expired records from SQLite."""
         n_evicted = self._cache.evict_expired()
-        cutoff = (datetime.utcnow() - timedelta(days=30)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("DELETE FROM features WHERE computed_at < ?", (cutoff,))
             n_db = cursor.rowcount
@@ -387,7 +392,7 @@ class FeatureComputer:
         Returns dict of signal_name -> latest_value.
         """
         if as_of is None:
-            as_of = datetime.utcnow()
+            as_of = datetime.now(timezone.utc)
 
         if len(prices) < self.min_warmup:
             logger.debug(
@@ -429,7 +434,7 @@ class FeatureComputer:
     ) -> List[Feature]:
         """Compute all signals and return as Feature objects."""
         if as_of is None:
-            as_of = datetime.utcnow()
+            as_of = datetime.now(timezone.utc)
 
         values = self.compute_all(
             symbol=symbol,
@@ -442,7 +447,7 @@ class FeatureComputer:
         )
 
         features = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for name, value in values.items():
             features.append(Feature(
                 name=name,
@@ -728,7 +733,7 @@ class FeaturePipeline:
         Returns run statistics.
         """
         if as_of is None:
-            as_of = datetime.utcnow()
+            as_of = datetime.now(timezone.utc)
 
         start_time = time.time()
         n_computed = 0
@@ -804,7 +809,7 @@ class FeaturePipeline:
         Fast live signal lookup.
         Checks cache first; recomputes if missing/expired or force_recompute.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         if not force_recompute:
             cached = self.store.get(symbol, signal_name, now)
@@ -849,7 +854,7 @@ class FeaturePipeline:
         Return all signals for a symbol, using cached values where fresh enough.
         Stale signals are recomputed.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cached_features = self.store.get_all_for_symbol(symbol, as_of=now)
 
         # Determine which signals need recompute
@@ -940,7 +945,7 @@ class FeaturePipeline:
         """Return True if the last nightly run is older than max_age_hours."""
         if self._last_run is None:
             return True
-        age = (datetime.utcnow() - self._last_run).total_seconds() / 3600.0
+        age = (datetime.now(timezone.utc) - self._last_run).total_seconds() / 3600.0
         return age > max_age_hours
 
 
