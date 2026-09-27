@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "vite --port 5175",
-    "build": "tsc && vite build",
+    "dev": "node init && vite --port 5175",
+    "build": "node init && tsc && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

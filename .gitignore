@@ -23,14 +23,12 @@ Thumbs.db
 desktop.ini
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
 
 # Secrets
 *.env
-.env.*
 secrets.json
 config.json
 
@@ -81,8 +79,8 @@ tools/backtest_output/*.pkl
 idea-engine/**/*.db
 idea-engine/**/*.log
 tools/.env
-**/.env
 
 # Output of examples/bh_quickstart.py
 examples/output/
 site/assets/
+config.bat
