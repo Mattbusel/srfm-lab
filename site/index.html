@@ -3,15 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SRFM Lab</title>
-<meta name="description" content="A quantitative research lab built on Special Relativity in Financial Modeling: price paths drawn as worldlines, a light cone at every bar, and black-hole wells. Research code, not financial advice.">
+<title>SRFM Lab: Black-Hole Market Signal, Physics Research</title>
+<meta name="description" content="Python research lab that labels price bars timelike or spacelike and detects black-hole wells from special relativity maths. One-command demo, no API keys.">
 <meta name="color-scheme" content="light dark">
+<link rel="canonical" href="https://mattbusel.github.io/srfm-lab/">
 <meta property="og:type" content="website">
-<meta property="og:title" content="SRFM Lab: price paths as worldlines">
-<meta property="og:description" content="The hub of the SRFM family: the paper, the C++ core, the Python SDK and the research lab. Research code, not financial advice.">
+<meta property="og:title" content="SRFM Lab: Black-Hole Market Signal, Physics Research">
+<meta property="og:description" content="Python research lab that labels price bars timelike or spacelike and detects black-hole wells from special relativity maths. One-command demo, no API keys.">
 <meta property="og:url" content="https://mattbusel.github.io/srfm-lab/">
-<meta property="og:image" content="https://mattbusel.github.io/srfm-lab/assets/social-preview.png">
+<meta property="og:image" content="https://mattbusel.github.io/srfm-lab/assets/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="SRFM Lab: SPY price path drawn as a worldline with light cones and black-hole wells">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="SRFM Lab: Black-Hole Market Signal, Physics Research">
+<meta name="twitter:description" content="Python research lab that labels price bars timelike or spacelike and detects black-hole wells from special relativity maths. One-command demo, no API keys.">
+<meta name="twitter:image" content="https://mattbusel.github.io/srfm-lab/assets/og-1200x630.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "SRFM Lab", "description": "Python research lab that labels price bars timelike or spacelike and detects black-hole wells from special relativity maths. One-command demo, no API keys.", "url": "https://mattbusel.github.io/srfm-lab/", "codeRepository": "https://github.com/Mattbusel/srfm-lab", "programmingLanguage": ["Python", "Rust", "Go", "C++"], "license": "https://opensource.org/licenses/MIT", "author": {"@type": "Person", "name": "Matthew Busel"}, "keywords": "special relativity, quantitative finance, black hole signal, timelike, spacelike, backtesting, Monte Carlo"}</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230E1116'/%3E%3Cpath d='M16 18 L4 6 L28 6 Z' fill='%2335A9C6' fill-opacity='.35' stroke='%2335A9C6' stroke-width='1.5'/%3E%3Cpath d='M16 30 L16 18 L19 11 L17 4' fill='none' stroke='%23E0B43A' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
 :root {
@@ -175,7 +183,7 @@ footer a { color: var(--ink2); }
       <p class="lede">Every bar is tested against a light cone. Ordered, timelike bars build mass; when the mass crosses a threshold a black-hole well forms. This is the lab where that idea gets pushed through backtests, Monte Carlo and a paper trader.</p>
       <div>
         <div class="cta">
-          <a class="btn primary" href="#quick-start">Run it in a minute</a>
+          <a class="btn primary" href="#quick-start">Get it: one command</a>
           <a class="btn" href="https://github.com/Mattbusel/srfm-lab">View on GitHub</a>
         </div>
         <p class="note-inline">Research code, not financial advice. The diagram below is the real output of <code>MinkowskiClassifier</code> and <code>BlackHoleDetector</code> from <code>lib/srfm_core.py</code> on the SPY, QQQ and DIA daily closes bundled in the repo.</p>
@@ -219,20 +227,22 @@ footer a { color: var(--ink2); }
 <section class="band" id="quick-start">
   <div class="wrap">
     <p class="eyebrow">Quick start</p>
-    <h2>Five commands, no API keys.</h2>
-    <p class="intro">Python 3.12+ and the pinned core requirements. The example runs the physics on hourly bars cached in the repo, prints a table and saves a chart. The output below is what it printed today.</p>
+    <h2>One command, no API keys.</h2>
+    <p class="intro">Python 3.12+. <code>quickstart.py</code> makes a virtual environment, installs the pinned core requirements and runs <code>examples/bh_quickstart.py</code>, which runs the physics on hourly bars cached in the repo, prints a table and saves a chart. The output below is what it printed today.</p>
     <div class="steps">
       <div class="code">
         <button class="copy" type="button" data-copy="qs">Copy</button>
-<pre id="qs">git clone --filter=blob:none https://github.com/Mattbusel/srfm-lab
+<pre id="qs">git clone -c core.longpaths=true https://github.com/Mattbusel/srfm-lab
 cd srfm-lab
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements-core.txt
-python examples/bh_quickstart.py</pre>
+python quickstart.py</pre>
       </div>
       <div class="term" role="figure" aria-label="Output of the quick start">
         <div class="bar"><i></i><i></i><i></i><b>srfm-lab</b></div>
-<pre id="term"><span class="p">$</span> python examples/bh_quickstart.py
+<pre id="term"><span class="p">$</span> python quickstart.py
+<span class="dim">[1/3] creating .venv/ ...
+[2/3] installing the core requirements (numpy, pandas, scipy, matplotlib, ...) ...
+[3/3] running examples/bh_quickstart.py on the bundled data</span>
+
 <span class="dim">       proxy  bars        from          to  timelike %  BH active %  onsets  all days |ret 5d| %  onset signed ret 5d %  onset hit rate %
 symbol</span>
 ES       SPY  1542  2020-02-10  2026-04-02       43.45         2.85      23                 1.87                  -0.73             21.74
@@ -243,7 +253,7 @@ YM       DIA  1542  2020-02-10  2026-04-02       39.23         1.23       8     
 <span class="dim">chart saved to examples/output/bh_quickstart.png</span></pre>
       </div>
     </div>
-    <p class="small" style="margin-top:18px">On Windows, activate with <code>.venv\Scripts\activate</code>. Run the tests with <code>pip install -r requirements-dev.txt &amp;&amp; pytest tests -q</code>, which is what CI runs on Python 3.12 and 3.13.</p>
+    <p class="small" style="margin-top:18px"><code>-c core.longpaths=true</code> lets the clone finish on Windows (some committed build outputs have very long paths). Extra arguments go to the example, e.g. <code>python quickstart.py --symbols ES --horizon 10</code>. Run the tests with <code>pip install -r requirements-dev.txt &amp;&amp; pytest tests -q</code>, which is what CI runs on Python 3.12 and 3.13.</p>
   </div>
 </section>
 
@@ -278,6 +288,19 @@ YM       DIA  1542  2020-02-10  2026-04-02       39.23         1.23       8     
         <p>GARCH vol scaling, an OU sleeve, geodesic and Hawking monitors, backtests with Monte Carlo, an Alpaca paper trader, and an idea engine that mines backtest trades and proposes parameter changes. Most of it needs keys or services.</p>
       </div>
     </div>
+    <figure style="margin-top:28px">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/physics-explainer-dark.svg">
+        <img src="assets/physics-explainer-light.svg" alt="Four steps from a price bar to a black hole: beta equals absolute return over c; under 1 is timelike, over is spacelike; timelike bars add mass, spacelike bars cut it by 30 percent; a well forms when mass passes 1.5 after five timelike bars in a row." loading="lazy" width="900" height="724">
+      </picture>
+    </figure>
+    <figure style="margin-top:28px">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/bh-formation-dark.svg">
+        <img src="assets/bh-formation-light.svg" alt="SPY daily bars from December 2025 to January 2026: each bar's speed against the limit of 1, the timelike run count, and the black-hole mass crossing 1.5 on 2025-12-30 and 2026-01-16, when wells formed." loading="lazy" width="900" height="650">
+      </picture>
+      <figcaption>Real SPY bars run through <code>lib/srfm_core.py</code> by <code>scripts/figures/make_physics_explainer.py</code>.</figcaption>
+    </figure>
     <figure style="margin-top:28px">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="assets/wells-dark.svg">

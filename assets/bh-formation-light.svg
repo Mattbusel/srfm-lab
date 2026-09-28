@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 650" width="900" height="650" role="img" aria-labelledby="t d">
+<title id="t">A black hole forming on real SPY bars</title>
+<desc id="d">SPY daily bars 2025-12-10 to 2026-01-28: each bar&#x27;s speed beta against the limit of 1, then the black-hole mass against the formation threshold, with the days a well was active shaded.</desc>
+<rect width="900" height="650" rx="14" fill="#F5F2EA"/>
+<text x="44.0" y="50.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="24" fill="#1A1D24" text-anchor="start" font-weight="700">Real data: a black hole forming on SPY</text>
+<text x="44.0" y="78.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="17" fill="#4A4B50" text-anchor="start" font-weight="400">Daily bars 2025-12-10 to 2026-01-28, run through lib/srfm_core.py (c = 0.5%, bh_form = 1.5).</text>
+<rect x="397.0" y="140" width="23.2" height="400" fill="#C9A200" fill-opacity="0.22"/>
+<rect x="674.8" y="140" width="23.2" height="400" fill="#C9A200" fill-opacity="0.22"/>
+<text x="44.0" y="128.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="17" fill="#1A1D24" text-anchor="start" font-weight="700">Speed β of each bar</text>
+<rect x="230" y="114" width="15" height="15" rx="2" fill="#00809A"/>
+<text x="251.0" y="127.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15" fill="#1A1D24" text-anchor="start" font-weight="400">timelike</text>
+<rect x="332" y="114" width="15" height="15" rx="2" fill="#D0402A"/>
+<text x="353.0" y="127.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15" fill="#1A1D24" text-anchor="start" font-weight="400">spacelike</text>
+<rect x="446" y="114" width="15" height="15" rx="2" fill="#C9A200" fill-opacity="0.5"/>
+<text x="467.0" y="127.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15" fill="#1A1D24" text-anchor="start" font-weight="400">black hole active</text>
+<line x1="96" x2="860" y1="300.0" y2="300.0" stroke="#DDD7C9"/>
+<text x="86.0" y="305.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="end" font-weight="400">0</text>
+<line x1="96" x2="860" y1="262.9" y2="262.9" stroke="#DDD7C9"/>
+<text x="86.0" y="267.9" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="end" font-weight="400">1</text>
+<line x1="96" x2="860" y1="225.7" y2="225.7" stroke="#DDD7C9"/>
+<text x="86.0" y="230.7" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="end" font-weight="400">2</text>
+<line x1="96" x2="860" y1="188.6" y2="188.6" stroke="#DDD7C9"/>
+<text x="86.0" y="193.6" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="end" font-weight="400">3</text>
+<line x1="96" x2="860" y1="151.5" y2="151.5" stroke="#DDD7C9"/>
+<text x="86.0" y="156.5" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="end" font-weight="400">4</text>
+<rect x="100.2" y="252.1" width="14.8" height="47.9" rx="1.5" fill="#D0402A"><title>2025-12-10: beta 1.29</title></rect>
+<rect x="123.3" y="281.7" width="14.8" height="18.3" rx="1.5" fill="#00809A"><title>2025-12-11: beta 0.49</title></rect>
+<rect x="146.5" y="220.0" width="14.8" height="80.0" rx="1.5" fill="#D0402A"><title>2025-12-12: beta 2.15</title></rect>
+<rect x="169.6" y="288.9" width="14.8" height="11.1" rx="1.5" fill="#00809A"><title>2025-12-15: beta 0.30</title></rect>
+<rect x="192.8" y="279.8" width="14.8" height="20.2" rx="1.5" fill="#00809A"><title>2025-12-16: beta 0.54</title></rect>
+<rect x="215.9" y="217.3" width="14.8" height="82.7" rx="1.5" fill="#D0402A"><title>2025-12-17: beta 2.23</title></rect>
+<rect x="239.1" y="242.7" width="14.8" height="57.3" rx="1.5" fill="#D0402A"><title>2025-12-18: beta 1.54</title></rect>
+<rect x="262.2" y="254.9" width="14.8" height="45.1" rx="1.5" fill="#D0402A"><title>2025-12-19: beta 1.22</title></rect>
+<rect x="285.4" y="254.2" width="14.8" height="45.8" rx="1.5" fill="#D0402A"><title>2025-12-22: beta 1.23</title></rect>
+<rect x="308.5" y="266.2" width="14.8" height="33.8" rx="1.5" fill="#00809A"><title>2025-12-23: beta 0.91</title></rect>
+<rect x="331.7" y="274.4" width="14.8" height="25.6" rx="1.5" fill="#00809A"><title>2025-12-24: beta 0.69</title></rect>
+<rect x="354.8" y="299.0" width="14.8" height="1.0" rx="1.5" fill="#00809A"><title>2025-12-26: beta 0.01</title></rect>
+<rect x="378.0" y="274.1" width="14.8" height="25.9" rx="1.5" fill="#00809A"><title>2025-12-29: beta 0.70</title></rect>
+<rect x="401.1" y="290.3" width="14.8" height="9.7" rx="1.5" fill="#00809A"><title>2025-12-30: beta 0.26</title></rect>
+<rect x="424.3" y="244.9" width="14.8" height="55.1" rx="1.5" fill="#D0402A"><title>2025-12-31: beta 1.48</title></rect>
+<rect x="447.4" y="285.5" width="14.8" height="14.5" rx="1.5" fill="#00809A"><title>2026-01-02: beta 0.39</title></rect>
+<rect x="470.6" y="250.4" width="14.8" height="49.6" rx="1.5" fill="#D0402A"><title>2026-01-05: beta 1.33</title></rect>
+<rect x="493.7" y="255.9" width="14.8" height="44.1" rx="1.5" fill="#D0402A"><title>2026-01-06: beta 1.19</title></rect>
+<rect x="516.9" y="276.2" width="14.8" height="23.8" rx="1.5" fill="#00809A"><title>2026-01-07: beta 0.64</title></rect>
+<rect x="540.0" y="298.4" width="14.8" height="1.6" rx="1.5" fill="#00809A"><title>2026-01-08: beta 0.04</title></rect>
+<rect x="563.2" y="251.0" width="14.8" height="49.0" rx="1.5" fill="#D0402A"><title>2026-01-09: beta 1.32</title></rect>
+<rect x="586.3" y="287.5" width="14.8" height="12.5" rx="1.5" fill="#00809A"><title>2026-01-12: beta 0.34</title></rect>
+<rect x="609.5" y="284.9" width="14.8" height="15.1" rx="1.5" fill="#00809A"><title>2026-01-13: beta 0.41</title></rect>
+<rect x="632.7" y="264.6" width="14.8" height="35.4" rx="1.5" fill="#00809A"><title>2026-01-14: beta 0.95</title></rect>
+<rect x="655.8" y="281.4" width="14.8" height="18.6" rx="1.5" fill="#00809A"><title>2026-01-15: beta 0.50</title></rect>
+<rect x="679.0" y="293.7" width="14.8" height="6.3" rx="1.5" fill="#00809A"><title>2026-01-16: beta 0.17</title></rect>
+<rect x="702.1" y="150.0" width="14.8" height="150.0" rx="1.5" fill="#D0402A"><title>2026-01-20: beta 4.04</title></rect>
+<rect x="725.3" y="215.4" width="14.8" height="84.6" rx="1.5" fill="#D0402A"><title>2026-01-21: beta 2.28</title></rect>
+<rect x="748.4" y="261.0" width="14.8" height="39.0" rx="1.5" fill="#D0402A"><title>2026-01-22: beta 1.05</title></rect>
+<rect x="771.6" y="297.3" width="14.8" height="2.7" rx="1.5" fill="#00809A"><title>2026-01-23: beta 0.07</title></rect>
+<rect x="794.7" y="262.0" width="14.8" height="38.0" rx="1.5" fill="#D0402A"><title>2026-01-26: beta 1.02</title></rect>
+<rect x="817.9" y="269.7" width="14.8" height="30.3" rx="1.5" fill="#00809A"><title>2026-01-27: beta 0.82</title></rect>
+<rect x="841.0" y="298.8" width="14.8" height="1.2" rx="1.5" fill="#00809A"><title>2026-01-28: beta 0.03</title></rect>
+<line x1="96" x2="860" y1="262.9" y2="262.9" stroke="#1A1D24" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="100.0" y="256.9" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#1A1D24" text-anchor="start" font-weight="700" paint-order="stroke" stroke="#F5F2EA" stroke-width="5" stroke-linejoin="round">limit β = 1</text>
+<text x="130.7" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">1</text>
+<text x="177.0" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">1</text>
+<text x="200.2" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">2</text>
+<text x="315.9" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">1</text>
+<text x="339.1" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">2</text>
+<text x="362.2" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">3</text>
+<text x="385.4" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">4</text>
+<text x="408.5" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">5</text>
+<text x="454.8" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">1</text>
+<text x="524.3" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">1</text>
+<text x="547.5" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">2</text>
+<text x="593.8" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">1</text>
+<text x="616.9" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">2</text>
+<text x="640.1" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">3</text>
+<text x="663.2" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">4</text>
+<text x="686.4" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">5</text>
+<text x="779.0" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">1</text>
+<text x="825.3" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">1</text>
+<text x="848.4" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#00809A" text-anchor="middle" font-weight="400">2</text>
+<text x="86.0" y="320.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#6F6C64" text-anchor="end" font-weight="400">run</text>
+<text x="44.0" y="360.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="17" fill="#1A1D24" text-anchor="start" font-weight="700">Black-hole mass</text>
+<line x1="96" x2="860" y1="540.0" y2="540.0" stroke="#DDD7C9"/>
+<text x="86.0" y="545.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="end" font-weight="400">0</text>
+<line x1="96" x2="860" y1="472.8" y2="472.8" stroke="#DDD7C9"/>
+<text x="86.0" y="477.8" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="end" font-weight="400">1</text>
+<line x1="96" x2="860" y1="405.6" y2="405.6" stroke="#DDD7C9"/>
+<text x="86.0" y="410.6" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="end" font-weight="400">2</text>
+<line x1="96" x2="860" y1="439.2" y2="439.2" stroke="#C9A200" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="860.0" y="433.2" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#1A1D24" text-anchor="end" font-weight="700" paint-order="stroke" stroke="#F5F2EA" stroke-width="5" stroke-linejoin="round">forms above 1.5</text>
+<polyline points="107.6,451.1 130.7,392.9 153.9,437.0 177.0,431.1 200.2,414.6 223.3,452.2 246.5,478.6 269.6,497.0 292.8,509.9 315.9,477.7 339.1,453.1 362.2,457.0 385.4,428.3 408.5,420.7 431.7,456.5 454.8,404.5 478.0,445.2 501.2,473.6 524.3,453.2 547.5,455.8 570.6,481.1 593.8,471.5 616.9,458.6 640.1,421.0 663.2,403.4 686.4,401.6 709.5,443.1 732.7,423.8 755.8,458.6 779.0,460.0 802.1,484.0 825.3,456.6 848.4,459.5" fill="none" stroke="#6A4C93" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="107.6" cy="451.1" r="3.5" fill="#6A4C93"/>
+<circle cx="130.7" cy="392.9" r="3.5" fill="#6A4C93"/>
+<circle cx="153.9" cy="437.0" r="3.5" fill="#6A4C93"/>
+<circle cx="177.0" cy="431.1" r="3.5" fill="#6A4C93"/>
+<circle cx="200.2" cy="414.6" r="3.5" fill="#6A4C93"/>
+<circle cx="223.3" cy="452.2" r="3.5" fill="#6A4C93"/>
+<circle cx="246.5" cy="478.6" r="3.5" fill="#6A4C93"/>
+<circle cx="269.6" cy="497.0" r="3.5" fill="#6A4C93"/>
+<circle cx="292.8" cy="509.9" r="3.5" fill="#6A4C93"/>
+<circle cx="315.9" cy="477.7" r="3.5" fill="#6A4C93"/>
+<circle cx="339.1" cy="453.1" r="3.5" fill="#6A4C93"/>
+<circle cx="362.2" cy="457.0" r="3.5" fill="#6A4C93"/>
+<circle cx="385.4" cy="428.3" r="3.5" fill="#6A4C93"/>
+<circle cx="408.5" cy="420.7" r="3.5" fill="#6A4C93"/>
+<circle cx="431.7" cy="456.5" r="3.5" fill="#6A4C93"/>
+<circle cx="454.8" cy="404.5" r="3.5" fill="#6A4C93"/>
+<circle cx="478.0" cy="445.2" r="3.5" fill="#6A4C93"/>
+<circle cx="501.2" cy="473.6" r="3.5" fill="#6A4C93"/>
+<circle cx="524.3" cy="453.2" r="3.5" fill="#6A4C93"/>
+<circle cx="547.5" cy="455.8" r="3.5" fill="#6A4C93"/>
+<circle cx="570.6" cy="481.1" r="3.5" fill="#6A4C93"/>
+<circle cx="593.8" cy="471.5" r="3.5" fill="#6A4C93"/>
+<circle cx="616.9" cy="458.6" r="3.5" fill="#6A4C93"/>
+<circle cx="640.1" cy="421.0" r="3.5" fill="#6A4C93"/>
+<circle cx="663.2" cy="403.4" r="3.5" fill="#6A4C93"/>
+<circle cx="686.4" cy="401.6" r="3.5" fill="#6A4C93"/>
+<circle cx="709.5" cy="443.1" r="3.5" fill="#6A4C93"/>
+<circle cx="732.7" cy="423.8" r="3.5" fill="#6A4C93"/>
+<circle cx="755.8" cy="458.6" r="3.5" fill="#6A4C93"/>
+<circle cx="779.0" cy="460.0" r="3.5" fill="#6A4C93"/>
+<circle cx="802.1" cy="484.0" r="3.5" fill="#6A4C93"/>
+<circle cx="825.3" cy="456.6" r="3.5" fill="#6A4C93"/>
+<circle cx="848.4" cy="459.5" r="3.5" fill="#6A4C93"/>
+<text x="107.6" y="564.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="middle" font-weight="400">2025-12-10</text>
+<text x="246.5" y="564.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="middle" font-weight="400">2025-12-18</text>
+<text x="385.4" y="564.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="middle" font-weight="400">2025-12-29</text>
+<text x="524.3" y="564.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="middle" font-weight="400">2026-01-07</text>
+<text x="663.2" y="564.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="middle" font-weight="400">2026-01-15</text>
+<text x="802.1" y="564.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="14" fill="#6F6C64" text-anchor="middle" font-weight="400">2026-01-26</text>
+<text x="44.0" y="600.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15" fill="#4A4B50" text-anchor="start" font-weight="400">2 formations in this window: 2025-12-30, 2026-01-16. Each one needed 5+ timelike bars in a row.</text>
+<text x="44.0" y="624.0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="15" fill="#6F6C64" text-anchor="start" font-weight="400">Spacelike bars cut the mass by 30% and reset the run; a well that just collapsed gets half its mass back (reform memory).</text>
+</svg>

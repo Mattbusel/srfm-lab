@@ -16,6 +16,7 @@ cp site/index.html "$tmp/index.html"
 cp site/data/* "$tmp/data/"
 cp assets/*.svg "$tmp/assets/"
 cp .github/social-preview.png "$tmp/assets/social-preview.png"
+cp site/og-1200x630.png "$tmp/assets/og-1200x630.png"
 touch "$tmp/.nojekyll"
 cd "$tmp"
 git add -A
