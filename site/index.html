@@ -6,20 +6,20 @@
 <title>SRFM Lab: Black-Hole Market Signal, Physics Research</title>
 <meta name="description" content="Python research lab that labels price bars timelike or spacelike and detects black-hole wells from special relativity maths. One-command demo, no API keys.">
 <meta name="color-scheme" content="light dark">
-<link rel="canonical" href="https://mattbusel.github.io/srfm-lab/">
+<link rel="canonical" href="https://srfm-lab.vercel.app/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="SRFM Lab: Black-Hole Market Signal, Physics Research">
 <meta property="og:description" content="Python research lab that labels price bars timelike or spacelike and detects black-hole wells from special relativity maths. One-command demo, no API keys.">
-<meta property="og:url" content="https://mattbusel.github.io/srfm-lab/">
-<meta property="og:image" content="https://mattbusel.github.io/srfm-lab/assets/og-1200x630.png">
+<meta property="og:url" content="https://srfm-lab.vercel.app/">
+<meta property="og:image" content="https://srfm-lab.vercel.app/assets/og-1200x630.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="SRFM Lab: SPY price path drawn as a worldline with light cones and black-hole wells">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="SRFM Lab: Black-Hole Market Signal, Physics Research">
 <meta name="twitter:description" content="Python research lab that labels price bars timelike or spacelike and detects black-hole wells from special relativity maths. One-command demo, no API keys.">
-<meta name="twitter:image" content="https://mattbusel.github.io/srfm-lab/assets/og-1200x630.png">
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "SRFM Lab", "description": "Python research lab that labels price bars timelike or spacelike and detects black-hole wells from special relativity maths. One-command demo, no API keys.", "url": "https://mattbusel.github.io/srfm-lab/", "codeRepository": "https://github.com/Mattbusel/srfm-lab", "programmingLanguage": ["Python", "Rust", "Go", "C++"], "license": "https://opensource.org/licenses/MIT", "author": {"@type": "Person", "name": "Matthew Busel"}, "keywords": "special relativity, quantitative finance, black hole signal, timelike, spacelike, backtesting, Monte Carlo"}</script>
+<meta name="twitter:image" content="https://srfm-lab.vercel.app/assets/og-1200x630.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "SRFM Lab", "description": "Python research lab that labels price bars timelike or spacelike and detects black-hole wells from special relativity maths. One-command demo, no API keys.", "url": "https://srfm-lab.vercel.app/", "codeRepository": "https://gitlab.com/mattbusel/srfm-lab", "programmingLanguage": ["Python", "Rust", "Go", "C++"], "license": "https://opensource.org/licenses/MIT", "author": {"@type": "Person", "name": "Matthew Busel"}, "keywords": "special relativity, quantitative finance, black hole signal, timelike, spacelike, backtesting, Monte Carlo"}</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230E1116'/%3E%3Cpath d='M16 18 L4 6 L28 6 Z' fill='%2335A9C6' fill-opacity='.35' stroke='%2335A9C6' stroke-width='1.5'/%3E%3Cpath d='M16 30 L16 18 L19 11 L17 4' fill='none' stroke='%23E0B43A' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
 :root {
@@ -169,7 +169,7 @@ footer a { color: var(--ink2); }
       <a class="opt" href="#quick-start">Quick start</a>
       <a class="opt" href="#how">How it works</a>
       <a href="#family">Family</a>
-      <a href="https://github.com/Mattbusel/srfm-lab">GitHub</a>
+      <a href="https://gitlab.com/mattbusel/srfm-lab">GitHub</a>
     </nav>
   </div>
 </header>
@@ -184,7 +184,7 @@ footer a { color: var(--ink2); }
       <div>
         <div class="cta">
           <a class="btn primary" href="#quick-start">Get it: one command</a>
-          <a class="btn" href="https://github.com/Mattbusel/srfm-lab">View on GitHub</a>
+          <a class="btn" href="https://gitlab.com/mattbusel/srfm-lab">View on GitHub</a>
         </div>
         <p class="note-inline">Research code, not financial advice. The diagram below is the real output of <code>MinkowskiClassifier</code> and <code>BlackHoleDetector</code> from <code>lib/srfm_core.py</code> on the SPY, QQQ and DIA daily closes bundled in the repo.</p>
       </div>
@@ -232,7 +232,7 @@ footer a { color: var(--ink2); }
     <div class="steps">
       <div class="code">
         <button class="copy" type="button" data-copy="qs">Copy</button>
-<pre id="qs">git clone -c core.longpaths=true https://github.com/Mattbusel/srfm-lab
+<pre id="qs">git clone -c core.longpaths=true https://gitlab.com/mattbusel/srfm-lab
 cd srfm-lab
 python quickstart.py</pre>
       </div>
@@ -323,32 +323,32 @@ YM       DIA  1542  2020-02-10  2026-04-02       39.23         1.23       8     
       </picture>
     </figure>
     <div class="repos">
-      <a class="repo" href="https://github.com/Mattbusel/srfm-paper-impl">
+      <a class="repo" href="https://gitlab.com/mattbusel/srfm-paper-impl">
         <span class="k">The paper &middot; Python, Rust</span>
         <h3>srfm-paper-impl</h3>
         <p>The preprint PDF, scripts and a notebook that regenerate its figures, and a dependency-free Rust reference of the core formulas.</p>
-        <span class="go">github.com/Mattbusel/srfm-paper-impl &rarr;</span>
+        <span class="go">gitlab.com/mattbusel/srfm-paper-impl &rarr;</span>
       </a>
-      <a class="repo" href="https://github.com/Mattbusel/Special-Relativity-in-Financial-Modeling">
+      <a class="repo" href="https://gitlab.com/mattbusel/Special-Relativity-in-Financial-Modeling">
         <span class="k">C++20 core</span>
         <h3>Special-Relativity-in-Financial-Modeling</h3>
         <p>Price velocity, Lorentz factor, spacetime-interval labels, Christoffel symbols and geodesic deviation on OHLCV bars, with Python validation scripts.</p>
-        <span class="go">github.com/Mattbusel/Special-Relativity-in-Financial-Modeling &rarr;</span>
+        <span class="go">gitlab.com/mattbusel/Special-Relativity-in-Financial-Modeling &rarr;</span>
       </a>
-      <a class="repo" href="https://github.com/Mattbusel/srfm-python">
+      <a class="repo" href="https://gitlab.com/mattbusel/srfm-python">
         <span class="k">Python SDK</span>
         <h3>srfm-python</h3>
         <p>A pandas <code>df.srfm</code> accessor and a Polars wrapper for the Lorentz-factor pipeline. NumPy only.</p>
-        <span class="go">github.com/Mattbusel/srfm-python &rarr;</span>
+        <span class="go">gitlab.com/mattbusel/srfm-python &rarr;</span>
       </a>
-      <a class="repo here" href="https://github.com/Mattbusel/srfm-lab">
+      <a class="repo here" href="https://gitlab.com/mattbusel/srfm-lab">
         <span class="k">Research lab &middot; you are here</span>
         <h3>srfm-lab</h3>
         <p>The black-hole signal, backtests with Monte Carlo, the idea engine and paper-trading research, across nine languages.</p>
-        <span class="go">github.com/Mattbusel/srfm-lab &rarr;</span>
+        <span class="go">gitlab.com/mattbusel/srfm-lab &rarr;</span>
       </a>
     </div>
-    <p class="small" style="margin-top:18px">Related: <a href="https://github.com/Mattbusel/fin-stream">fin-stream</a>, a Rust crate for streaming market data with a <code>lorentz</code> module built on the same transform.</p>
+    <p class="small" style="margin-top:18px">Related: <a href="https://gitlab.com/mattbusel/fin-stream">fin-stream</a>, a Rust crate for streaming market data with a <code>lorentz</code> module built on the same transform.</p>
   </div>
 </section>
 
@@ -372,7 +372,7 @@ YM       DIA  1542  2020-02-10  2026-04-02       39.23         1.23       8     
 
 <footer>
   <div class="wrap">
-    <span>SRFM Lab &middot; MIT licensed &middot; <a href="https://github.com/Mattbusel/srfm-lab">github.com/Mattbusel/srfm-lab</a></span>
+    <span>SRFM Lab &middot; MIT licensed &middot; <a href="https://gitlab.com/mattbusel/srfm-lab">gitlab.com/mattbusel/srfm-lab</a></span>
     <span>Figures regenerate with <code>python scripts/make_figures.py</code></span>
   </div>
 </footer>

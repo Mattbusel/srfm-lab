@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Publish the project site (site/ plus the README figures) to the gh-pages branch,
-# which GitHub Pages serves at https://mattbusel.github.io/srfm-lab/.
+# which GitHub Pages used to serve. The site now lives at https://srfm-lab.vercel.app/ (deployed with the Vercel CLI).
 #
 #   python scripts/make_figures.py   # refresh figures and site/data from the code
 #   bash site/publish.sh             # copy into gh-pages, commit, push

@@ -4,7 +4,7 @@
 </picture>
 
 <p align="center">
-  <a href="https://mattbusel.github.io/srfm-lab/"><b>Project site</b></a> &nbsp;·&nbsp;
+  <a href="https://srfm-lab.vercel.app/"><b>Project site</b></a> &nbsp;·&nbsp;
   <a href="#quick-start-one-command">Quick start</a> &nbsp;·&nbsp;
   <a href="#how-it-works">How it works</a> &nbsp;·&nbsp;
   <a href="#examples">Examples</a> &nbsp;·&nbsp;
@@ -27,12 +27,12 @@ For quants, students and tinkerers who want to explore a physics-inspired tradin
 Needs Python 3.12+. No API keys, no network after the install.
 
 ```bash
-git clone -c core.longpaths=true https://github.com/Mattbusel/srfm-lab
+git clone -c core.longpaths=true https://gitlab.com/mattbusel/srfm-lab
 cd srfm-lab
 python quickstart.py
 ```
 
-[`quickstart.py`](quickstart.py) creates `.venv/`, installs the pinned core from `requirements-core.txt`, and runs [`examples/bh_quickstart.py`](examples/bh_quickstart.py) on the hourly SPY, QQQ and DIA bars bundled in `tools/data_cache/`. `-c core.longpaths=true` lets the clone finish on Windows, where some committed build outputs exceed the 260-character path limit. There is no installer or `.exe`: this is research code, and the hosted [project site](https://mattbusel.github.io/srfm-lab/) shows the same results without installing anything.
+[`quickstart.py`](quickstart.py) creates `.venv/`, installs the pinned core from `requirements-core.txt`, and runs [`examples/bh_quickstart.py`](examples/bh_quickstart.py) on the hourly SPY, QQQ and DIA bars bundled in `tools/data_cache/`. `-c core.longpaths=true` lets the clone finish on Windows, where some committed build outputs exceed the 260-character path limit. There is no installer or `.exe`: this is research code, and the hosted [project site](https://srfm-lab.vercel.app/) shows the same results without installing anything.
 
 <img alt="Terminal output of the quick start: a table of bars, timelike share, black-hole active share, onsets and forward returns for ES, NQ and YM" src="assets/quickstart-terminal.svg" width="100%">
 
@@ -96,12 +96,12 @@ ES       SPY  1542  2020-02-10  2026-04-02       43.45         2.85      23     
 
 | Repository | What it is |
 |---|---|
-| [srfm-paper-impl](https://github.com/Mattbusel/srfm-paper-impl) | The paper (PDF), scripts and a notebook that regenerate its figures, and a small dependency-free Rust reference implementation of the core formulas |
-| [Special-Relativity-in-Financial-Modeling](https://github.com/Mattbusel/Special-Relativity-in-Financial-Modeling) | C++20 core and Windows/Linux command-line tools: price velocity (beta), Lorentz factor (gamma), spacetime interval labels, Christoffel symbols and geodesic deviation on OHLCV bars |
-| [srfm-python](https://github.com/Mattbusel/srfm-python) | Pure-Python SDK: a pandas `df.srfm` accessor and a Polars wrapper for the Lorentz-factor pipeline |
+| [srfm-paper-impl](https://gitlab.com/mattbusel/srfm-paper-impl) | The paper (PDF), scripts and a notebook that regenerate its figures, and a small dependency-free Rust reference implementation of the core formulas |
+| [Special-Relativity-in-Financial-Modeling](https://gitlab.com/mattbusel/Special-Relativity-in-Financial-Modeling) | C++20 core and Windows/Linux command-line tools: price velocity (beta), Lorentz factor (gamma), spacetime interval labels, Christoffel symbols and geodesic deviation on OHLCV bars |
+| [srfm-python](https://gitlab.com/mattbusel/srfm-python) | Pure-Python SDK: a pandas `df.srfm` accessor and a Polars wrapper for the Lorentz-factor pipeline |
 | **srfm-lab** (this repo) | Large multi-language research lab that builds trading research on the idea: the black-hole (BH) physics signal, an idea automation engine, backtesting and paper trading |
 
-The Rust crate [fin-stream](https://github.com/Mattbusel/fin-stream) also ships a streaming `lorentz` module built on the same transform.
+The Rust crate [fin-stream](https://gitlab.com/mattbusel/fin-stream) also ships a streaming `lorentz` module built on the same transform.
 
 ## Documentation
 

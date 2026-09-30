@@ -7,7 +7,7 @@ Thanks for looking. This is a large research monorepo; the Python core is the pa
 Python 3.12+:
 
 ```bash
-git clone --filter=blob:none https://github.com/Mattbusel/srfm-lab
+git clone --filter=blob:none https://gitlab.com/mattbusel/srfm-lab
 cd srfm-lab
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
@@ -31,7 +31,7 @@ python examples/bh_quickstart.py --no-plot
 
 ## Where to start
 
-Issues labelled [good first issue](https://github.com/Mattbusel/srfm-lab/labels/good%20first%20issue) are small and self-contained.
+Issues labelled [good first issue](https://gitlab.com/mattbusel/srfm-lab/labels/good%20first%20issue) are small and self-contained.
 
 ## Other languages
 

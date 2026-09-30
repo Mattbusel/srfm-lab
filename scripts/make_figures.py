@@ -276,7 +276,7 @@ def hero(theme: str, social: bool = False) -> str:
         caption += "  Drawn from MinkowskiClassifier and BlackHoleDetector in lib/srfm_core.py."
     s.append(text(64, 620, caption, t, size=11.5, fill=t["muted"], family=MONO))
     if social:
-        s.append(text(1216, 620, "github.com/Mattbusel/srfm-lab", t, size=13, fill=t["ink2"],
+        s.append(text(1216, 620, "gitlab.com/mattbusel/srfm-lab", t, size=13, fill=t["ink2"],
                       family=MONO, anchor="end"))
     s.append("</svg>")
     return "\n".join(s)

@@ -249,5 +249,5 @@
 <text x="1098.0" y="432.0" font-family="'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif" font-size="14" fill="#ECE7DC" text-anchor="start" font-weight="400">light cone</text>
 <text x="1098.0" y="448.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="11" fill="#8A867D" text-anchor="start" font-weight="400">|dx| = c dt</text>
 <text x="64.0" y="620.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="11.5" fill="#8A867D" text-anchor="start" font-weight="400">SPY daily closes, 2025-08-20 to 2025-10-24.  c = 0.5% per day, bh_form = 1.5.</text>
-<text x="1216.0" y="620.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#B9B4A9" text-anchor="end" font-weight="400">github.com/Mattbusel/srfm-lab</text>
+<text x="1216.0" y="620.0" font-family="ui-monospace,SFMono-Regular,'Cascadia Mono',Consolas,'DejaVu Sans Mono',Menlo,monospace" font-size="13" fill="#B9B4A9" text-anchor="end" font-weight="400">gitlab.com/mattbusel/srfm-lab</text>
 </svg>
