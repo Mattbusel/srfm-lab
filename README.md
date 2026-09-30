@@ -10,7 +10,6 @@
   <a href="#examples">Examples</a> &nbsp;·&nbsp;
   <a href="docs/REFERENCE.md">Full reference</a>
   <br><br>
-  <a href="https://github.com/Mattbusel/srfm-lab/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Mattbusel/srfm-lab/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 
