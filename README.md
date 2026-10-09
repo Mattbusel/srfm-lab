@@ -15,6 +15,8 @@
 
 # SRFM Lab
 
+English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
+
 **A Python quant research lab that uses special relativity maths to label each market price bar as an ordinary move or a jump, and to spot "black holes": stretches where orderly moves pile up.** It is the hub of the SRFM (Special Relativity in Financial Modeling) family, with backtesting, Monte Carlo, paper trading and an idea-discovery engine built around that signal.
 
 For quants, students and tinkerers who want to explore a physics-inspired trading signal on real data. It is a research monorepo, not a packaged product: the core runs offline on bundled data, while the wider lab (Rust, Go, Julia, R, C/C++, Zig, Elixir, TypeScript) needs API keys and services.
