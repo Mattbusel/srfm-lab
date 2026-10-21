@@ -15,6 +15,14 @@
 
 # SRFM Lab
 
+<!-- outcome-block -->
+**A full quant research pipeline, from raw ticks to live paper trading and automated idea discovery, in one repo you can run.**
+
+**Why this over the alternatives:** Most quant repos are one strategy in a notebook. This is the whole stack: 9 languages and 1.7M lines covering data, signals, backtests, execution and research.
+
+**Guarantee:** if it doesn't do what this README says, [open an issue](https://github.com/Mattbusel/srfm-lab/issues) and I'll fix it.
+<!-- outcome-block -->
+
 English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 **A Python quant research lab that uses special relativity maths to label each market price bar as an ordinary move or a jump, and to spot "black holes": stretches where orderly moves pile up.** It is the hub of the SRFM (Special Relativity in Financial Modeling) family, with backtesting, Monte Carlo, paper trading and an idea-discovery engine built around that signal.
