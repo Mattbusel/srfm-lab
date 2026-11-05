@@ -1,0 +1,24 @@
+{
+  "default_branch": "master",
+  "branches": [
+    "fix/8-utcnow-signal-analytics",
+    "gh-pages",
+    "master",
+    "origin",
+    "pr-screenshots"
+  ],
+  "parent": {
+    "fix/8-utcnow-signal-analytics": "master",
+    "gh-pages": "master",
+    "master": null,
+    "origin": "master",
+    "pr-screenshots": "master"
+  },
+  "order": [
+    "master",
+    "fix/8-utcnow-signal-analytics",
+    "gh-pages",
+    "origin",
+    "pr-screenshots"
+  ]
+}

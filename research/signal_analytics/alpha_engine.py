@@ -22,7 +22,12 @@ import math
 import sqlite3
 import warnings
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+def _utcnow() -> datetime:
+    """Current UTC time as a timezone-aware datetime (replaces the deprecated utcnow())."""
+    return datetime.now(timezone.utc)
+
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -63,7 +68,7 @@ class Signal:
     category: str  # momentum / mean_reversion / volatility / macro / microstructure / physics / technical
     compute: Callable  # callable(prices, volume=None, **params) -> pd.Series
     parameters: Dict = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=_utcnow)
     is_active: bool = True
     retirement_reason: Optional[str] = None
 
@@ -178,7 +183,7 @@ class ICCalculator:
         window: int = 60,
     ) -> pd.Series:
         """Compute rolling window IC between signal and forward return."""
-        combined = pd.concat([signal.rename("sig"), forward_return.rename("fwd")], axis=1).dropna()
+        combined = pd.concat([signal.rename("sig"), forward_return.rename("fwd")], axis=1, sort=True).dropna()
         if len(combined) < window:
             return pd.Series(dtype=float)
 
@@ -663,7 +668,7 @@ class SignalRetirementEngine:
                 """,
                 (
                     signal_name,
-                    datetime.utcnow().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     reason,
                     float(final_icir) if math.isfinite(float(final_icir)) else None,
                     int(consecutive),
@@ -769,7 +774,7 @@ class AlphaEngine:
         Also persists records to SQLite.
         """
         if date is None:
-            date = datetime.utcnow()
+            date = datetime.now(timezone.utc)
 
         scores: Dict[str, float] = {}
         log_prices = np.log(prices.replace(0, float("nan")))
@@ -985,7 +990,7 @@ class AlphaEngine:
         bottom_signals = signal_stats_sorted[-5:] if len(signal_stats_sorted) >= 5 else signal_stats_sorted[::-1]
 
         # New signals (< 30 days old)
-        cutoff = datetime.utcnow() - timedelta(days=NEW_SIGNAL_DAYS)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=NEW_SIGNAL_DAYS)
         new_signals = [
             s["name"]
             for s in signal_stats
@@ -1026,7 +1031,7 @@ class AlphaEngine:
             }
 
         return AlphaReport(
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc),
             top_signals=top_signals,
             bottom_signals=bottom_signals,
             new_signals=new_signals,
@@ -1151,7 +1156,7 @@ class PortfolioSignalScorer:
         symbol_volume_map: optional {symbol: volume_series}
         """
         if date is None:
-            date = datetime.utcnow()
+            date = datetime.now(timezone.utc)
 
         rows: Dict[str, Dict[str, float]] = {}
         for symbol, prices in symbol_price_map.items():
@@ -1481,7 +1486,7 @@ class SignalBacktester:
         Compute mean forward return per signal quintile.
         Returns DataFrame with columns: quantile, mean_return, count.
         """
-        combined = pd.concat([signal.rename("sig"), forward_return.rename("fwd")], axis=1).dropna()
+        combined = pd.concat([signal.rename("sig"), forward_return.rename("fwd")], axis=1, sort=True).dropna()
         combined["quintile"] = pd.qcut(combined["sig"], self.n_quantiles, labels=False, duplicates="drop")
         grouped = combined.groupby("quintile")["fwd"].agg(["mean", "count"]).reset_index()
         grouped.columns = ["quintile", "mean_return", "count"]
@@ -1493,7 +1498,7 @@ class SignalBacktester:
         forward_return: pd.Series,
     ) -> float:
         """Fraction of periods where signal direction matches return direction."""
-        combined = pd.concat([signal.rename("sig"), forward_return.rename("fwd")], axis=1).dropna()
+        combined = pd.concat([signal.rename("sig"), forward_return.rename("fwd")], axis=1, sort=True).dropna()
         if combined.empty:
             return float("nan")
         same_sign = (np.sign(combined["sig"]) == np.sign(combined["fwd"]))

@@ -19,7 +19,7 @@ Dependencies: pytest, numpy, pandas, scipy
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
@@ -831,7 +831,7 @@ class TestSignalRecord:
         rec = make_signal_record(
             signal_name="test",
             symbol="SPY",
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             signal_value=0.42,
             prices=price_series_short,
         )
@@ -860,7 +860,7 @@ class TestFeature:
         f = Feature(
             name="vol_20d",
             value=0.2,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             symbol="QQQ",
             ttl_seconds=3600,
         )
@@ -871,10 +871,10 @@ class TestFeature:
         f = Feature(
             name="old",
             value=1.0,
-            timestamp=datetime.utcnow() - timedelta(hours=2),
+            timestamp=datetime.now(timezone.utc) - timedelta(hours=2),
             symbol="X",
             ttl_seconds=1,
-            computed_at=datetime.utcnow() - timedelta(seconds=10),
+            computed_at=datetime.now(timezone.utc) - timedelta(seconds=10),
         )
         assert f.is_expired
 
@@ -887,7 +887,7 @@ class TestFeature:
 class TestFeatureStore:
     def test_put_and_get(self, tmp_fs_db):
         store = FeatureStore(db_path=tmp_fs_db)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         f = Feature(name="mom_5d", value=0.3, timestamp=now, symbol="AAPL", ttl_seconds=3600)
         store.put(f)
         retrieved = store.get("AAPL", "mom_5d", now)
@@ -896,12 +896,12 @@ class TestFeatureStore:
 
     def test_get_missing_returns_none(self, tmp_fs_db):
         store = FeatureStore(db_path=tmp_fs_db)
-        result = store.get("MISSING", "fake_signal", datetime.utcnow())
+        result = store.get("MISSING", "fake_signal", datetime.now(timezone.utc))
         assert result is None
 
     def test_put_many_and_retrieve(self, tmp_fs_db):
         store = FeatureStore(db_path=tmp_fs_db)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         features = [
             Feature(name=f"sig_{i}", value=float(i), timestamp=now, symbol="GOOG", ttl_seconds=3600)
             for i in range(10)
