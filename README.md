@@ -16,25 +16,25 @@
 # SRFM Lab
 
 <!-- outcome-block -->
-**A full quant research pipeline, from raw ticks to live paper trading and automated idea discovery, in one repo you can run.**
+**A quant research pipeline in one repo: raw ticks to paper trading, plus a tool that hunts for new ideas.**
 
-**Why this over the alternatives:** Most quant repos are one strategy in a notebook. This is the whole stack: 9 languages and 1.7M lines covering data, signals, backtests, execution and research.
+Most quant repos are one strategy in a notebook. This one is the whole stack: 9 languages, 1.7M lines, covering data, signals, backtests, execution and research.
 
-**Guarantee:** if it doesn't do what this README says, [open an issue](https://github.com/Mattbusel/srfm-lab/issues) and I'll fix it.
+If it doesn't do what this README says, [open an issue](https://github.com/Mattbusel/srfm-lab/issues) and I'll fix it.
 <!-- outcome-block -->
 
 English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
-**A Python quant research lab that uses special relativity maths to label each market price bar as an ordinary move or a jump, and to spot "black holes": stretches where orderly moves pile up.** It is the hub of the SRFM (Special Relativity in Financial Modeling) family, with backtesting, Monte Carlo, paper trading and an idea-discovery engine built around that signal.
+A Python lab that uses special relativity math on price bars. Each bar is labeled an ordinary move or a jump. Runs of ordinary moves are flagged as "black holes". On top of that signal: backtests, Monte Carlo, paper trading and an idea engine. It is the hub of the SRFM (Special Relativity in Financial Modeling) repos.
 
-For quants, students and tinkerers who want to explore a physics-inspired trading signal on real data. It is a research monorepo, not a packaged product: the core runs offline on bundled data, while the wider lab (Rust, Go, Julia, R, C/C++, Zig, Elixir, TypeScript) needs API keys and services.
+It is a research monorepo, not a product. The core runs offline on bundled data. The rest of the lab (Rust, Go, Julia, R, C/C++, Zig, Elixir, TypeScript) needs API keys and services.
 
 > [!IMPORTANT]
-> **Research code, not financial advice.** Backtest and paper-trading results are experiments on historical or simulated data, not evidence that any strategy is profitable.
+> **Research code, not financial advice.** Backtest and paper-trading results are experiments on past or simulated data. They do not show any strategy makes money.
 
 ## Quick start: one command
 
-Needs Python 3.12+. No API keys, no network after the install.
+Needs Python 3.12+. No API keys. No network after the install.
 
 ```bash
 git clone -c core.longpaths=true https://gitlab.com/mattbusel/srfm-lab
@@ -42,7 +42,7 @@ cd srfm-lab
 python quickstart.py
 ```
 
-[`quickstart.py`](quickstart.py) creates `.venv/`, installs the pinned core from `requirements-core.txt`, and runs [`examples/bh_quickstart.py`](examples/bh_quickstart.py) on the hourly SPY, QQQ and DIA bars bundled in `tools/data_cache/`. `-c core.longpaths=true` lets the clone finish on Windows, where some committed build outputs exceed the 260-character path limit. There is no installer or `.exe`: this is research code, and the hosted [project site](https://srfm-lab.vercel.app/) shows the same results without installing anything.
+[`quickstart.py`](quickstart.py) makes `.venv/`, installs the pinned core from `requirements-core.txt`, and runs [`examples/bh_quickstart.py`](examples/bh_quickstart.py) on the hourly SPY, QQQ and DIA bars in `tools/data_cache/`. `-c core.longpaths=true` lets the clone finish on Windows, where some files pass the 260-character path limit. There is no installer. The [project site](https://srfm-lab.vercel.app/) shows the same results with nothing to install.
 
 <img alt="Terminal output of the quick start: a table of bars, timelike share, black-hole active share, onsets and forward returns for ES, NQ and YM" src="assets/quickstart-terminal.svg" width="100%">
 
@@ -53,14 +53,14 @@ python quickstart.py
   <img alt="Four steps from a price bar to a black hole: 1, beta = absolute return divided by c, the speed limit (0.5% a day for SPY); 2, beta under 1 is timelike, an ordinary move, beta of 1 or more is spacelike, a jump; 3, timelike bars add mass (mass times 0.95 plus absolute return times 100 times a streak boost), spacelike bars cut it by 30% and reset the streak; 4, a black hole forms when mass passes 1.5 after five timelike bars in a row." src="assets/physics-explainer-light.svg" width="100%">
 </picture>
 
-In plain words: every bar gets a **speed** β, its return measured against a per-instrument "speed of light" `c`. Slow bars sit inside their **light cone** (timelike, `ds² = c²dt² − dx²` is positive); fast bars break out of it (spacelike). A run of orderly bars builds **mass**, and enough mass after five orderly bars in a row makes a **black hole**, a well that points the way the price has been drifting. The **Lorentz factor** γ = 1/√(1 − v²) turns each bar's speed into proper time. All of it is two small classes in [`lib/srfm_core.py`](lib/srfm_core.py): `MinkowskiClassifier` and `BlackHoleDetector`.
+Every bar gets a **speed** β: its return against a per-instrument "speed of light" `c`. Slow bars stay inside their **light cone** (timelike, `ds² = c²dt² − dx²` is positive). Fast bars break out (spacelike). Orderly bars build **mass**. Enough mass after five orderly bars in a row makes a **black hole**, which points the way price has been drifting. The **Lorentz factor** γ = 1/√(1 − v²) turns each bar's speed into proper time. All of it is two small classes in [`lib/srfm_core.py`](lib/srfm_core.py): `MinkowskiClassifier` and `BlackHoleDetector`.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/bh-formation-dark.svg">
   <img alt="Real SPY daily bars from 2025-12-10 to 2026-01-28: each bar's speed beta against the limit of 1, the count of timelike bars in a row, and black-hole mass. Wells formed on 2025-12-30 and 2026-01-16, each after five timelike bars in a row with mass above 1.5." src="assets/bh-formation-light.svg" width="100%">
 </picture>
 
-The chart above is the real classes run on real bundled bars ([`scripts/figures/make_physics_explainer.py`](scripts/figures/make_physics_explainer.py), regenerated 2026-09-28). The rest of the lab plugs into what these two classes emit:
+The chart above is those classes on real bundled bars ([`scripts/figures/make_physics_explainer.py`](scripts/figures/make_physics_explainer.py), made 2026-09-28). The rest of the lab plugs into what they output:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/pipeline-dark.svg">
@@ -71,9 +71,9 @@ Deep dives: [BH physics](docs/bh_physics.md) · [IAE architecture](docs/iae_arch
 
 ## Examples
 
-Real output from 2026-09-28, on the data bundled in the repo.
+Real output from 2026-09-28, on the bundled data.
 
-**1. The default run** (the table in the terminal image above): ES, NQ and YM (SPY, QQQ, DIA as stand-ins), 2020-02-10 to 2026-04-02. Black holes were active on 1.2% to 2.9% of days. The 5-day return after each onset, signed by the well's direction, is negative on all three, which is the honest result: with these parameters the bare signal does not predict the next week.
+**1. The default run** (the table above): ES, NQ and YM (SPY, QQQ, DIA as stand-ins), 2020-02-10 to 2026-04-02. Black holes were active on 1.2% to 2.9% of days. The 5-day return after each onset, signed by the well's direction, is negative on all three. So with these settings the bare signal does not predict the next week.
 
 **2. One instrument, a longer horizon**
 
@@ -84,7 +84,7 @@ symbol
 ES       SPY  1542  2020-02-10  2026-04-02       43.45         2.85      23                  2.64                   -0.27             56.52
 ```
 
-**3. Every well on the chart.** The same run saves `examples/output/bh_quickstart.png`; here it is redrawn, with the wells shaded and the mass under each panel:
+**3. Every well on the chart.** The same run saves `examples/output/bh_quickstart.png`. Here it is redrawn, wells shaded, mass under each panel:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/wells-dark.svg">
@@ -106,10 +106,10 @@ ES       SPY  1542  2020-02-10  2026-04-02       43.45         2.85      23     
 
 | Repository | What it is |
 |---|---|
-| [srfm-paper-impl](https://gitlab.com/mattbusel/srfm-paper-impl) | The paper (PDF), scripts and a notebook that regenerate its figures, and a small dependency-free Rust reference implementation of the core formulas |
-| [Special-Relativity-in-Financial-Modeling](https://gitlab.com/mattbusel/Special-Relativity-in-Financial-Modeling) | C++20 core and Windows/Linux command-line tools: price velocity (beta), Lorentz factor (gamma), spacetime interval labels, Christoffel symbols and geodesic deviation on OHLCV bars |
+| [srfm-paper-impl](https://gitlab.com/mattbusel/srfm-paper-impl) | The paper (PDF), scripts and a notebook that redraw its figures, and a small Rust version of the core formulas with no dependencies |
+| [Special-Relativity-in-Financial-Modeling](https://gitlab.com/mattbusel/Special-Relativity-in-Financial-Modeling) | C++20 core and Windows/Linux command-line tools. Computes price velocity (beta), Lorentz factor (gamma), spacetime interval labels, Christoffel symbols and geodesic deviation on OHLCV bars |
 | [srfm-python](https://gitlab.com/mattbusel/srfm-python) | Pure-Python SDK: a pandas `df.srfm` accessor and a Polars wrapper for the Lorentz-factor pipeline |
-| **srfm-lab** (this repo) | Large multi-language research lab that builds trading research on the idea: the black-hole (BH) physics signal, an idea automation engine, backtesting and paper trading |
+| **srfm-lab** (this repo) | The multi-language lab: black-hole (BH) signal, idea automation engine, backtests and paper trading |
 
 The Rust crate [fin-stream](https://gitlab.com/mattbusel/fin-stream) also ships a streaming `lorentz` module built on the same transform.
 
@@ -117,7 +117,7 @@ The Rust crate [fin-stream](https://gitlab.com/mattbusel/fin-stream) also ships 
 
 | Document | What is in it |
 |---|---|
-| [docs/REFERENCE.md](docs/REFERENCE.md) | Everything else from the old README: the full lab (installs, crypto backtest + Monte Carlo, paper trading, analysis pipeline, IAE services), performance notes, module map, primitives by language, latency figures |
+| [docs/REFERENCE.md](docs/REFERENCE.md) | Everything else: full lab installs, crypto backtest + Monte Carlo, paper trading, analysis pipeline, IAE services, performance notes, module map, primitives by language, latency figures |
 | [docs/bh_physics.md](docs/bh_physics.md) | The black-hole physics in depth |
 | [docs/iae_architecture.md](docs/iae_architecture.md) | The Idea Automation Engine |
 | [docs/wave4_backtest.md](docs/wave4_backtest.md) · [docs/monte_carlo.md](docs/monte_carlo.md) | Backtest and Monte Carlo engines |
@@ -127,4 +127,4 @@ The Rust crate [fin-stream](https://gitlab.com/mattbusel/fin-stream) also ships 
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Research code, provided as is and not financial advice.
+MIT, see [LICENSE](LICENSE). Research code, as is, not financial advice.
